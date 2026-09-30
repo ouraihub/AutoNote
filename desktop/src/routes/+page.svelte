@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AppBrand from '@app/foundation/AppBrand.svelte'
   import { AppState } from '$lib/state/app.svelte'
 
   const app = new AppState()
@@ -10,8 +11,7 @@
 
 <main class="grid min-h-dvh place-items-center bg-base text-ink">
   <section class="flex flex-col items-center gap-4 text-center">
-    <img src="/autonote-logo.png" alt="AutoNote" width="96" height="96" class="rounded-2xl" />
-    <h1 class="text-2xl font-semibold">AutoNote</h1>
+    <AppBrand />
     {#if app.loading}
       <p class="text-sm text-ink-2">…</p>
     {:else if app.error}

@@ -6,5 +6,11 @@ export default {
   preprocess: vitePreprocess(),
   kit: {
     adapter: adapter({ fallback: 'index.html' }),
+    alias: {
+      '@app': '../packages/app/src',
+      '@app/*': '../packages/app/src/*',
+      '@shared': '../packages/shared/src',
+      '@shared/*': '../packages/shared/src/*',
+    },
   },
 }

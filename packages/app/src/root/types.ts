@@ -1,0 +1,42 @@
+import type { Component } from 'svelte'
+import type { FlushResult } from '@shared/backend-types'
+import type { Backend } from '@app/backend'
+import type { Logger } from '@app/log/logger'
+import type { Clock } from '@app/platform/clock'
+import type { Notifier } from '@app/platform/notifier'
+import type { PrefsStore } from '@app/platform/prefs'
+
+export interface HostSettingsSection {
+  id: string
+  order: number
+  titleKey: string
+  canShow(): boolean
+  component: Component
+}
+
+export interface HostPanel {
+  id: string
+  order: number
+  titleKey: string
+  component: Component
+}
+
+export interface HostExtensions {
+  readonly settingsSections: readonly HostSettingsSection[]
+  readonly aboutPanels: readonly HostPanel[]
+  onNoteOpened?(id: string): void
+}
+
+export interface AppDeps {
+  backend: Backend
+  clock: Clock
+  logger: Logger
+  prefs: PrefsStore
+  notifier: Notifier
+  extensions: HostExtensions
+}
+
+export interface AppHandle {
+  flush(): Promise<FlushResult>
+  destroy(): Promise<void>
+}

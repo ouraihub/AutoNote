@@ -9,11 +9,12 @@
     "./*": "./src/*.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
     "test": "vitest run"
   },
   "dependencies": {
-    "yaml": "2.9.0"
+    "yaml": "2.9.0",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "typescript": "5.9.3",

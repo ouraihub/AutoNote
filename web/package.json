@@ -18,12 +18,15 @@
     "deploy": "pnpm run build && wrangler deploy --config dist/autonote/wrangler.json",
     "deploy:kv": "pnpm run build:kv && wrangler deploy --config dist/autonote/wrangler.json",
     "deploy:check": "pnpm run build && wrangler deploy --dry-run --config dist/autonote/wrangler.json",
-    "typecheck": "tsc -b && svelte-check --tsconfig ./tsconfig.client.json --fail-on-warnings",
-    "test:unit": "vitest run",
+    "typecheck": "node ../node_modules/typescript/bin/tsc -b && node ../node_modules/svelte-check/bin/svelte-check --tsconfig ./tsconfig.client.json --fail-on-warnings",
+    "i18n:check": "node scripts/check-i18n.mjs",
+    "comments:check": "node scripts/check-comments.mjs",
+    "test:unit": "vitest run && node --test scripts/check-i18n.test.mjs scripts/check-comments.test.mjs",
     "test:e2e": "node scripts/e2e.mjs",
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
+    "@autonote/app": "workspace:*",
     "@autonote/shared": "workspace:*",
     "@cloudflare/workers-oauth-provider": "0.10.2",
     "@modelcontextprotocol/server": "2.0.0",

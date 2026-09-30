@@ -10,6 +10,10 @@
     "sourceMap": true,
     "strict": true,
     "moduleResolution": "bundler",
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
     "types": ["node"]
   }
 }

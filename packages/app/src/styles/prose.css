@@ -1,0 +1,117 @@
+.ink-prose {
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--prose-size, 16px);
+  line-height: var(--prose-line, 1.65);
+  overflow-wrap: break-word;
+}
+
+.ink-prose > :first-child {
+  margin-top: 0;
+}
+.ink-prose p {
+  margin: 0 0 0.72em;
+}
+.ink-prose h1,
+.ink-prose h2,
+.ink-prose h3,
+.ink-prose h4 {
+  line-height: 1.28;
+  margin: 1.45em 0 0.44em;
+}
+.ink-prose h1 {
+  font-size: 1.52em;
+}
+.ink-prose h2 {
+  font-size: 1.28em;
+}
+.ink-prose h3 {
+  font-size: 1.14em;
+}
+.ink-prose a,
+.ink-prose .wikilink,
+.ink-prose .inline-tag {
+  color: var(--accent);
+  cursor: pointer;
+}
+.ink-prose .task-list-item {
+  display: grid;
+  gap: 0.45em;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+.ink-prose .task-checkbox-placeholder {
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  cursor: pointer;
+  display: block;
+  height: 1em;
+  margin-top: 0.35em;
+  width: 1em;
+}
+.ink-prose .task-checkbox-placeholder[aria-checked='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.ink-prose .task-list-item.done {
+  color: var(--text-tertiary);
+  text-decoration: line-through;
+}
+.ink-prose .callout,
+.ink-prose .markdown-details,
+.ink-prose .markdown-tabs,
+.ink-prose .markdown-example {
+  background: var(--bg-inset);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  margin: 0.9em 0;
+  overflow: clip;
+}
+.ink-prose .callout {
+  border-left: 3px solid var(--accent);
+}
+.ink-prose .callout-warning {
+  border-left-color: var(--warning);
+}
+.ink-prose .callout-danger {
+  border-left-color: var(--danger);
+}
+.ink-prose .callout-title,
+.ink-prose .markdown-details > summary,
+.ink-prose .markdown-example-head {
+  display: block;
+  font-weight: 650;
+  padding: 0.55em 0.8em;
+}
+.ink-prose .callout-content,
+.ink-prose .tab-panel,
+.ink-prose .markdown-example-preview {
+  padding: 0 0.8em 0.8em;
+}
+.ink-prose .tab-list {
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  padding: 5px 6px 0;
+}
+.ink-prose [role='tab'] {
+  border-bottom: 2px solid transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  padding: 0.42em 0.72em;
+}
+.ink-prose [role='tab'][aria-selected='true'] {
+  border-bottom-color: var(--accent);
+  color: var(--text-primary);
+}
+.ink-prose .tab-panel[hidden] {
+  display: none;
+}
+.ink-prose .code-block {
+  margin: 0.9em 0;
+  overflow-x: auto;
+}
+.ink-prose .math-inline,
+.ink-prose .math-block {
+  color: var(--accent);
+}

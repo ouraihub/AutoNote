@@ -1,20 +1,7 @@
 @import 'tailwindcss';
-
-:root {
-  --bg-base: #faf9fd;
-  --text-primary: #1c1917;
-  --text-secondary: #57534e;
-  color-scheme: light dark;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg-base: #1a1817;
-    --text-primary: #f5f5f4;
-    --text-secondary: #a8a29e;
-  }
-}
-
+@import '../../packages/app/src/styles/tokens.css';
+@import '../../packages/app/src/styles/ui.css';
+@import '../../packages/app/src/styles/prose.css';
 @theme inline {
   --color-base: var(--bg-base);
   --color-ink: var(--text-primary);

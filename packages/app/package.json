@@ -1,0 +1,59 @@
+{
+  "name": "@autonote/app",
+  "version": "0.1.0",
+  "private": true,
+  "license": "LGPL-3.0-only",
+  "type": "module",
+  "description": "Shared Svelte application source for AutoNote hosts.",
+  "exports": {
+    "./backend": "./src/backend/index.ts",
+    "./backend/*": "./src/backend/*.ts",
+    "./backend/contract": "./src/backend/contract/index.ts",
+    "./foundation/*": "./src/foundation/*.svelte",
+    "./log": "./src/log/logger.ts",
+    "./platform": "./src/platform/index.ts",
+    "./markdown": "./src/markdown/renderer.ts",
+    "./styles/*": "./src/styles/*.css",
+    "./theme": "./src/theme/index.ts"
+  },
+  "scripts": {
+    "lint": "eslint src --ignore-pattern 'src/components/ui/**'",
+    "format:check": "prettier --check src/backend src/foundation src/i18n src/log src/platform src/root src/theme src/styles",
+    "test": "vitest run",
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json"
+  },
+  "peerDependencies": {
+    "svelte": "5.57.1"
+  },
+  "devDependencies": {
+    "@internationalized/date": "3.12.4",
+    "@lucide/svelte": "1.49.0",
+    "@sveltejs/vite-plugin-svelte": "7.3.0",
+    "@testing-library/svelte": "5.4.2",
+    "@types/markdown-it": "14.1.2",
+    "@types/prismjs": "1.26.6",
+    "bits-ui": "2.19.3",
+    "cn": "0.4.0",
+    "jsdom": "30.1.1",
+    "svelte": "5.57.1",
+    "svelte-check": "4.7.6",
+    "tailwind-variants": "3.3.1",
+    "typescript": "5.9.3",
+    "vite": "8.3.0",
+    "vitest": "4.1.10"
+  },
+  "dependencies": {
+    "dompurify": "3.4.1",
+    "katex": "0.18.1",
+    "markdown-it": "14.3.0",
+    "markdown-it-anchor": "9.2.0",
+    "markdown-it-footnote": "4.0.0",
+    "markdown-it-mark": "4.0.0",
+    "markdown-it-task-lists": "2.1.1",
+    "mermaid": "11.16.1",
+    "mode-watcher": "^1.1.0",
+    "prismjs": "1.30.0",
+    "svelte-sonner": "^1.2.1",
+    "vaul-svelte": "1.0.0-next.7"
+  }
+}

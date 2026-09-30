@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "types": ["svelte"],
+    "paths": {
+      "@app/*": ["./src/*"],
+      "@shared/*": ["../shared/src/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.svelte", "../shared/src/**/*.ts"],
+  "exclude": ["src/components/ui/**", "../shared/src/**/*.test.ts"]
+}

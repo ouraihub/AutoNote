@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "moduleDetection": "force",
@@ -15,16 +15,20 @@
     "skipLibCheck": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
-    "resolveJsonModule": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "allowImportingTsExtensions": true,
     "useDefineForClassFields": true,
     "allowJs": true,
     "checkJs": true,
 
     "paths": {
       "$lib/*": ["./src/client/lib/*"],
+      "@app/*": ["../packages/app/src/*"],
       "@shared/*": ["../packages/shared/src/*"]
     }
   },
   "include": ["src/client/**/*.ts", "src/client/**/*.svelte", "src/release.ts", "../packages/shared/src/**/*.ts"],
-  "exclude": ["../packages/shared/src/**/*.test.ts"]
+  "exclude": ["../packages/app/src/**", "../packages/shared/src/**/*.test.ts"]
 }

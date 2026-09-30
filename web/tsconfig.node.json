@@ -5,7 +5,7 @@
     "declaration": true,
     "outDir": "./node_modules/.tmp/tsc/node",
     "tsBuildInfoFile": "./node_modules/.tmp/tsc/node.tsbuildinfo",
-
+    "rootDir": "..",
     "target": "ES2022",
     "lib": ["ES2023"],
     "module": "ESNext",
@@ -17,7 +17,17 @@
     "skipLibCheck": true,
     "isolatedModules": true,
     "allowImportingTsExtensions": true,
-    "esModuleInterop": true
+    "esModuleInterop": true,
+    "paths": {
+      "@shared/*": ["../packages/shared/src/*"]
+    }
   },
-  "include": ["vite.config.ts", "vitest.config.ts"]
+  "include": [
+    "vite.config.ts",
+    "vitest.config.ts",
+    "../packages/app/src/theme/vite-plugin.ts",
+    "../packages/app/src/theme/bootstrap.ts",
+    "../packages/shared/src/constants.ts",
+    "../packages/shared/src/types.ts"
+  ]
 }

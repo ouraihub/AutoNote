@@ -1,0 +1,31 @@
+export {
+  ChangeFeedEmitter,
+  type ChangeEvent,
+  type ChangeFeed,
+  type ChangeListener,
+  type Unsubscribe,
+} from './change-feed'
+export { BackendError, backendErrorFromPayload, isBackendError, type BackendErrorDetails } from './errors'
+export type {
+  Backend,
+  BackendCapabilities,
+  BackupPort,
+  CallOptions,
+  FilesPort,
+  FoldersPort,
+  LocalMcpPort,
+  McpBasePort,
+  NoteWriteOptions,
+  NotesPort,
+  RemoteMcpPort,
+  SearchPort,
+  SessionAccountPort,
+  SessionPort,
+  SettingsPort,
+  SharePort,
+  TagsPort,
+  TotpPort,
+  TransferOptions,
+  TransferPort,
+  UpdatePort,
+} from './port'

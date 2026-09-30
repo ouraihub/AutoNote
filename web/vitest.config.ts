@@ -9,11 +9,30 @@ export default defineConfig({
   resolve: {
     alias: {
       $lib: resolve('./src/client/lib'),
+      '@app': resolve('../packages/app/src'),
       '@shared': resolve('../packages/shared/src'),
     },
   },
   test: {
-    environment: 'node',
-    include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'node',
+          environment: 'node',
+          include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
+          exclude: ['src/**/*.dom.test.ts'],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'dom',
+          environment: 'jsdom',
+          environmentOptions: { jsdom: { pretendToBeVisual: true } },
+          include: ['src/**/*.dom.test.ts'],
+        },
+      },
+    ],
   },
 })
