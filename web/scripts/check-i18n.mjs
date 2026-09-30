@@ -87,7 +87,7 @@ async function findSourceFiles(directory) {
     entries.map(async (entry) => {
       const file = path.join(directory, entry.name)
       if (entry.isDirectory()) {
-        if (entry.name === 'components') return []
+        if (entry.name === 'components' || entry.name === 'editor') return []
         return findSourceFiles(file)
       }
       if (!entry.isFile() || entry.name.endsWith('.test.ts') || entry.name.endsWith('.dom.test.ts')) return []

@@ -53,6 +53,7 @@ export default [
       '**/node_modules/**',
       '**/src-tauri/**',
       'packages/app/src/components/ui/**',
+      'packages/app/src/editor/**',
       '**/*.d.ts',
     ],
   },
