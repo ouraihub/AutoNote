@@ -1,0 +1,13 @@
+[package]
+name = "note-sync"
+description = "AutoNote sync client for the Web instance protocol. No Tauri."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+note-core.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "emitDeclarationOnly": true,
+    "declaration": true,
+    "outDir": "./node_modules/.tmp/tsc/worker",
+    "tsBuildInfoFile": "./node_modules/.tmp/tsc/worker.tsbuildinfo",
+    "rootDir": "..",
+
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "types": ["@cloudflare/workers-types"],
+
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+
+    "paths": {
+      "@shared/*": ["../packages/shared/src/*"]
+    }
+  },
+  "include": ["src/worker/**/*", "src/release.ts", "../packages/shared/src/**/*", "package.json"],
+  "exclude": ["../packages/shared/src/**/*.test.ts"]
+}

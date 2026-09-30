@@ -1,0 +1,51 @@
+{
+  "name": "autonote-web",
+  "private": true,
+  "version": "0.1.0",
+  "license": "LGPL-3.0-only",
+  "type": "module",
+  "description": "AutoNote Web: a self-hosted Markdown notebook on Cloudflare Workers with a Svelte 5 client.",
+  "packageManager": "pnpm@12.5.1",
+  "engines": {
+    "node": ">=24.15.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "dev:ai": "vite --mode ai",
+    "dev:kv": "vite --mode kv",
+    "build": "pnpm run typecheck && vite build",
+    "build:kv": "pnpm run typecheck && vite build --mode kv",
+    "deploy": "pnpm run build && wrangler deploy --config dist/autonote/wrangler.json",
+    "deploy:kv": "pnpm run build:kv && wrangler deploy --config dist/autonote/wrangler.json",
+    "deploy:check": "pnpm run build && wrangler deploy --dry-run --config dist/autonote/wrangler.json",
+    "typecheck": "tsc -b && svelte-check --tsconfig ./tsconfig.client.json --fail-on-warnings",
+    "test:unit": "vitest run",
+    "test:e2e": "node scripts/e2e.mjs",
+    "cf-typegen": "wrangler types"
+  },
+  "dependencies": {
+    "@autonote/shared": "workspace:*",
+    "@cloudflare/workers-oauth-provider": "0.10.2",
+    "@modelcontextprotocol/server": "2.0.0",
+    "agents": "0.20.1",
+    "aws4fetch": "1.0.20",
+    "client-zip": "2.5.0",
+    "hono": "4.12.34",
+    "svelte": "5.57.1",
+    "yaml": "2.9.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "1.51.1",
+    "@cloudflare/workers-types": "5.20260809.1",
+    "@sveltejs/vite-plugin-svelte": "7.3.0",
+    "@tailwindcss/vite": "4.3.3",
+    "@types/node": "24.13.3",
+    "svelte-check": "4.7.6",
+    "tailwindcss": "4.3.3",
+    "typescript": "5.9.3",
+    "vite": "8.3.0",
+    "vitest": "4.1.10",
+    "wrangler": "4.120.0"
+  }
+}

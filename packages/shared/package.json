@@ -1,0 +1,22 @@
+{
+  "name": "@autonote/shared",
+  "version": "0.1.0",
+  "private": true,
+  "license": "LGPL-3.0-only",
+  "type": "module",
+  "description": "Framework-free types, constants, locales and Markdown utilities shared by AutoNote Web and Desktop.",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "yaml": "2.9.0"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vitest": "4.1.10"
+  }
+}

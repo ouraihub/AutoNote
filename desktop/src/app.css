@@ -1,0 +1,29 @@
+@import 'tailwindcss';
+
+:root {
+  --bg-base: #faf9fd;
+  --text-primary: #1c1917;
+  --text-secondary: #57534e;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-base: #1a1817;
+    --text-primary: #f5f5f4;
+    --text-secondary: #a8a29e;
+  }
+}
+
+@theme inline {
+  --color-base: var(--bg-base);
+  --color-ink: var(--text-primary);
+  --color-ink-2: var(--text-secondary);
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg-base);
+  color: var(--text-primary);
+}

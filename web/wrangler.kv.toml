@@ -1,0 +1,58 @@
+name = "autonote"
+main = "src/worker/index.ts"
+compatibility_date = "2026-05-01"
+compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
+
+[assets]
+directory = "./dist/client"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = [
+  "/",
+  "/index.html",
+  "/api",
+  "/api/*",
+  "/s",
+  "/s/*",
+  "/authorize",
+  "/authorize/*",
+  "/oauth/*",
+  "/mcp",
+  "/mcp/*",
+  "/.well-known/*",
+]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "autonote-db"
+
+[[kv_namespaces]]
+binding = "FILES_KV"
+
+[[kv_namespaces]]
+binding = "OAUTH_KV"
+
+[[durable_objects.bindings]]
+name = "SYNC_HUB"
+class_name = "SyncHub"
+
+[[durable_objects.bindings]]
+name = "CREDENTIAL_VAULT"
+class_name = "CredentialVault"
+
+[exports.SyncHub]
+type = "durable-object"
+storage = "sqlite"
+
+[exports.CredentialVault]
+type = "durable-object"
+storage = "sqlite"
+
+[triggers]
+crons = ["0 * * * *", "15,45 * * * *"]
+
+[vars]
+APP_NAME = "AutoNote"
+
+[observability]
+enabled = true

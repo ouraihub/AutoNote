@@ -1,0 +1,46 @@
+{
+  "name": "autonote-desktop",
+  "version": "0.1.0",
+  "description": "AutoNote Desktop: Tauri 2 + Svelte 5 local-first Markdown notebook.",
+  "private": true,
+  "license": "LGPL-3.0-only",
+  "type": "module",
+  "packageManager": "pnpm@12.5.1",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
+    "test": "vitest run --passWithNoTests",
+    "test:rust": "scripts\\cargo-msvc.bat test --workspace",
+    "clippy": "scripts\\cargo-msvc.bat clippy --workspace --all-targets -- -D warnings",
+    "fmt:rust": "scripts\\cargo-msvc.bat fmt --all -- --check",
+    "fmt:rust:fix": "scripts\\cargo-msvc.bat fmt --all",
+    "dev:app": "scripts\\dev.bat",
+    "build:app": "scripts\\build-app.bat",
+    "smoke:app": "node scripts/smoke-app.mjs",
+    "clean": "scripts\\clean.bat",
+    "verify": "pnpm run check && pnpm run test && pnpm run test:rust && pnpm run clippy && pnpm run fmt:rust",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.11.1"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-static": "3.0.10",
+    "@sveltejs/kit": "2.70.3",
+    "@sveltejs/vite-plugin-svelte": "7.3.0",
+    "@tailwindcss/vite": "4.3.3",
+    "@tauri-apps/cli": "2.11.5",
+    "svelte": "5.57.1",
+    "@types/node": "24.13.3",
+    "svelte-check": "4.7.6",
+    "tailwindcss": "4.3.3",
+    "typescript": "6.0.3",
+    "vite": "8.3.0",
+    "vitest": "5.0.1"
+  }
+}

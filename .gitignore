@@ -1,0 +1,58 @@
+# Dependencies and generated output
+node_modules/
+dist/
+build/
+coverage/
+.vite/
+.svelte-kit/
+*.tsbuildinfo
+worker-configuration.d.ts
+
+# Rust / Tauri
+target/
+desktop/src-tauri/gen/schemas/
+
+# Cloudflare local state and secrets
+.wrangler/
+.dev.vars
+.dev.vars.*
+
+# Environment files and private keys
+.env
+.env.*
+!.env.example
+*.local
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local databases and runtime data (desktop keeps its library in data\ next to the exe)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+/desktop/data/
+
+# Local tools and editors
+.claude/
+.codex/
+.omp/
+.idea/
+.vscode/
+
+# Test and temporary artifacts
+.tests/
+test-results/
+.tmp/
+.tmp-*
+tmp/
+*.log
+*.bak
+*.tmp
+
+# Operating-system metadata
+.DS_Store
+Thumbs.db
+[Dd]esktop.ini

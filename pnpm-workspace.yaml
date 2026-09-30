@@ -1,0 +1,17 @@
+packages:
+  - web
+  - desktop
+  - packages/*
+
+nodeLinker: hoisted
+symlink: false
+
+minimumReleaseAge: 0
+
+allowBuilds:
+  esbuild: true
+  workerd: true
+  sharp: true
+  '@tailwindcss/oxide': true
+  '@parcel/watcher': true
+  core-js-pure: false

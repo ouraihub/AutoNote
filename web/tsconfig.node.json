@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "emitDeclarationOnly": true,
+    "declaration": true,
+    "outDir": "./node_modules/.tmp/tsc/node",
+    "tsBuildInfoFile": "./node_modules/.tmp/tsc/node.tsbuildinfo",
+
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "types": ["node"],
+
+    "strict": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "allowImportingTsExtensions": true,
+    "esModuleInterop": true
+  },
+  "include": ["vite.config.ts", "vitest.config.ts"]
+}

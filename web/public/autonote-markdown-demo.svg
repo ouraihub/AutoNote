@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="240" viewBox="0 0 720 240" role="img" aria-labelledby="title description">
+  <title id="title">AutoNote Markdown image example</title>
+  <desc id="description">The AutoNote project logo beside text confirming that Markdown images render correctly.</desc>
+  <rect width="720" height="240" rx="28" fill="#f5f4f1"/>
+  <g transform="translate(42 42) scale(4.875)">
+    <rect x="2.5" y="2.5" width="27" height="27" rx="8.5" fill="#202124"/>
+    <path d="M16 8.2c2.7 3.5 5.4 6.3 5.4 9.3a5.4 5.4 0 1 1-10.8 0c0-3 2.7-5.8 5.4-9.3z" fill="#bb4430"/>
+  </g>
+  <text x="238" y="112" fill="#202124" font-family="Inter, system-ui, sans-serif" font-size="42" font-weight="700">AutoNote</text>
+  <text x="238" y="158" fill="#686763" font-family="Inter, system-ui, sans-serif" font-size="24">Markdown image example</text>
+</svg>
