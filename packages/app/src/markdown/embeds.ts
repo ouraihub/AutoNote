@@ -14,7 +14,11 @@ export interface EmbedOptions {
   readonly maxEmbeds?: number
 }
 
-export async function resolveNoteEmbeds(root: HTMLElement, services: RenderServices, options: EmbedOptions): Promise<void> {
+export async function resolveNoteEmbeds(
+  root: HTMLElement,
+  services: RenderServices,
+  options: EmbedOptions,
+): Promise<void> {
   const scope = { count: 0, maxEmbeds: options.maxEmbeds ?? 24 }
   await resolveWithin(root, services, options, 0, new Set(), scope)
 }

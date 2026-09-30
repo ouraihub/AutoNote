@@ -37,6 +37,14 @@ Second panel
     expect(rendered.html).toContain('<strong>Rendered example</strong>')
   })
 
+  test('renders block math as a deferred safe placeholder', () => {
+    const rendered = renderMarkdown('$$\na^2 + b^2\n$$')
+
+    expect(rendered.hasMath).toBe(true)
+    expect(rendered.html).toContain('class="math-block"')
+    expect(rendered.html).toContain('data-math=')
+  })
+
   test('removes executable markup, event attributes, and unsafe URLs', () => {
     const rendered = renderMarkdown(
       '<a href="javascript:alert(1)">bad</a> <img src=x onerror="alert(1)"><script>alert(1)</script>',

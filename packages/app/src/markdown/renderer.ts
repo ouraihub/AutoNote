@@ -122,6 +122,37 @@ markdown.block.ruler.before('fence', 'autonote_containers', (state, startLine, e
   return true
 })
 
+markdown.block.ruler.before('fence', 'math_block', (state, startLine, endLine, silent) => {
+  const opener = sourceLine(state, startLine)
+  if (!opener.startsWith('$$')) return false
+  let closeLine = startLine
+  let content = opener.slice(2)
+  if (!content.trim().endsWith('$$')) {
+    for (closeLine = startLine + 1; closeLine < endLine; closeLine += 1) {
+      const line = sourceLine(state, closeLine)
+      if (line.trim().endsWith('$$')) {
+        content += `\n${line.slice(0, line.lastIndexOf('$$'))}`
+        break
+      }
+      content += `\n${line}`
+    }
+    if (closeLine >= endLine) return false
+  } else content = content.trim().slice(0, -2)
+  if (silent) return true
+  const token = state.push('math_block', 'div', 0)
+  token.map = [startLine, closeLine + 1]
+  token.content = content.trim()
+  environment(state.env).hasMath = true
+  state.line = closeLine + 1
+  return true
+})
+
+markdown.renderer.rules.math_block = (tokens, index, _options, env) => {
+  const token = tokens[index]
+  const line = token?.map ? ` data-line="${token.map[0] + environment(env).lineOffset}"` : ''
+  return `<div class="math-block"${line} data-math="${escapeAttribute(encodeDataValue(token?.content ?? ''))}"></div>`
+}
+
 markdown.renderer.rules.details_open = (tokens, index, _options, env) =>
   `<details class="markdown-details" data-line="${(tokens[index]?.map?.[0] ?? 0) + environment(env).lineOffset}">`
 markdown.renderer.rules.details_summary = (tokens, index) =>
