@@ -11,7 +11,7 @@ const config: UserConfigFnPromise = async ({ mode, command }) => ({
   plugins: [
     svelte(),
     tailwindcss(),
-    themeBootstrapPlugin('autonote.ui'),
+    themeBootstrapPlugin('autonote.ui:layout'),
     cloudflare({
       configPath: mode === 'kv' ? './wrangler.kv.toml' : undefined,
       persistState: !ephemeralDevState,

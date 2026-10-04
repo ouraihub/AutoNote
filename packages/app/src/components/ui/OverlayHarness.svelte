@@ -40,4 +40,4 @@
   </Dialog.Content>
 </Dialog.Root>
 
-<OverlayProvider {notifier} resolveMessage={(key) => key === 'common.cancel' ? 'Cancel' : 'Confirm'} />
+<OverlayProvider {notifier} resolveMessage={(key) => key === 'common.cancel' ? 'Cancel' : key === 'common.save' ? 'Confirm' : key} />

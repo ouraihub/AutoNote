@@ -18,8 +18,8 @@
 <Dialog.Root bind:open={notifier.open} onOpenChange={closeFromOpenChange}>
   <Dialog.Content showCloseButton={false}>
     <Dialog.Header>
-      <Dialog.Title>{notifier.active?.request.titleKey ?? ''}</Dialog.Title>
-      <Dialog.Description>{notifier.active?.request.bodyKey ?? ''}</Dialog.Description>
+      <Dialog.Title>{notifier.active ? resolveMessage(notifier.active.request.titleKey) : ''}</Dialog.Title>
+      <Dialog.Description>{notifier.active ? resolveMessage(notifier.active.request.bodyKey) : ''}</Dialog.Description>
     </Dialog.Header>
     <Dialog.Footer>
       <Button variant="outline" onclick={() => notifier.settle(false)}>{resolveMessage('common.cancel')}</Button>

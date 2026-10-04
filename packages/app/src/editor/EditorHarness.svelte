@@ -3,6 +3,9 @@
   import type { EditorView } from '@codemirror/view'
   import type { EditorSettings } from '@shared/types'
   import CodeEditor from './CodeEditor.svelte'
+  import { createEditorServices } from './testing'
+
+  const services = createEditorServices()
 
   const settings: EditorSettings = {
     fontSize: 14,
@@ -30,13 +33,38 @@
 </script>
 
 <div data-testid="first-editor">
-  <CodeEditor noteId="first" value={first} {settings} onChange={(value) => { first = value; firstChanges += 1 }} onViewReady={(view) => (firstView = view)} />
+  <CodeEditor
+    noteId="first"
+    value={first}
+    {settings}
+    {services}
+    onChange={(value) => {
+      first = value
+      firstChanges += 1
+    }}
+    onViewReady={(view) => (firstView = view)}
+  />
 </div>
 <div data-testid="second-editor">
-  <CodeEditor noteId="second" value={second} {settings} onChange={(value) => { second = value; secondChanges += 1 }} onViewReady={(view) => (secondView = view)} />
+  <CodeEditor
+    noteId="second"
+    value={second}
+    {settings}
+    {services}
+    onChange={(value) => {
+      second = value
+      secondChanges += 1
+    }}
+    onViewReady={(view) => (secondView = view)}
+  />
 </div>
 <button type="button" onclick={() => append(firstView, ' A')}>Edit first</button>
 <button type="button" onclick={() => append(secondView, ' B')}>Edit second</button>
-<button type="button" onclick={() => { if (firstView) undo(firstView) }}>Undo first</button>
+<button
+  type="button"
+  onclick={() => {
+    if (firstView) undo(firstView)
+  }}>Undo first</button
+>
 <p data-testid="first-changes">{firstChanges}</p>
 <p data-testid="second-changes">{secondChanges}</p>

@@ -56,4 +56,14 @@ describe('I18nState', () => {
 
     expect(state.t('settings.value0_notes_value1', { value0: 2 })).toBe('2 notes · {value1}')
   })
+
+  test('restores an already loaded language after switching back from English', async () => {
+    const state = new I18nState({ prefs: new MemoryPrefsStore() })
+    await state.setLocale('zh-CN')
+    const chinese = state.t('common.new_note')
+    await state.setLocale('en-US')
+    expect(state.t('common.new_note')).not.toBe(chinese)
+    await state.setLocale('zh-CN')
+    expect(state.t('common.new_note')).toBe(chinese)
+  })
 })

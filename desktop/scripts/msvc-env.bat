@@ -4,8 +4,8 @@ rem
 rem Local machines always use the portable MSVC under PORTABLE_MSVC_ROOT
 rem (default D:\Applications\msvc-portable\msvc), even when Visual Studio
 rem Build Tools are installed or the shell is a Developer Command Prompt.
-rem Only CI (the CI variable, set by GitHub Actions) may use the compiler the
-rem runner already put on PATH.
+rem GitHub Actions uses its runner compiler only when GITHUB_ACTIONS is set.
+rem A stray local CI=true must not switch the local build into CI mode.
 rem
 rem Called with `call` from build-app.bat, cargo-msvc.bat and dev.bat. No
 rem setlocal: the PATH/LIB/INCLUDE changes must stay in the caller.
@@ -13,9 +13,9 @@ rem Keep this file CRLF and ASCII-only.
 rem
 rem Exit code 0 when cl.exe is ready, 1 otherwise.
 
-if defined CI (
+if defined GITHUB_ACTIONS (
   where /q cl.exe && exit /b 0
-  echo ERROR: CI is set but no cl.exe is on PATH. Run ilammy/msvc-dev-cmd first. 1>&2
+  echo ERROR: GitHub Actions has no cl.exe on PATH. Run ilammy/msvc-dev-cmd first. 1>&2
   exit /b 1
 )
 

@@ -31,6 +31,7 @@ export class I18nState {
   #generation = 0
   #prefs: PrefsStore
   #loaders: I18nLoaders
+  #cached: Partial<Record<AppLocale, Readonly<Record<MessageKey, string>>>> = { 'en-US': EN_US_MESSAGES }
   #systemLocale: string
 
   constructor(options: I18nOptions) {
@@ -50,9 +51,10 @@ export class I18nState {
       const messages = await this.#loaders[locale]()
       if (generation !== this.#generation) return
       this.messages = messages
+      this.#cached[locale] = messages
       this.loaded = { ...this.loaded, [locale]: true }
-    } else if (locale === 'en-US') {
-      this.messages = EN_US_MESSAGES
+    } else {
+      this.messages = this.#cached[locale] ?? EN_US_MESSAGES
     }
     if (generation !== this.#generation) return
 

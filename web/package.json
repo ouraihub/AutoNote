@@ -34,6 +34,7 @@
     "aws4fetch": "1.0.20",
     "client-zip": "2.5.0",
     "hono": "4.12.34",
+    "idb-keyval": "6.3.0",
     "svelte": "5.57.1",
     "yaml": "2.9.0",
     "zod": "4.4.3"

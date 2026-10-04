@@ -20,6 +20,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rusqlite = { version = "0.40", features = ["bundled"] }
 tempfile = "3"
+sha2 = "0.10"
 
 [workspace.lints.clippy]
 unwrap_used = "warn"
@@ -52,8 +53,12 @@ tauri-build = { version = "2.6.3", features = [] }
 note-core.workspace = true
 autonote-shell.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 tracing.workspace = true
 tauri = { version = "2.11.5", features = [] }
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

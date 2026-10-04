@@ -430,6 +430,24 @@ console.log('[search filters and stable backlinks]')
   )
 }
 
+console.log('[graph node limit]')
+{
+  const extra = []
+  for (let index = 0; index < 51; index++) {
+    extra.push(await owner.req('POST', '/api/notes', {
+      title: `Graph limit probe ${index}`, content: `graph limit probe ${index}`,
+    }))
+  }
+  const graph = await owner.req('GET', '/api/graph?mode=global&limit=50&includeOrphans=1')
+  check(
+    'graph with at least 50 selected notes keeps its truncation metadata and responds without SQL bind overflow',
+    extra.every((item) => item.status === 201) && graph.status === 200 &&
+      graph.data?.nodes?.length === 50 && graph.data?.meta?.truncated === true &&
+      graph.data?.meta?.totalNodes > 50,
+    `created=${extra.filter((item) => item.status === 201).length} graph=${graph.status} nodes=${graph.data?.nodes?.length}`,
+  )
+}
+
 console.log('[atomic note writes]')
 {
   const created = await owner.req('POST', '/api/notes', { content: '# \u5e76\u53d1\u57fa\u7ebf\n\n\u7b49\u5f85\u7ade\u4e89\u5199\u5165\u3002' })

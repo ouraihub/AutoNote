@@ -1,6 +1,10 @@
+import createDOMPurify from 'dompurify'
 import { decodeDataValue } from './data-attr'
 import { resolveNoteEmbeds, type EmbedOptions, type RenderServices } from './embeds'
 import { highlightWithPrism } from './prism'
+
+const purifier = createDOMPurify(window)
+let diagramSequence = 0
 
 export interface EnhanceOptions extends EmbedOptions {
   readonly services: RenderServices
@@ -11,19 +15,35 @@ export interface EnhanceOptions extends EmbedOptions {
 
 export class PreviewEnhancer {
   #generation = 0
+  #controller: AbortController | null = null
 
   async enhance(root: HTMLElement, options: EnhanceOptions): Promise<void> {
-    const generation = ++this.#generation
-    await enhancePreview(root, options)
-    if (generation !== this.#generation || options.signal.aborted) return
+    this.invalidate()
+    const generation = this.#generation
+    const controller = new AbortController()
+    this.#controller = controller
+    const abort = () => controller.abort()
+    options.signal.addEventListener('abort', abort, { once: true })
+    if (options.signal.aborted) controller.abort()
+    try {
+      await enhancePreview(root, { ...options, signal: controller.signal })
+      if (generation !== this.#generation || controller.signal.aborted) return
+    } finally {
+      options.signal.removeEventListener('abort', abort)
+      if (this.#controller === controller) this.#controller = null
+    }
   }
 
   invalidate(): void {
     this.#generation += 1
+    this.#controller?.abort()
+    this.#controller = null
   }
 }
 
 export async function enhancePreview(root: HTMLElement, options: EnhanceOptions): Promise<void> {
+  await resolveNoteEmbeds(root, options.services, options)
+  if (options.signal.aborted) return
   await highlightCodeBlocks(root, options.signal)
   if (options.signal.aborted) return
   if (options.math) await enhanceMath(root, options.signal)
@@ -31,7 +51,6 @@ export async function enhancePreview(root: HTMLElement, options: EnhanceOptions)
   if (options.signal.aborted) return
   if (options.mermaid) await enhanceMermaid(root, options.dark, options.signal)
   if (options.signal.aborted) return
-  await resolveNoteEmbeds(root, options.services, options)
 }
 
 async function highlightCodeBlocks(root: HTMLElement, signal: AbortSignal): Promise<void> {
@@ -47,6 +66,18 @@ async function highlightCodeBlocks(root: HTMLElement, signal: AbortSignal): Prom
         code.innerHTML = highlighted.html
         code.classList.add(`language-${highlighted.language}`)
       } else code.textContent = source
+      const start = Number(block.dataset.codeStart ?? 1)
+      const marked = new Set((block.dataset.highlightLines ?? '').split(',').filter(Boolean).map(Number))
+      if (block.dataset.lineNumbers === 'true' || marked.size > 0) {
+        const lines = code.innerHTML.split('\n')
+        code.replaceChildren(...lines.map((html, index) => {
+          const line = document.createElement('span')
+          line.className = marked.has(index + 1) ? 'code-line is-highlighted' : 'code-line'
+          if (block.dataset.lineNumbers === 'true') line.dataset.codeNumber = String(start + index)
+          line.innerHTML = html + (index < lines.length - 1 ? '\n' : '')
+          return line
+        }))
+      }
     }),
   )
 }
@@ -67,7 +98,7 @@ async function enhanceMath(root: HTMLElement, signal: AbortSignal): Promise<void
       })
     }
   } catch {
-    showMathSource(root)
+    if (!signal.aborted) showMathSource(root)
   }
 }
 
@@ -89,9 +120,9 @@ async function enhanceMermaid(root: HTMLElement, dark: boolean, signal: AbortSig
     mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: dark ? 'dark' : 'default' })
     for (const [index, block] of blocks.entries()) {
       const source = block.querySelector('code')?.textContent ?? ''
-      const result = await mermaid.render(`autonote-mermaid-${index}`, source)
+      const result = await mermaid.render(`autonote-mermaid-${++diagramSequence}-${index}`, source)
       if (signal.aborted) return
-      block.replaceChildren(htmlFragment(result.svg))
+      block.replaceChildren(htmlFragment(purifier.sanitize(result.svg, { USE_PROFILES: { svg: true, svgFilters: true } })))
       block.dataset.rendered = 'mermaid'
     }
   } catch {

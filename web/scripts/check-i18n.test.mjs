@@ -33,6 +33,26 @@ test('i18n checker rejects unknown translation keys and untranslated aria labels
   )
 })
 
+test('i18n checker accepts finite typed key tables but rejects unknown entries and unbounded keys', async () => {
+  await withFixture(
+    {
+      'packages/shared/src/locales/en-US.ts': locale('Open'),
+      'packages/shared/src/locales/zh-CN.ts': locale('打开'),
+      'packages/app/src/view.svelte': `<script lang="ts">
+        type MessageKey = 'known.key'
+        const labels: Record<string, MessageKey> = { first: 'known.key' }
+        const bad: Record<string, MessageKey> = { first: 'missing.key' }
+        let arbitrary = 'known.key'
+      </script><button>{t(labels['first'])}</button><button>{t(bad['first'])}</button><button>{t(arbitrary)}</button>`,
+      'web/src/client/use.ts': "const label = t('known.key')\nvoid label\n",
+    },
+    async (root) => {
+      const errors = await run(root)
+      assert.equal(errors.filter((error) => error.includes('translation keys must be static or bounded')).length, 2)
+    },
+  )
+})
+
 test('i18n checker rejects mismatched locale interpolation placeholders', async () => {
   await withFixture(
     {

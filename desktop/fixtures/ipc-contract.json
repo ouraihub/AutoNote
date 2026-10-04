@@ -1,0 +1,394 @@
+{
+  "errors": {
+    "badRequest": {
+      "code": "bad_request",
+      "details": {
+        "field": "color"
+      },
+      "message": "color unsupported organizer color"
+    },
+    "conflict": {
+      "code": "conflict",
+      "details": {
+        "actual": 2,
+        "expected": 1,
+        "id": "01hf7yat030000000000000003",
+        "resource": "note",
+        "server": {
+          "charCount": 20,
+          "content": "Hello #idea [[Beta]]",
+          "createdAt": 1700000000003,
+          "deletedAt": null,
+          "excerpt": "Hello #idea [[Beta]]",
+          "folderId": "01hf7yat000000000000000001",
+          "id": "01hf7yat030000000000000003",
+          "isArchived": false,
+          "isPinned": false,
+          "isStarred": false,
+          "position": 1700000000003.0,
+          "rev": 2,
+          "tags": [
+            "idea"
+          ],
+          "title": "Alpha 2",
+          "updatedAt": 1700000000004,
+          "wordCount": 3
+        }
+      },
+      "message": "This note was modified elsewhere"
+    },
+    "duplicateName": {
+      "code": "conflict",
+      "details": {
+        "resource": "tag"
+      },
+      "message": "Tag already exists"
+    },
+    "malformedBody": {
+      "code": "bad_request",
+      "details": {
+        "field": "body"
+      },
+      "message": "body must be a JSON object of the expected shape"
+    },
+    "notFoundWithDeletionCursor": {
+      "code": "not_found",
+      "details": {
+        "deletionCursor": 7
+      },
+      "message": "Note not found"
+    },
+    "restoreLiveNote": {
+      "code": "bad_request",
+      "details": {
+        "field": "id"
+      },
+      "message": "id The note is not in the trash"
+    }
+  },
+  "folder": {
+    "color": null,
+    "createdAt": 1700000000000,
+    "icon": null,
+    "id": "01hf7yat000000000000000001",
+    "name": "New folder",
+    "noteCount": 0,
+    "parentId": null,
+    "position": 1000.0,
+    "updatedAt": 1700000000000
+  },
+  "note": {
+    "charCount": 20,
+    "content": "Hello #idea [[Beta]]",
+    "createdAt": 1700000000003,
+    "deletedAt": null,
+    "excerpt": "Hello #idea [[Beta]]",
+    "folderId": "01hf7yat000000000000000001",
+    "id": "01hf7yat030000000000000003",
+    "isArchived": false,
+    "isPinned": false,
+    "isStarred": false,
+    "position": 1700000000003.0,
+    "rev": 2,
+    "tags": [
+      "idea"
+    ],
+    "title": "Alpha 2",
+    "updatedAt": 1700000000004,
+    "wordCount": 3
+  },
+  "noteWriteResult": {
+    "note": {
+      "charCount": 20,
+      "content": "Hello #idea [[Beta]]",
+      "createdAt": 1700000000003,
+      "deletedAt": null,
+      "excerpt": "Hello #idea [[Beta]]",
+      "folderId": "01hf7yat000000000000000001",
+      "id": "01hf7yat030000000000000003",
+      "isArchived": false,
+      "isPinned": false,
+      "isStarred": false,
+      "position": 1700000000003.0,
+      "rev": 2,
+      "tags": [
+        "idea"
+      ],
+      "title": "Alpha 2",
+      "updatedAt": 1700000000004,
+      "wordCount": 3
+    },
+    "queued": false,
+    "writeId": "w-1"
+  },
+  "purge": {
+    "cursor": 7,
+    "ok": true
+  },
+  "syncResponse": {
+    "incremental": {
+      "cursor": 7,
+      "deletions": [
+        {
+          "entity": "note",
+          "id": "01hf7yat060000000000000004"
+        }
+      ],
+      "facetsFull": true,
+      "folders": [
+        {
+          "color": null,
+          "createdAt": 1700000000000,
+          "icon": null,
+          "id": "01hf7yat000000000000000001",
+          "name": "New folder",
+          "noteCount": 1,
+          "parentId": null,
+          "position": 1000.0,
+          "updatedAt": 1700000000000
+        }
+      ],
+      "full": false,
+      "hasMore": false,
+      "nextKey": null,
+      "notes": [
+        {
+          "charCount": 20,
+          "createdAt": 1700000000003,
+          "deletedAt": null,
+          "excerpt": "Hello #idea [[Beta]]",
+          "folderId": "01hf7yat000000000000000001",
+          "id": "01hf7yat030000000000000003",
+          "isArchived": false,
+          "isPinned": false,
+          "isStarred": false,
+          "position": 1700000000003.0,
+          "rev": 2,
+          "tags": [
+            "idea"
+          ],
+          "title": "Alpha 2",
+          "updatedAt": 1700000000004,
+          "wordCount": 3
+        }
+      ],
+      "serverTime": 1700000000009,
+      "settingsChanged": false,
+      "tags": [
+        {
+          "color": "#dc2626",
+          "count": 1,
+          "createdAt": 1700000000001,
+          "id": "01hf7yat010000000000000002",
+          "name": "idea"
+        }
+      ]
+    },
+    "snapshot": {
+      "cursor": 2,
+      "deletions": [],
+      "facetsFull": true,
+      "folders": [
+        {
+          "color": null,
+          "createdAt": 1700000000000,
+          "icon": null,
+          "id": "01hf7yat000000000000000001",
+          "name": "New folder",
+          "noteCount": 0,
+          "parentId": null,
+          "position": 1000.0,
+          "updatedAt": 1700000000000
+        }
+      ],
+      "full": true,
+      "hasMore": false,
+      "nextKey": null,
+      "notes": [],
+      "serverTime": 1700000000002,
+      "settingsChanged": true,
+      "tags": [
+        {
+          "color": "#dc2626",
+          "count": 0,
+          "createdAt": 1700000000001,
+          "id": "01hf7yat010000000000000002",
+          "name": "idea"
+        }
+      ]
+    },
+    "staleSince": {
+      "cursor": 7,
+      "deletions": [],
+      "facetsFull": true,
+      "folders": [
+        {
+          "color": null,
+          "createdAt": 1700000000000,
+          "icon": null,
+          "id": "01hf7yat000000000000000001",
+          "name": "New folder",
+          "noteCount": 1,
+          "parentId": null,
+          "position": 1000.0,
+          "updatedAt": 1700000000000
+        }
+      ],
+      "full": true,
+      "hasMore": false,
+      "nextKey": null,
+      "notes": [
+        {
+          "charCount": 20,
+          "createdAt": 1700000000003,
+          "deletedAt": null,
+          "excerpt": "Hello #idea [[Beta]]",
+          "folderId": "01hf7yat000000000000000001",
+          "id": "01hf7yat030000000000000003",
+          "isArchived": false,
+          "isPinned": false,
+          "isStarred": false,
+          "position": 1700000000003.0,
+          "rev": 2,
+          "tags": [
+            "idea"
+          ],
+          "title": "Alpha 2",
+          "updatedAt": 1700000000004,
+          "wordCount": 3
+        }
+      ],
+      "serverTime": 1700000000011,
+      "settingsChanged": true,
+      "tags": [
+        {
+          "color": "#dc2626",
+          "count": 1,
+          "createdAt": 1700000000001,
+          "id": "01hf7yat010000000000000002",
+          "name": "idea"
+        }
+      ]
+    }
+  },
+  "tag": {
+    "color": "#dc2626",
+    "count": 0,
+    "createdAt": 1700000000001,
+    "id": "01hf7yat010000000000000002",
+    "name": "idea"
+  },
+  "trashed": {
+    "charCount": 20,
+    "content": "Hello #idea [[Beta]]",
+    "createdAt": 1700000000006,
+    "deletedAt": 1700000000007,
+    "excerpt": "Hello #idea [[Beta]]",
+    "folderId": "01hf7yat000000000000000001",
+    "id": "01hf7yat060000000000000004",
+    "isArchived": false,
+    "isPinned": false,
+    "isStarred": false,
+    "position": 1700000000006.0,
+    "rev": 2,
+    "tags": [
+      "idea"
+    ],
+    "title": "Alpha 2 copy",
+    "updatedAt": 1700000000007,
+    "wordCount": 3
+  },
+  "upload": {
+    "begin": {
+      "chunkMaxBytes": 262144,
+      "uploadId": "<random>"
+    },
+    "chunk": {
+      "received": 3
+    },
+    "finish": {
+      "createdAt": 1700000000010,
+      "filename": "a.txt",
+      "height": null,
+      "id": "01hf7yat0a0000000000000005",
+      "mime": "text/plain",
+      "noteId": null,
+      "size": 3,
+      "url": "/api/files/01hf7yat0a0000000000000005",
+      "width": null
+    },
+    "page": {
+      "files": [
+        {
+          "createdAt": 1700000000010,
+          "filename": "a.txt",
+          "height": null,
+          "id": "01hf7yat0a0000000000000005",
+          "mime": "text/plain",
+          "noteId": null,
+          "references": 0,
+          "size": 3,
+          "url": "/api/files/01hf7yat0a0000000000000005",
+          "width": null
+        }
+      ],
+      "nextCursor": null
+    },
+    "reusedUploadId": {
+      "code": "bad_request",
+      "details": {
+        "field": "uploadId"
+      },
+      "message": "uploadId unknown upload"
+    },
+    "wrongOffset": {
+      "code": "bad_request",
+      "details": {
+        "field": "offset"
+      },
+      "message": "offset must be contiguous"
+    }
+  },
+  "writeEvents": [
+    {
+      "count": 1,
+      "kind": "pending"
+    },
+    {
+      "kind": "settled",
+      "note": {
+        "charCount": 20,
+        "content": "Hello #idea [[Beta]]",
+        "createdAt": 1700000000003,
+        "deletedAt": null,
+        "excerpt": "Hello #idea [[Beta]]",
+        "folderId": "01hf7yat000000000000000001",
+        "id": "01hf7yat030000000000000003",
+        "isArchived": false,
+        "isPinned": false,
+        "isStarred": false,
+        "position": 1700000000003.0,
+        "rev": 2,
+        "tags": [
+          "idea"
+        ],
+        "title": "Alpha 2",
+        "updatedAt": 1700000000004,
+        "wordCount": 3
+      },
+      "noteId": "01hf7yat030000000000000003",
+      "writeId": "w-1"
+    },
+    {
+      "count": 1,
+      "kind": "pending"
+    },
+    {
+      "code": "conflict",
+      "kind": "failed",
+      "noteId": "01hf7yat030000000000000003",
+      "retained": true,
+      "writeId": "w-2"
+    }
+  ]
+}

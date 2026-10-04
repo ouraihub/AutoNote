@@ -1,4 +1,4 @@
-:root {
+:is(:root, [data-app-root]) {
   --font-ui:
     'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', Inter, Roboto,
     'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;
@@ -51,7 +51,7 @@
   --brand-accent: #bb4430;
 }
 
-:root[data-theme='dark'] {
+:is(:root, [data-app-root])[data-theme='dark'] {
   color-scheme: dark;
 
   --bg-sunken: #131110;
@@ -103,7 +103,7 @@
   --syntax-constant: #6cb6ff;
 }
 
-:root[data-theme='light'] {
+:is(:root, [data-app-root])[data-theme='light'] {
   color-scheme: light;
 
   --bg-sunken: #f1efe9;
@@ -155,7 +155,7 @@
   --syntax-constant: #005cc5;
 }
 
-:root[data-theme='light'][data-background='white'] {
+:is(:root, [data-app-root])[data-theme='light'][data-background='white'] {
   --bg-sunken: #f7f7f8;
   --bg-base: #ffffff;
   --bg-editor: #ffffff;
@@ -165,7 +165,7 @@
   --bg-inset: #f4f5f6;
 }
 
-:root[data-theme='dark'][data-background='white'] {
+:is(:root, [data-app-root])[data-theme='dark'][data-background='white'] {
   --bg-sunken: #0f1011;
   --bg-base: #151617;
   --bg-editor: #1b1c1e;
@@ -175,70 +175,70 @@
   --bg-inset: #111214;
 }
 
-:root[data-accent='cinnabar'][data-theme='dark'] {
+:is(:root, [data-app-root])[data-accent='cinnabar'][data-theme='dark'] {
   --accent: oklch(66.5% 0.15 32);
   --accent-hover: oklch(71% 0.145 32);
 }
-:root[data-accent='cinnabar'][data-theme='light'] {
+:is(:root, [data-app-root])[data-accent='cinnabar'][data-theme='light'] {
   --accent: oklch(54% 0.15 30);
   --accent-hover: oklch(48.5% 0.155 30);
 }
 
-:root[data-accent='indigo'][data-theme='dark'] {
+:is(:root, [data-app-root])[data-accent='indigo'][data-theme='dark'] {
   --accent: oklch(72% 0.13 252);
   --accent-hover: oklch(77% 0.125 252);
 }
-:root[data-accent='indigo'][data-theme='light'] {
+:is(:root, [data-app-root])[data-accent='indigo'][data-theme='light'] {
   --accent: oklch(52% 0.14 252);
   --accent-hover: oklch(46% 0.13 252);
 }
 
-:root[data-accent='celadon'][data-theme='dark'] {
+:is(:root, [data-app-root])[data-accent='celadon'][data-theme='dark'] {
   --accent: oklch(74% 0.12 150);
   --accent-hover: oklch(79% 0.115 150);
 }
-:root[data-accent='celadon'][data-theme='light'] {
+:is(:root, [data-app-root])[data-accent='celadon'][data-theme='light'] {
   --accent: oklch(49% 0.13 150);
   --accent-hover: oklch(43% 0.11 150);
 }
 
-:root[data-accent='amber'][data-theme='dark'] {
+:is(:root, [data-app-root])[data-accent='amber'][data-theme='dark'] {
   --accent: oklch(80% 0.14 95);
   --accent-hover: oklch(85% 0.13 95);
 }
-:root[data-accent='amber'][data-theme='light'] {
+:is(:root, [data-app-root])[data-accent='amber'][data-theme='light'] {
   --accent: oklch(56% 0.105 95);
   --accent-hover: oklch(50% 0.1 95);
 }
 
-:root[data-accent='terracotta'][data-theme='dark'] {
+:is(:root, [data-app-root])[data-accent='terracotta'][data-theme='dark'] {
   --accent: oklch(76% 0.105 205);
   --accent-hover: oklch(81% 0.1 205);
 }
-:root[data-accent='terracotta'][data-theme='light'] {
+:is(:root, [data-app-root])[data-accent='terracotta'][data-theme='light'] {
   --accent: oklch(49% 0.075 205);
   --accent-hover: oklch(43% 0.07 205);
 }
 
-:root[data-accent='wisteria'][data-theme='dark'] {
+:is(:root, [data-app-root])[data-accent='wisteria'][data-theme='dark'] {
   --accent: oklch(72% 0.13 300);
   --accent-hover: oklch(77% 0.13 300);
 }
-:root[data-accent='wisteria'][data-theme='light'] {
+:is(:root, [data-app-root])[data-accent='wisteria'][data-theme='light'] {
   --accent: oklch(52% 0.16 300);
   --accent-hover: oklch(46% 0.15 300);
 }
 
-:root[data-accent='graphite'][data-theme='dark'] {
+:is(:root, [data-app-root])[data-accent='graphite'][data-theme='dark'] {
   --accent: oklch(80% 0.025 250);
   --accent-hover: oklch(86% 0.02 250);
 }
-:root[data-accent='graphite'][data-theme='light'] {
+:is(:root, [data-app-root])[data-accent='graphite'][data-theme='light'] {
   --accent: oklch(38% 0.03 250);
   --accent-hover: oklch(30% 0.025 250);
 }
 
-:root {
+:is(:root, [data-app-root]) {
   --accent: oklch(54% 0.15 30);
   --accent-hover: oklch(48.5% 0.155 30);
   --accent-contrast: oklch(99% 0 0);
@@ -249,18 +249,18 @@
   --list-marker: var(--accent-muted);
 }
 
-:root[data-theme='dark'] {
+:is(:root, [data-app-root])[data-theme='dark'] {
   --accent-contrast: oklch(16% 0.008 265);
 }
 
-:root[data-motion='reduced'] {
+:is(:root, [data-app-root])[data-motion='reduced'] {
   --dur-fast: 1ms;
   --dur-base: 1ms;
   --dur-slow: 1ms;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :root {
+  :is(:root, [data-app-root]) {
     --dur-fast: 1ms;
     --dur-base: 1ms;
     --dur-slow: 1ms;

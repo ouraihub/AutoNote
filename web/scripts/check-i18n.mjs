@@ -9,7 +9,7 @@ const REPOSITORY_ROOT = path.resolve(SCRIPT_DIR, '..', '..')
 const DEFAULT_SOURCE_DIRECTORIES = ['packages/app/src', 'web/src/client']
 const DEFAULT_LOCALE_FILES = ['packages/shared/src/locales/en-US.ts', 'packages/shared/src/locales/zh-CN.ts']
 const VISIBLE_ATTRIBUTE_NAMES = new Set(['aria-label', 'aria-description', 'placeholder', 'title'])
-const ALLOWED_TEMPLATE_TEXT = new Set(['AutoNote'])
+const ALLOWED_TEMPLATE_TEXT = new Set(['AutoNote', ':', '[[ ]]', '#', 'Tab'])
 
 export async function checkI18n(options = {}) {
   const root = options.root ?? REPOSITORY_ROOT
@@ -103,6 +103,7 @@ function checkTypeScriptFile(file, source, keys, errors) {
     if (!ts.isCallExpression(node) || !isTranslationCall(node.expression)) return
     const key = node.arguments[0]
     if (!key || !ts.isStringLiteralLike(key)) {
+      if (key && ts.isAsExpression(key) && key.type.getText(parsed) === "Parameters<I18nState['t']>[0]") return
       errors.push(`${formatPosition(file, source, node.getStart(parsed))}: translation keys must be static`)
       return
     }
@@ -127,6 +128,21 @@ function checkSvelteFile(file, source, keys, errors) {
     errors.push(`${file}: ${error instanceof Error ? error.message : String(error)}`)
     return
   }
+  const keyTables = new Set()
+  visitSvelte(tree.instance?.content?.body ?? tree.instance, (node) => {
+    if (node.type !== 'VariableDeclarator' || node.id?.type !== 'Identifier' || !node.init) return
+    const annotation = source.slice(node.id.typeAnnotation?.start ?? node.id.end, node.id.typeAnnotation?.end ?? node.id.end)
+    const constant = node.init.type === 'TSAsExpression' && source.slice(node.init.typeAnnotation.start, node.init.typeAnnotation.end) === 'const'
+    if (!annotation.includes('MessageKey') && !constant) return
+    const initializer = constant ? node.init.expression : node.init
+    if (initializer.type !== 'ObjectExpression' && initializer.type !== 'ArrayExpression') return
+    const literals = []
+    visitSvelte(initializer, (child, parent) => {
+      if (child.type === 'Literal' && typeof child.value === 'string' && child.value.includes('.') && parent?.type !== 'Property') literals.push(child.value)
+      if (parent?.type === 'Property' && parent.value === child && child.type === 'Literal' && typeof child.value === 'string' && child.value.includes('.')) literals.push(child.value)
+    })
+    if (literals.length && literals.every((value) => keys.has(value))) keyTables.add(node.id.name)
+  })
   visitSvelte(tree.fragment, (node, parent) => {
     if (node.type === 'Text' && parent?.type === 'Fragment') {
       const text = node.data.trim()
@@ -142,13 +158,24 @@ function checkSvelteFile(file, source, keys, errors) {
     }
     if (node.type === 'CallExpression' && isSvelteTranslationCall(node)) {
       const key = node.arguments[0]
-      if (!key || key.type !== 'Literal' || typeof key.value !== 'string') {
-        errors.push(`${formatPosition(file, source, node.start)}: translation keys must be static`)
-      } else if (!keys.has(key.value)) {
-        errors.push(`${formatPosition(file, source, key.start)}: unknown translation key ${key.value}`)
+      if (key?.type === 'Literal' && typeof key.value === 'string') {
+        if (!keys.has(key.value)) errors.push(`${formatPosition(file, source, key.start)}: unknown translation key ${key.value}`)
+      } else if (!key || !isBoundedTranslation(key, source, keys, keyTables)) {
+        errors.push(`${formatPosition(file, source, node.start)}: translation keys must be static or bounded`)
       }
     }
   })
+}
+function isBoundedTranslation(node, source, keys, tables) {
+  if (node.type === 'Literal') return typeof node.value === 'string' && keys.has(node.value)
+  if (node.type === 'ConditionalExpression') return isBoundedTranslation(node.consequent, source, keys, tables) && isBoundedTranslation(node.alternate, source, keys, tables)
+  if (node.type === 'LogicalExpression' && node.operator === '??') return isBoundedTranslation(node.left, source, keys, tables) && isBoundedTranslation(node.right, source, keys, tables)
+  if (node.type === 'CallExpression' && node.callee?.type === 'Identifier') return node.callee.name === 'messageKeyForError' || node.callee.name === 'cloudError'
+  if (node.type === 'TSAsExpression' && source.slice(node.typeAnnotation.start, node.typeAnnotation.end) === 'MessageKey') return true
+  if (node.type !== 'MemberExpression') return false
+  const text = source.slice(node.start, node.end)
+  return [...tables].some((table) => text.startsWith(`${table}[`) || text.startsWith(`${table}.`) || text.startsWith(`${table}?.`)) ||
+    /^(option|slider|item|scale)\.(label|names\[)/.test(text) && [...tables].some((table) => ['options', 'scales', 'editorSliders', 'editorSwitches', 'previewSwitches', 'filters'].includes(table))
 }
 
 function visitSvelte(value, visit, seen = new Set(), parent = null) {

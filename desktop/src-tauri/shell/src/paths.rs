@@ -9,16 +9,18 @@ use std::path::{Path, PathBuf};
 
 /// Resolves the data root for the running executable.
 ///
-/// Falls back to the working directory, then the temp directory, only when the
-/// executable path cannot be determined.
-#[must_use]
-pub fn data_dir() -> PathBuf {
-    std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(Path::to_path_buf))
-        .or_else(|| std::env::current_dir().ok())
-        .unwrap_or_else(std::env::temp_dir)
-        .join("data")
+/// # Errors
+/// When the executable path cannot be determined. There is deliberately no
+/// fallback to cwd/TEMP/APPDATA: that would silently open an empty library.
+pub fn data_dir() -> std::io::Result<PathBuf> {
+    let exe = std::env::current_exe()?;
+    let dir = exe.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "executable has no parent directory",
+        )
+    })?;
+    Ok(dir.join("data"))
 }
 
 /// SQLite library file inside `data_dir`.
@@ -33,6 +35,13 @@ pub fn log_file(data_dir: &Path) -> PathBuf {
     data_dir.join("logs").join("autonote.log")
 }
 
+/// WebView2 user data (cache, localStorage) inside `data_dir`; must be set
+/// before the first WebView exists, or WebView2 picks `%LOCALAPPDATA%`.
+#[must_use]
+pub fn webview_dir(data_dir: &Path) -> PathBuf {
+    data_dir.join("webview")
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, reason = "a failed unwrap is a failed test")]
 mod tests {
@@ -45,12 +54,12 @@ mod tests {
             .parent()
             .unwrap()
             .to_path_buf();
-        assert_eq!(data_dir(), exe_dir.join("data"));
+        assert_eq!(data_dir().unwrap(), exe_dir.join("data"));
     }
 
     #[test]
     fn data_dir_is_not_under_app_data() {
-        let dir = data_dir().to_string_lossy().to_ascii_lowercase();
+        let dir = data_dir().unwrap().to_string_lossy().to_ascii_lowercase();
         for var in ["APPDATA", "LOCALAPPDATA"] {
             if let Ok(value) = std::env::var(var) {
                 assert!(

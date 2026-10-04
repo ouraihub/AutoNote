@@ -80,40 +80,45 @@ markdown
 markdown.block.ruler.before('fence', 'autonote_containers', (state, startLine, endLine, silent) => {
   const opener = sourceLine(state, startLine)
   const details = /^:::\s+details(?:\s+\[([^\]]+)\])?\s*$/.exec(opener)
-  const tabs = /^:::::\s+tabs\s*$/.test(opener)
+  const tabs = /^(:{4,5})\s+tabs\s*$/.exec(opener)
   if (!details && !tabs) return false
   if (silent) return true
 
-  const marker = details ? ':::' : ':::::'
+  const marker = details ? ':::' : tabs?.[1] ?? '::::'
   let closeLine = startLine + 1
   while (closeLine < endLine && sourceLine(state, closeLine).trim() !== marker) closeLine += 1
   if (closeLine >= endLine) return false
 
   if (details) {
     const open = state.push('details_open', 'details', 1)
-    open.map = [startLine + environment(state.env).lineOffset, closeLine + environment(state.env).lineOffset + 1]
+    open.map = [startLine, closeLine + 1]
     const summary = state.push('details_summary', 'summary', 0)
     summary.content = details[1]?.trim() || 'Details'
-    state.md.block.parse(
-      state.getLines(startLine + 1, closeLine, state.blkIndent, false),
-      state.md,
-      state.env,
-      state.tokens,
-    )
+    const nested: typeof state.tokens = []
+    state.md.block.parse(state.getLines(startLine + 1, closeLine, state.blkIndent, false), state.md, state.env, nested)
+    for (const token of nested) {
+      if (token.map) token.map = [token.map[0] + startLine + 1, token.map[1] + startLine + 1]
+    }
+    state.tokens.push(...nested)
     state.push('details_close', 'details', -1)
   } else {
     const env = environment(state.env)
     const id = `tabs-${env.tabSequence++}`
     const items = tabItems(state, startLine + 1, closeLine)
     const open = state.push('tabs_open', 'div', 1)
-    open.map = [startLine + env.lineOffset, closeLine + env.lineOffset + 1]
+    open.map = [startLine, closeLine + 1]
     open.meta = { id, titles: items.map((item) => item.title) }
     for (let itemIndex = 0; itemIndex < items.length; itemIndex += 1) {
       const item = items[itemIndex]
       if (!item) continue
       const panel = state.push('tab_panel_open', 'section', 1)
       panel.meta = { id, index: itemIndex, selected: itemIndex === 0 }
-      state.md.block.parse(item.body, state.md, state.env, state.tokens)
+      const nested: typeof state.tokens = []
+      state.md.block.parse(item.body, state.md, state.env, nested)
+      for (const token of nested) {
+        if (token.map) token.map = [token.map[0] + item.startLine, token.map[1] + item.startLine]
+      }
+      state.tokens.push(...nested)
       state.push('tab_panel_close', 'section', -1)
     }
     state.push('tabs_close', 'div', -1)
@@ -166,12 +171,12 @@ markdown.renderer.rules.tabs_open = (tokens, index) => {
         `<button type="button" role="tab" id="${meta.id}-tab-${itemIndex}" aria-controls="${meta.id}-panel-${itemIndex}" aria-selected="${itemIndex === 0}" tabindex="${itemIndex === 0 ? '0' : '-1'}" data-tab-button="${itemIndex}">${escapeHtml(title)}</button>`,
     )
     .join('')
-  return `<div class="markdown-tabs" data-tabs><div class="tab-list" role="tablist">${controls}</div>`
+  return `<div class="markdown-tabs" data-tabs data-line="${tokens[index]?.attrGet('data-line') ?? 0}"><div class="tab-list" role="tablist">${controls}</div>`
 }
 markdown.renderer.rules.tabs_close = () => '</div>'
 markdown.renderer.rules.tab_panel_open = (tokens, index) => {
   const meta = tokens[index]?.meta as { id: string; index: number; selected: boolean }
-  return `<section class="tab-panel" role="tabpanel" id="${meta.id}-panel-${meta.index}" aria-labelledby="${meta.id}-tab-${meta.index}"${meta.selected ? '' : ' hidden'}>`
+  return `<section class="tab-panel" role="tabpanel" data-tab-panel="${meta.index}" id="${meta.id}-panel-${meta.index}" aria-labelledby="${meta.id}-tab-${meta.index}"${meta.selected ? '' : ' hidden'}>`
 }
 markdown.renderer.rules.tab_panel_close = () => '</section>'
 
@@ -224,6 +229,26 @@ markdown.inline.ruler.before('escape', 'math_inline', (state, silent) => {
     environment(state.env).hasMath = true
   }
   state.pos += match[0].length
+  return true
+})
+
+markdown.core.ruler.before('github-task-lists', 'block_ids', (state) => {
+  const seen = new Set<string>()
+  for (let index = 1; index < state.tokens.length; index += 1) {
+    const inline = state.tokens[index]
+    const opening = state.tokens[index - 1]
+    if (inline?.type !== 'inline' || !opening || opening.nesting !== 1) continue
+    const match = /(?:^|\s)\^([A-Za-z0-9][A-Za-z0-9_-]{0,63})\s*$/.exec(inline.content)
+    if (!match?.[1]) continue
+    let id = match[1]
+    let suffix = 2
+    while (seen.has(id)) id = `${match[1]}-${suffix++}`
+    seen.add(id)
+    opening.attrSet('id', `^${id}`)
+    inline.content = inline.content.slice(0, match.index).trimEnd()
+    inline.children = []
+    state.md.inline.parse(inline.content, state.md, state.env, inline.children)
+  }
   return true
 })
 
@@ -281,7 +306,7 @@ markdown.core.ruler.after('github-task-lists', 'task_placeholders', (state) => {
 
 markdown.core.ruler.push('source_lines', (state) => {
   for (const token of state.tokens) {
-    if (token.map && token.type.endsWith('_open') && token.level === 0) {
+    if (token.map && token.type.endsWith('_open')) {
       token.attrSet('data-line', String(token.map[0] + environment(state.env).lineOffset))
     }
   }
@@ -342,11 +367,12 @@ markdown.renderer.rules.fence = (tokens, index, options, env, self) => {
   const info = parseFenceInfo(token.info)
   if (info.language === 'md-example' || info.language === 'markdown-example') {
     const nested = renderMarkdown(token.content)
-    return `<section class="markdown-example" data-markdown-example><header class="markdown-example-head">${escapeHtml(info.title)}</header><div class="markdown-example-preview">${nested.html}</div></section>`
+    const exampleCode = `<div class="code-block" data-lang="markdown"><pre><code>${escapeHtml(token.content)}</code></pre></div>`
+    return `<section class="markdown-example" data-markdown-example data-line="${(token.map?.[0] ?? 0) + environment(env).lineOffset}"><header class="markdown-example-head">${escapeHtml(info.title)}</header><div class="markdown-example-preview">${nested.html}</div>${exampleCode}</section>`
   }
   if (info.language === 'mermaid') environment(env).hasMermaid = true
   const code = defaultFence ? defaultFence(tokens, index, options, env, self) : self.renderToken(tokens, index, options)
-  return `<div class="code-block" data-lang="${escapeAttribute(info.language)}"${token.map ? ` data-line="${token.map[0] + environment(env).lineOffset}"` : ''}>${code}</div>`
+  return `<div class="code-block" data-lang="${escapeAttribute(info.language)}" data-code-title="${escapeAttribute(info.title)}" data-line-numbers="${info.lineNumbers}" data-code-start="${info.startLine}" data-highlight-lines="${info.highlightedLines.join(',')}"${token.map ? ` data-line="${token.map[0] + environment(env).lineOffset}"` : ''}>${code}</div>`
 }
 
 const defaultImage = markdown.renderer.rules.image
@@ -370,10 +396,45 @@ markdown.renderer.rules.link_open = (tokens, index, options, env, self) => {
   return defaultLink ? defaultLink(tokens, index, options, env, self) : self.renderToken(tokens, index, options)
 }
 
+function stripObsidianComments(source: string): string {
+  let inComment = false
+  let fenceChar = ''
+  let fenceLength = 0
+  return (source.match(/[^\r\n]*(?:\r\n|\r|\n|$)/g)?.filter(Boolean) ?? []).map((line) => {
+    const ending = /\r\n$|[\r\n]$/.exec(line)?.[0] ?? ''
+    const body = ending ? line.slice(0, -ending.length) : line
+    const fence = !inComment ? /^ {0,3}(`{3,}|~{3,})/.exec(body) : null
+    if (fence?.[1]) {
+      const marker = fence[1]
+      if (!fenceChar) { fenceChar = marker[0]!; fenceLength = marker.length }
+      else if (marker[0] === fenceChar && marker.length >= fenceLength) { fenceChar = ''; fenceLength = 0 }
+      return line
+    }
+    if (fenceChar) return line
+    let output = ''
+    let inlineTicks = 0
+    for (let index = 0; index < body.length;) {
+      if (body[index] === '`' && !inComment) {
+        let end = index + 1
+        while (body[end] === '`') end += 1
+        const ticks = end - index
+        if (!inlineTicks || inlineTicks === ticks) inlineTicks = inlineTicks ? 0 : ticks
+        output += body.slice(index, end)
+        index = end
+      } else if (body.startsWith('%%', index) && body[index - 1] !== '\\' && !inlineTicks) {
+        inComment = !inComment
+        output += '  '
+        index += 2
+      } else { output += inComment ? ' ' : body[index]; index += 1 }
+    }
+    return output + ending
+  }).join('')
+}
+
 export function renderMarkdown(source: string): RenderResult {
   const frontMatter = parseFrontMatter(source)
   const env = createEnvironment(frontMatter, frontMatter.lineOffset)
-  const html = sanitize(markdown.render(frontMatter.body, env))
+  const html = sanitize(markdown.render(stripObsidianComments(frontMatter.body), env))
   return {
     html,
     headings: env.headings,
@@ -390,12 +451,14 @@ export function renderMarkdownBlocks(source: string): {
   headings: readonly Heading[]
 } {
   const rendered = renderMarkdown(source)
-  const blockPattern =
-    /<(?:h[1-6]|p|ul|ol|blockquote|aside|details|div|table)[^>]*data-line="(\d+)"[^>]*>[\s\S]*?<\/(?:h[1-6]|p|ul|ol|blockquote|aside|details|div|table)>/g
-  const blocks = [...rendered.html.matchAll(blockPattern)].map((match) => ({
-    startLine: Number(match[1]),
-    endLine: Number(match[1]) + 1,
-    html: match[0],
+  const template = document.createElement('template')
+  template.innerHTML = rendered.html
+  const elements = [...template.content.children].filter((element) => element.hasAttribute('data-line'))
+  const lineCount = source.split('\n').length
+  const blocks = elements.map((element, index) => ({
+    startLine: Number(element.getAttribute('data-line')),
+    endLine: Number(elements[index + 1]?.getAttribute('data-line') ?? lineCount),
+    html: element.outerHTML,
   }))
   return { blocks, headings: rendered.headings }
 }
@@ -492,6 +555,7 @@ function sanitize(html: string): string {
       'action',
     ],
     ALLOW_DATA_ATTR: true,
+    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel):|[^a-z]|[a-z][a-z\d+.-]*(?:[^a-z\d+.-:]|$))/i,
   })
 }
 
@@ -519,20 +583,22 @@ function tabItems(
   state: { bMarks: number[]; eMarks: number[]; src: string },
   startLine: number,
   endLine: number,
-): Array<{ title: string; body: string }> {
-  const items: Array<{ title: string; body: string }> = []
+): Array<{ title: string; body: string; startLine: number }> {
+  const items: Array<{ title: string; body: string; startLine: number }> = []
   let title: string | null = null
   let body: string[] = []
+  let bodyStart = startLine
   for (let line = startLine; line < endLine; line += 1) {
     const source = sourceLine(state, line)
-    const match = /^::::\s+tab-item\s+(.+?)\s*$/.exec(source)
+    const match = /^:{3,4}\s+tab-item\s+(.+?)\s*$/.exec(source)
     if (match) {
-      if (title !== null) items.push({ title, body: body.join('\n') })
+      if (title !== null) items.push({ title, body: body.join('\n'), startLine: bodyStart })
       title = match[1] ?? ''
       body = []
-    } else if (title !== null) body.push(source)
+      bodyStart = line + 1
+    } else if (title !== null) body.push(/^:{3,4}\s*$/.test(source) ? '' : source)
   }
-  if (title !== null) items.push({ title, body: body.join('\n') })
+  if (title !== null) items.push({ title, body: body.join('\n'), startLine: bodyStart })
   return items
 }
 

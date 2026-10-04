@@ -71,6 +71,8 @@ await new Promise((resolve) => setTimeout(resolve, 3_000));
 check("进程启动后仍在运行", exitCode === null, `exit ${exitCode}`);
 check("数据落在 exe 旁的 data\\", existsSync(libraryDb), libraryDb);
 check("日志写入 data\\logs\\autonote.log", existsSync(logFile), logFile);
+// WebView2 必须在建窗前指定目录，否则落到 %LOCALAPPDATA%\<identifier>\EBWebView。
+check("WebView2 数据在 data\\webview\\", existsSync(path.join(dataDir, "webview", "EBWebView")), path.join(dataDir, "webview"));
 
 if (existsSync(libraryDb)) {
   const db = new DatabaseSync(libraryDb, { readOnly: true });

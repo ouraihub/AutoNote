@@ -5,7 +5,11 @@ export interface AppInfo {
   schemaVersion: number
 }
 
-export interface AppErrorPayload {
-  code: string
+
+export interface LogEntry {
+  seq: number
+  time: string
+  level: string
+  target: string
   message: string
 }

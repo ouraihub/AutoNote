@@ -1,8 +1,15 @@
+import { slugifyHeading } from '@shared/markdown-utils'
 import { decodeDataValue } from './data-attr'
 import { parseWikiTarget, renderMarkdown } from './renderer'
 
+export interface ResolvedNote {
+  id: string
+  title: string
+  content: string
+}
+
 export interface RenderServices {
-  resolveNote(target: string, signal: AbortSignal): Promise<{ id: string; title: string; content: string } | null>
+  resolveNote(target: string, signal: AbortSignal): Promise<ResolvedNote | null>
   resolveAssetUrl(url: string): string
   openNote(target: string): void
   toggleTask(line: number, checked: boolean): Promise<void>
@@ -44,15 +51,44 @@ async function resolveWithin(
       continue
     }
     scope.count += 1
-    const note = await services.resolveNote(parsed.noteTitle || parsed.raw, options.signal)
+    let note: ResolvedNote | null
+    try {
+      note = await services.resolveNote(parsed.raw, options.signal)
+    } catch {
+      if (!options.signal.aborted) showEmbedError(embed, parsed.raw)
+      continue
+    }
     if (options.signal.aborted) return
     if (!note) {
       showEmbedError(embed, 'Missing note')
       continue
     }
     const rendered = renderMarkdown(note.content)
+    let body = htmlFragment(rendered.html)
+    if (parsed.heading || parsed.blockId) {
+      const id = parsed.blockId ? `^${parsed.blockId}` : slugifyHeading(parsed.heading ?? '')
+      const local = [...(embed.closest('[data-markdown-example]')?.querySelectorAll<HTMLElement>('[id]') ?? [])].find((element) => element.id === id)
+      const selected = local ?? [...body.querySelectorAll<HTMLElement>('[id]')].find((element) => element.id === id)
+      if (!selected) { showEmbedError(embed, parsed.raw); continue }
+      const section = document.createDocumentFragment()
+      section.append(selected.cloneNode(true))
+      if (parsed.heading) {
+        let next = selected.nextElementSibling
+        const level = Number(selected.tagName.slice(1))
+        while (next && !(/^H[1-6]$/.test(next.tagName) && Number(next.tagName.slice(1)) <= level)) {
+          section.append(next.cloneNode(true))
+          next = next.nextElementSibling
+        }
+      }
+      body = section
+    }
     embed.classList.remove('loading')
-    embed.replaceChildren(createEmbedHeader(note.title), htmlFragment(rendered.html))
+    embed.replaceChildren(createEmbedHeader(note.title), body)
+    // Embedded source lines belong to another note, never the host document.
+    for (const task of embed.querySelectorAll<HTMLElement>('[role="checkbox"]')) {
+      task.setAttribute('aria-disabled', 'true')
+      task.tabIndex = -1
+    }
     const nextAncestors = new Set(ancestors)
     nextAncestors.add(identity)
     await resolveWithin(embed, services, options, depth + 1, nextAncestors, scope)
@@ -60,7 +96,8 @@ async function resolveWithin(
 }
 
 function createEmbedHeader(title: string): HTMLElement {
-  const header = document.createElement('span')
+  const header = document.createElement('button')
+  header.type = 'button'
   header.className = 'note-embed-head'
   header.textContent = title
   return header
@@ -74,5 +111,9 @@ function htmlFragment(html: string): DocumentFragment {
 
 function showEmbedError(embed: HTMLElement, message: string): void {
   embed.classList.remove('loading')
-  embed.textContent = message
+  const link = document.createElement('a')
+  link.href = '#'
+  link.dataset.wikilink = embed.dataset.embedTarget ?? ''
+  link.textContent = message
+  embed.replaceChildren(link)
 }

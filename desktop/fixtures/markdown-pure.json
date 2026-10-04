@@ -1,0 +1,13 @@
+{
+  "id": [
+    { "millis": 0, "random": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], "encoded": "00000000000123456789abcdef" },
+    { "millis": 1, "random": [255, 31, 32, 63, 64, 95, 96, 127, 128, 159, 160, 191, 192, 223, 224, 255], "encoded": "0000000001zz0z0z0z0z0z0z0z" }
+  ],
+  "markdown": [
+    { "input": "你好，world 👋 é", "segmentCjk": " 你 好 ， world 👋 é", "sha256": "85f7437fe80bb6d12b5590105d90a505594608e0c9a93865cfc160d48285e915" },
+    { "input": "正文 😀", "excerpt": "正文 😀", "words": 2, "chars": 4 },
+    { "input": "```\n#hidden\n```\n#Visible #visible #123 issue#bad", "tags": ["Visible"] },
+    { "input": "`[[hidden]]` [[目标#片段|别名]] [[目标]] [[#标题]]", "wikiLinks": [{ "target": "目标#片段", "alias": "别名", "key": "目标" }] },
+    { "input": "  Mixed   Case  ", "linkKey": "mixed case" }
+  ]
+}
