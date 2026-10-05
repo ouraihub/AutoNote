@@ -16,6 +16,7 @@ export interface NotificationRequest {
 export interface ConfirmationRequest {
   titleKey: string
   bodyKey: string
+  params?: Readonly<Record<string, string | number>>
   danger?: boolean
 }
 

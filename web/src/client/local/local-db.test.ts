@@ -149,3 +149,36 @@ describe('LocalDb', () => {
     expect(updated?.payload).toMatchObject({ futureField: { keep: true }, rev: 2, preserveVersion: true })
   })
 })
+
+it('does not discard divergent legacy writes or bind an unowned legacy journal', async () => {
+  const scoped = [outboxItem('scoped')],
+    legacy = [outboxItem('legacy')]
+  const kv = new MemoryKvStore([
+    ['userId', 'user'],
+    ['outbox', legacy],
+    ['user:user:outbox', scoped],
+  ])
+  const db = createLocalDb({ kv })
+  await expect(db.bindUser('user')).rejects.toMatchObject({ code: 'internal' })
+  expect(await kv.get('outbox')).toEqual(legacy)
+  expect(await kv.get('user:user:outbox')).toEqual(scoped)
+  expect(db.activeUserId()).toBeNull()
+  const unowned = new MemoryKvStore([['outbox', legacy]])
+  await expect(createLocalDb({ kv: unowned }).bindUser('other')).rejects.toMatchObject({ code: 'internal' })
+  expect(await unowned.get('outbox')).toEqual(legacy)
+})
+
+it('migrates an old users journal to its owner before switching the binding', async () => {
+  const journal = [outboxItem()]
+  const kv = new MemoryKvStore([
+    ['userId', 'old'],
+    ['outbox', journal],
+  ])
+  const db = createLocalDb({ kv })
+  await db.bindUser('new')
+  expect(await db.getOutbox()).toEqual([])
+  expect(await kv.get('user:old:outbox')).toEqual(journal)
+  expect(await kv.get('outbox')).toBeUndefined()
+  await db.bindUser('old')
+  expect(await db.getOutbox()).toEqual(journal)
+})

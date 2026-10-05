@@ -3,12 +3,23 @@ name: Desktop release
 on:
   push:
     tags: ['desktop-v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Exact desktop-v version built by the completed tag run
+        required: true
+        type: string
+      build_run_id:
+        description: Successful tag build run whose exact packages were interactively accepted
+        required: true
+        type: string
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
+  build:
+    if: github.event_name == 'push'
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
@@ -18,41 +29,112 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      - name: Install the pinned Rust toolchain
+      - name: Check all three versions and release tag before building
+        run: node desktop/scripts/version-check.mjs "${{ github.ref_name }}"
+      - name: Install pinned Rust toolchain and release target
         working-directory: desktop
-        shell: bash
-        run: rustup show active-toolchain || rustup toolchain install
+        run: |
+          rustup show
+          rustup target add x86_64-pc-windows-msvc
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop/src-tauri
-      # Runner's preinstalled VS Build Tools. scripts\msvc-env.bat accepts it only
-      # because CI=true; local builds always use the portable MSVC.
       - uses: ilammy/msvc-dev-cmd@v1
-      - name: Confirm the runner MSVC toolchain is active
+        with:
+          arch: x64
+      - name: Enforce explicit GitHub runner compiler branch
         shell: cmd
-        run: where cl.exe && where link.exe
+        run: call desktop\scripts\msvc-env.bat
       - run: pnpm install --frozen-lockfile
-      - name: Tag must match the app version
-        shell: bash
-        run: |
-          app_version=$(node -p "require('./desktop/src-tauri/tauri.conf.json').version")
-          test "${GITHUB_REF_NAME}" = "desktop-v${app_version}" || {
-            echo "tag ${GITHUB_REF_NAME} does not match desktop version ${app_version}"
-            exit 1
-          }
-      - name: Build (verify gate, NSIS installer, portable zip)
+      - name: Build verified executable, required NSIS and clean portable ZIP
         working-directory: desktop
         shell: cmd
         run: scripts\build-app.bat
-      - name: Smoke test the packaged exe
-        working-directory: desktop
-        run: node scripts/smoke-app.mjs
-      - name: Publish GitHub release
+      - name: Validate current packages (not real-window acceptance)
+        run: node desktop/scripts/release-artifacts.mjs verify
+      - name: Select only this build's packages
+        id: files
+        shell: pwsh
+        run: |
+          $m = Get-Content desktop/dist/release.json -Raw | ConvertFrom-Json
+          $files = @('desktop/dist/release.json') + @($m.artifacts | ForEach-Object { 'desktop/dist/' + $_.path })
+          'paths<<ARTIFACTS' >> $env:GITHUB_OUTPUT
+          $files >> $env:GITHUB_OUTPUT
+          'ARTIFACTS' >> $env:GITHUB_OUTPUT
+      - uses: actions/upload-artifact@v6
+        with:
+          name: desktop-release-candidate
+          path: ${{ steps.files.outputs.paths }}
+          if-no-files-found: error
+          retention-days: 30
+      # This job deliberately never claims headless CI exercised actual windows.
+      # Download candidate, run both interactive scripts, archive the two reports
+      # plus PNGs, set the protected environment's evidence URL/hash, then dispatch.
+
+  publish:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    environment: desktop-release
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Check selected tag versions
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: node desktop/scripts/version-check.mjs "$env:RELEASE_TAG"
+      - uses: actions/download-artifact@v7
+        with:
+          name: desktop-release-candidate
+          path: desktop/dist
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+      - name: Load protected actual-window and lifecycle evidence
+        env:
+          EVIDENCE_URL: ${{ secrets.DESKTOP_RELEASE_EVIDENCE_URL }}
+          EVIDENCE_SHA256: ${{ secrets.DESKTOP_RELEASE_EVIDENCE_SHA256 }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:EVIDENCE_URL -notmatch '^https://' -or $env:EVIDENCE_SHA256 -notmatch '^[a-fA-F0-9]{64}$') { throw 'Missing protected interactive evidence URL/hash; release blocked' }
+          Invoke-WebRequest -Uri $env:EVIDENCE_URL -OutFile evidence.zip
+          if ((Get-FileHash evidence.zip -Algorithm SHA256).Hash -ne $env:EVIDENCE_SHA256) { throw 'Evidence archive hash mismatch' }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [IO.Compression.ZipFile]::OpenRead("$pwd/evidence.zip")
+          try {
+            foreach ($entry in $zip.Entries) {
+              if ($entry.FullName -notmatch '^(window|installation)(-[a-z0-9-]+)?\.(json|png)$') { throw "Unexpected evidence entry: $($entry.FullName)" }
+              if ($entry.Length -gt 50MB) { throw 'Oversized evidence entry' }
+            }
+          } finally { $zip.Dispose() }
+          Expand-Archive evidence.zip evidence
+      - name: Validate protected evidence and publish exactly accepted packages
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
+          RELEASE_TAG: ${{ inputs.tag }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+        shell: pwsh
         run: |
-          gh release create "${GITHUB_REF_NAME}" \
-            --title "AutoNote Desktop ${GITHUB_REF_NAME#desktop-v}" \
-            --generate-notes \
-            desktop/dist/installer/*
+          $ErrorActionPreference = 'Stop'
+          $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:BUILD_RUN_ID" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $run.conclusion -ne 'success' -or $run.event -ne 'push' -or $run.path -ne '.github/workflows/desktop-release.yml' -or $run.head_branch -ne $env:RELEASE_TAG) { throw 'Candidate is not the successful selected tag build' }
+          $checkout = git rev-parse HEAD
+          if ($run.head_sha -ne $checkout) { throw 'Candidate commit differs from selected tag' }
+          node desktop/scripts/version-check.mjs $env:RELEASE_TAG
+          if ($LASTEXITCODE -ne 0) { throw 'Version mismatch' }
+          node desktop/scripts/release-artifacts.mjs verify
+          if ($LASTEXITCODE -ne 0) { throw 'Current artifact verification failed' }
+          node desktop/scripts/release-evidence.mjs evidence --protected-gate
+          if ($LASTEXITCODE -ne 0) { throw 'Interactive acceptance/protected environment gate failed' }
+          $manifest = Get-Content desktop/dist/release.json -Raw | ConvertFrom-Json
+          if ('desktop-v' + $manifest.version -ne $env:RELEASE_TAG) { throw 'Artifact/tag mismatch' }
+          $files = @($manifest.artifacts | ForEach-Object { 'desktop/dist/' + $_.path })
+          gh release create $env:RELEASE_TAG --verify-tag --title "AutoNote Desktop $($manifest.version)" --generate-notes @files
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }

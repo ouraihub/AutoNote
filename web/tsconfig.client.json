@@ -29,6 +29,12 @@
       "@shared/*": ["../packages/shared/src/*"]
     }
   },
-  "include": ["src/client/**/*.ts", "src/client/**/*.svelte", "src/release.ts", "../packages/shared/src/**/*.ts"],
+  "include": [
+    "src/client/**/*.ts",
+    "src/client/**/*.svelte",
+    "src/release.ts",
+    "../packages/shared/src/**/*.ts",
+    "src/client/markdown-shims.d.ts"
+  ],
   "exclude": ["../packages/app/src/**", "../packages/shared/src/**/*.test.ts"]
 }

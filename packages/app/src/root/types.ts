@@ -19,12 +19,14 @@ export interface HostPanel {
   order: number
   titleKey: string
   component: Component
+  props?: Readonly<Record<string, unknown>>
 }
 
 export interface HostExtensions {
   readonly settingsSections: readonly HostSettingsSection[]
   readonly aboutPanels: readonly HostPanel[]
   onNoteOpened?(id: string): void
+  subscribeIntents?(listener: (intent: 'new-note') => void): () => void
 }
 
 export interface AppDeps {
@@ -38,5 +40,6 @@ export interface AppDeps {
 
 export interface AppHandle {
   flush(): Promise<FlushResult>
+  openNote(id: string | null, pane?: 'primary' | 'secondary'): Promise<void>
   destroy(): Promise<void>
 }

@@ -18,7 +18,7 @@ serde_json = "1"
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-rusqlite = { version = "0.40", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled", "backup"] }
 tempfile = "3"
 sha2 = "0.10"
 
@@ -55,7 +55,15 @@ autonote-shell.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
-tauri = { version = "2.11.5", features = [] }
+tauri = { version = "2.11.5", features = ["tray-icon"] }
+tauri-plugin-single-instance = "=2.5.2"
+tauri-plugin-global-shortcut = "=2.4.0"
+tauri-plugin-dialog = "=2.8.1"
+tokio = { version = "=1.53.1", features = ["time"] }
+note-sync.workspace = true
+note-mcp.workspace = true
+zeroize = "=1.8.2"
+getrandom = "0.4"
 
 [dev-dependencies]
 tempfile.workspace = true

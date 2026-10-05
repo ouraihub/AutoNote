@@ -28,6 +28,7 @@
     "../packages/app/src/theme/vite-plugin.ts",
     "../packages/app/src/theme/bootstrap.ts",
     "../packages/shared/src/constants.ts",
-    "../packages/shared/src/types.ts"
+    "../packages/shared/src/types.ts",
+    "pwa.config.ts"
   ]
 }

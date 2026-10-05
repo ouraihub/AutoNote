@@ -1,8 +1,6 @@
-@import 'tailwindcss';
 @import '../../packages/app/src/styles/tokens.css';
 @import '../../packages/app/src/styles/ui.css';
 @import '../../packages/app/src/styles/prose.css';
-@source '../../packages/app/src';
 @theme inline {
   --color-base: var(--bg-base);
   --color-ink: var(--text-primary);

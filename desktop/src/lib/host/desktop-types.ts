@@ -5,7 +5,6 @@ export interface AppInfo {
   schemaVersion: number
 }
 
-
 export interface LogEntry {
   seq: number
   time: string

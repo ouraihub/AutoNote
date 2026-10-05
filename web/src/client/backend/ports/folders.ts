@@ -5,12 +5,15 @@ import type { HttpTransport } from '../transport'
 
 export interface FoldersPortDeps {
   readonly transport: Pick<HttpTransport, 'json'>
+  readonly beforeRemove?: (strategy: 'move-up' | 'delete', options?: CallOptions) => Promise<void>
 }
 
 export class HttpFoldersPort implements FoldersPort {
   readonly #transport: Pick<HttpTransport, 'json'>
+  readonly #beforeRemove: FoldersPortDeps['beforeRemove']
   constructor(deps: FoldersPortDeps) {
     this.#transport = deps.transport
+    this.#beforeRemove = deps.beforeRemove
   }
 
   async list(options?: CallOptions): Promise<Folder[]> {
@@ -28,7 +31,8 @@ export class HttpFoldersPort implements FoldersPort {
       signal: options?.signal,
     })
   }
-  remove(id: string, strategy: 'move-up' | 'delete', options?: CallOptions): Promise<{ ok: true }> {
+  async remove(id: string, strategy: 'move-up' | 'delete', options?: CallOptions): Promise<{ ok: true }> {
+    await this.#beforeRemove?.(strategy, options)
     return this.#transport.json<{ ok: true }>({
       method: 'DELETE',
       path: `/api/folders/${encodeURIComponent(id)}`,

@@ -148,5 +148,40 @@ function isTabMessage(value: unknown): value is TabMessage {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
   if (!('type' in value) || typeof value.type !== 'string') return false
   if (!('userId' in value) || typeof value.userId !== 'string') return false
-  return true
+  if (!('clientId' in value) || typeof value.clientId !== 'string' || !value.clientId) return false
+  if (value.type === 'claim-leader') return 'at' in value && typeof value.at === 'number' && Number.isFinite(value.at)
+  if (value.type === 'pulled')
+    return (
+      'cursor' in value && typeof value.cursor === 'number' && Number.isSafeInteger(value.cursor) && value.cursor >= 0
+    )
+  if (value.type === 'outbox-base-advanced')
+    return (
+      'noteId' in value &&
+      typeof value.noteId === 'string' &&
+      'writeId' in value &&
+      typeof value.writeId === 'string' &&
+      'expectedRev' in value &&
+      typeof value.expectedRev === 'number' &&
+      Number.isSafeInteger(value.expectedRev) &&
+      'nextRev' in value &&
+      typeof value.nextRev === 'number' &&
+      Number.isSafeInteger(value.nextRev)
+    )
+  if (value.type === 'outbox-result')
+    return (
+      'noteId' in value &&
+      typeof value.noteId === 'string' &&
+      'writeId' in value &&
+      typeof value.writeId === 'string' &&
+      'targetClientId' in value &&
+      typeof value.targetClientId === 'string' &&
+      'outcome' in value &&
+      (value.outcome === 'saved' || value.outcome === 'recovered')
+    )
+  return (
+    value.type === 'local-write' ||
+    value.type === 'settings-changed' ||
+    value.type === 'profile-changed' ||
+    value.type === 'site-changed'
+  )
 }

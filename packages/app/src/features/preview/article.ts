@@ -11,6 +11,8 @@ export interface ArticleOptions {
   i18n: Pick<I18nState, 't'>
   collapseLines: number
   state?: ArticleState
+  publicReadonly?: boolean
+  resolveResourcesBeforeInsert?: boolean
 }
 export interface ArticleInteractionOptions {
   services: RenderServices
@@ -20,6 +22,7 @@ export interface ArticleInteractionOptions {
   notifier: Notifier
   onImage?(image: HTMLImageElement): void
   onTag?(tag: string): void
+  publicReadonly?: boolean
 }
 let articleSequence = 0
 const lightboxFocus = new WeakMap<UiState, HTMLElement>()
@@ -120,8 +123,15 @@ export function prepareArticle(root: HTMLElement, options: ArticleOptions): void
     }
   }
   for (const task of root.querySelectorAll<HTMLElement>('[role="checkbox"]')) {
-    if (task.closest('[data-embed-target], [data-markdown-example]')) { task.setAttribute('aria-disabled', 'true'); task.tabIndex = -1 }
+    if (options.publicReadonly || task.closest('[data-embed-target], [data-markdown-example]')) { task.setAttribute('aria-disabled', 'true'); task.tabIndex = -1 }
     else task.setAttribute('aria-label', task.closest('li')?.textContent?.trim() ?? '')
+  }
+  if (options.publicReadonly) {
+    for (const element of root.querySelectorAll<HTMLElement>('[data-wikilink], [data-embed-target], [data-tag]')) {
+      element.setAttribute('aria-disabled', 'true')
+      element.tabIndex = -1
+      if (element instanceof HTMLAnchorElement) element.removeAttribute('href')
+    }
   }
   for (const image of root.querySelectorAll<HTMLImageElement>('img')) {
     const raw = image.getAttribute('src') ?? ''
@@ -149,7 +159,7 @@ export function bindArticleInteractions(root: HTMLElement, options: ArticleInter
     const task = target.closest<HTMLElement>('[role="checkbox"][data-task-line]')
     if (task) {
       event.preventDefault()
-      if (task.closest('[data-embed-target], [data-markdown-example]') || task.getAttribute('aria-disabled') === 'true') return
+      if (options.publicReadonly || task.closest('[data-embed-target], [data-markdown-example]') || task.getAttribute('aria-disabled') === 'true') return
       if (options.source() !== options.renderedSource) { options.notifier.toast({ key: 'preview.the_preview_is_updating_try_again_in_a_moment', tone: 'warning' }); return }
       const checked = task.getAttribute('aria-checked') !== 'true'
       void options.services.toggleTask(Number(task.dataset.taskLine), checked).then(() => {
@@ -164,6 +174,7 @@ export function bindArticleInteractions(root: HTMLElement, options: ArticleInter
     const wiki = target.closest<HTMLElement>('[data-wikilink]')
     if (wiki) {
       event.preventDefault()
+      if (options.publicReadonly) return
       const value = decodeDataValue(wiki.dataset.wikilink)
       const localId = value.startsWith('#^') ? `^${value.slice(2).split('|')[0]}` : ''
       const local = localId ? wiki.closest('[data-markdown-example]')?.querySelector<HTMLElement>(`#${CSS.escape(localId)}`) : null
@@ -172,9 +183,9 @@ export function bindArticleInteractions(root: HTMLElement, options: ArticleInter
       return
     }
     const embedHead = target.closest<HTMLElement>('.note-embed-head')
-    if (embedHead) { options.services.openNote(decodeDataValue(embedHead.parentElement?.dataset.embedTarget)); return }
+    if (embedHead) { if (!options.publicReadonly) options.services.openNote(decodeDataValue(embedHead.parentElement?.dataset.embedTarget)); return }
     const tag = target.closest<HTMLElement>('[data-tag]')
-    if (tag) { options.onTag?.(decodeDataValue(tag.dataset.tag)); return }
+    if (tag) { if (!options.publicReadonly) options.onTag?.(decodeDataValue(tag.dataset.tag)); return }
     const copy = target.closest<HTMLButtonElement>('[data-copy]')
     if (copy) {
       const code = copy.closest('.code-block')?.querySelector('pre')?.textContent ?? ''

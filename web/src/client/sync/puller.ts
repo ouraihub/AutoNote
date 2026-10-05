@@ -6,11 +6,15 @@ import type { SyncResponse } from '@shared/types'
 import type { LocalDb, ShellData } from '../local'
 import { isShellData } from '../local'
 import type { HttpTransport } from '../backend/transport'
+import type { Logger } from '@app/log/logger'
+import type { Clock } from '@app/platform/clock'
 
 export interface SyncPullerDeps {
   readonly transport: Pick<HttpTransport, 'json'>
   readonly localDb: LocalDb
   readonly emitChange: (event: ChangeEvent) => void
+  readonly logger?: Logger
+  readonly clock?: Clock
 }
 
 function invalidResponse(): BackendError {
@@ -63,22 +67,26 @@ export class SyncPuller {
   #user: string | null = null
   #shell: SyncShell = EMPTY_SYNC_SHELL
   #controller: AbortController | null = null
+  #disposed = false
+  #pages = 0
 
   constructor(deps: SyncPullerDeps) {
     this.#deps = deps
   }
 
   async snapshot(options?: CallOptions): Promise<SyncResponse> {
+    if (this.#disposed) throw new BackendError('cancelled', 0, 'Sync is disposed')
     const user = this.#deps.localDb.activeUserId()
     const cached = await this.#deps.localDb.loadShell()
-    if (options?.signal?.aborted || this.#deps.localDb.activeUserId() !== user)
+    if (this.#disposed || options?.signal?.aborted || this.#deps.localDb.activeUserId() !== user)
       throw new BackendError('cancelled', 0, 'Sync cancelled')
     if (cached) return shellSnapshot(cached)
     return this.pull(true, options)
   }
 
   pull(force = false, options?: CallOptions): Promise<SyncResponse> {
-    if (options?.signal?.aborted) return Promise.reject(new BackendError('cancelled', 0, 'Sync cancelled'))
+    if (this.#disposed || options?.signal?.aborted)
+      return Promise.reject(new BackendError('cancelled', 0, 'Sync cancelled'))
     if (this.#running) {
       this.#forceQueued ||= force
       return this.#running
@@ -97,11 +105,14 @@ export class SyncPuller {
   }
 
   dispose(): void {
+    this.#disposed = true
     this.#controller?.abort()
   }
 
   async #run(force: boolean, signal: AbortSignal): Promise<SyncResponse> {
     const user = this.#deps.localDb.activeUserId()
+    const startedAt = this.#deps.clock?.now() ?? Date.now()
+    this.#pages = 0
     if (!user) throw new BackendError('unauthenticated', 401, 'No active user')
     const assertCurrent = () => {
       if (signal.aborted || this.#deps.localDb.activeUserId() !== user)
@@ -133,12 +144,20 @@ export class SyncPuller {
       force = this.#forceQueued
       this.#forceQueued = false
     } while (force)
+    this.#deps.logger?.info('sync.pull.completed', {
+      full: result.full,
+      pages: this.#pages,
+      cursor: result.cursor,
+      count: result.notes.length,
+      durationMs: (this.#deps.clock?.now() ?? Date.now()) - startedAt,
+    })
     return result
   }
 
   async #page(since: number, signal: AbortSignal, after?: string, snapshot?: number): Promise<SyncResponse> {
     if (signal.aborted || this.#deps.localDb.activeUserId() !== this.#user)
       throw new BackendError('cancelled', 0, 'Sync superseded')
+    this.#pages++
     return validatePage(
       await this.#deps.transport.json<SyncResponse>({
         path: '/api/sync',

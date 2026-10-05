@@ -11,6 +11,8 @@ export interface EnhanceOptions extends EmbedOptions {
   readonly math: boolean
   readonly mermaid: boolean
   readonly dark: boolean
+  readonly mermaidRetryLabel?: string
+  readonly onMermaidRetry?: () => void
 }
 
 export class PreviewEnhancer {
@@ -49,7 +51,7 @@ export async function enhancePreview(root: HTMLElement, options: EnhanceOptions)
   if (options.math) await enhanceMath(root, options.signal)
   else showMathSource(root)
   if (options.signal.aborted) return
-  if (options.mermaid) await enhanceMermaid(root, options.dark, options.signal)
+  if (options.mermaid) await enhanceMermaid(root, options.dark, options.signal, options.mermaidRetryLabel, options.onMermaidRetry)
   if (options.signal.aborted) return
 }
 
@@ -110,7 +112,7 @@ function showMathSource(root: HTMLElement): void {
   }
 }
 
-async function enhanceMermaid(root: HTMLElement, dark: boolean, signal: AbortSignal): Promise<void> {
+async function enhanceMermaid(root: HTMLElement, dark: boolean, signal: AbortSignal, retryLabel?: string, onRetry?: () => void): Promise<void> {
   const blocks = [...root.querySelectorAll<HTMLElement>('.code-block[data-lang="mermaid"]')]
   if (blocks.length === 0) return
   try {
@@ -126,7 +128,16 @@ async function enhanceMermaid(root: HTMLElement, dark: boolean, signal: AbortSig
       block.dataset.rendered = 'mermaid'
     }
   } catch {
-    // Keep the sanitized code block visible when an optional renderer fails.
+    if (signal.aborted) return
+    for (const block of blocks) {
+      if (block.querySelector('[data-mermaid-retry]')) continue
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.dataset.mermaidRetry = ''
+      button.textContent = retryLabel ?? 'Retry'
+      button.onclick = () => onRetry?.()
+      block.append(button)
+    }
   }
 }
 

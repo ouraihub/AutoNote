@@ -222,11 +222,18 @@ export class OrganizeActions {
   }
 
   async removeFolder(id: string, strategy: 'move-up' | 'delete' = 'move-up'): Promise<boolean> {
-    const folder = this.#state.read().folders.find((item) => item.id === id)
+    const snapshot = this.#state.read()
+    const folder = snapshot.folders.find((item) => item.id === id)
     if (!folder) return false
+    const subtreeIds = folderSubtreeIds(snapshot.folders, id)
     const approved = await this.#notifier.confirm({
-      titleKey: 'folders.delete_confirm',
-      bodyKey: 'folders.delete_description',
+      titleKey: 'folders.delete_title',
+      bodyKey: strategy === 'move-up' ? 'folders.delete_contents_move_up' : 'folders.delete_contents_trash',
+      params: {
+        name: folder.name,
+        value0: Object.values(snapshot.notes).filter((note) => strategy === 'move-up' ? note.folderId === id : subtreeIds.has(note.folderId ?? '') && note.deletedAt === null).length,
+        value1: snapshot.folders.filter((item) => item.parentId === id).length,
+      },
       danger: true,
     })
     if (!approved) return false
@@ -348,8 +355,9 @@ export class OrganizeActions {
     if (!tag) return false
     if (
       !(await this.#notifier.confirm({
-        titleKey: 'tags.delete_confirm',
-        bodyKey: 'tags.delete_description',
+        titleKey: 'tags.delete_title',
+        bodyKey: 'tags.delete_description_value0',
+        params: { name: tag.name, value0: Object.values(this.#state.read().notes).filter((note) => note.tags.includes(tag.name) && note.deletedAt === null && !note.isArchived).length },
         danger: true,
       }))
     )

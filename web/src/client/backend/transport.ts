@@ -24,6 +24,7 @@ export interface HttpTransportDeps {
   readonly bus: TabBus
   readonly timers: Timers
   readonly logger: Logger
+  readonly captureCurrent?: () => () => boolean
 }
 
 const NOTIFY_PATH = /^\/api\/(?:notes(?:\/|\?|$)|folders(?:\/|\?|$)|tags(?:\/|\?|$)|import(?:\/|\?|$))/
@@ -34,7 +35,7 @@ export class HttpTransport {
   readonly #getLocale: () => string
   readonly #bus: TabBus
   readonly #timers: Timers
-  readonly #logger: Logger
+  readonly #captureCurrent: HttpTransportDeps['captureCurrent']
 
   constructor(deps: HttpTransportDeps) {
     this.#fetch = deps.fetch
@@ -42,29 +43,42 @@ export class HttpTransport {
     this.#getLocale = deps.getLocale
     this.#bus = deps.bus
     this.#timers = deps.timers
-    this.#logger = deps.logger
+    this.#captureCurrent = deps.captureCurrent
   }
 
   async json<T>(spec: RequestSpec): Promise<T> {
+    const current = this.#captureCurrent?.()
     const response = await this.#request(spec)
+    if (spec.signal?.aborted || current?.() === false) throw new BackendError('cancelled', 0, 'Request superseded')
     if (!response.ok) {
       const payload = isJsonResponse(response) ? parseJson(await response.text()) : undefined
+      if (spec.signal?.aborted || current?.() === false) throw new BackendError('cancelled', 0, 'Request superseded')
       throw errorFromResponse(response, payload)
     }
-    this.#notifyOtherTabs(spec)
-    if (response.status === 204) return undefined as T
+    if (response.status === 204) {
+      this.#notifyOtherTabs(spec)
+      return undefined as T
+    }
     const json = isJsonResponse(response)
     const text = await response.text()
-    if (!json) return text as T
+    if (spec.signal?.aborted || current?.() === false) throw new BackendError('cancelled', 0, 'Request superseded')
+    if (!json) {
+      this.#notifyOtherTabs(spec)
+      return text as T
+    }
     if (text.trim() === '') throw new BackendError('invalid_response', 502, 'Invalid server response')
     const parsed = parseJson(text)
     if (parsed === undefined) throw new BackendError('invalid_response', 502, 'Invalid server response')
+    this.#notifyOtherTabs(spec)
     return parsed as T
   }
   async raw(spec: RequestSpec): Promise<Response> {
+    const current = this.#captureCurrent?.()
     const response = await this.#request(spec)
+    if (spec.signal?.aborted || current?.() === false) throw new BackendError('cancelled', 0, 'Request superseded')
     if (!response.ok) {
       const payload = isJsonResponse(response) ? parseJson(await response.text()) : undefined
+      if (spec.signal?.aborted || current?.() === false) throw new BackendError('cancelled', 0, 'Request superseded')
       throw errorFromResponse(response, payload)
     }
     this.#notifyOtherTabs(spec)
@@ -132,7 +146,6 @@ export class HttpTransport {
     } catch (error) {
       if (timedOut) throw toBackendError(error, { timedOut: true })
       if (cancelled || spec.signal?.aborted || isAbortError(error)) throw toBackendError(error, { cancelled: true })
-      this.#logger.debug('backend.request.failed', { method, path })
       throw toBackendError(error)
     } finally {
       if (timeoutId !== undefined) this.#timers.clearTimeout(timeoutId)

@@ -1,8 +1,8 @@
 <script lang="ts">
   import { SPLIT_RATIO_RANGE } from '../../state/layout-prefs'
 
-  let { container: _container, ratio, label, onChange, onReset }: {
-    container?: HTMLElement; ratio: number; label: string
+  let { ratio, label, onChange, onReset }: {
+    ratio: number; label: string
     onChange: (ratio: number) => void; onReset: () => void
   } = $props()
 

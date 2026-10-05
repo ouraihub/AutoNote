@@ -17,7 +17,7 @@ afterEach(async () => { vi.useRealTimers(); for (const handle of handles.splice(
 
 function fixture() {
   const records: Record<string, Note> = {}
-  for (const [id, title] of [['one', 'First note'], ['two', 'Second note']]) {
+  for (const [id, title] of [['00000000000000000000000001', 'First note'], ['00000000000000000000000002', 'Second note']]) {
     records[id!] = { id: id!, title: title!, content: `${title}\n\n- [ ] task`, excerpt: '', folderId: null, tags: [], isPinned: false, isStarred: false, isArchived: false, wordCount: 3, charCount: 20, rev: 1, position: 0, createdAt: 1, updatedAt: 1, deletedAt: null }
   }
   const stored = new Map<string, PrefValue>()
@@ -31,7 +31,7 @@ function fixture() {
     session: { load: async () => session, logout: async () => {} },
     settings: { get: async () => DEFAULT_SETTINGS, save: async () => DEFAULT_SETTINGS },
     files: { resolveUrl: (url: string) => url },
-    notes: { snapshot: async () => ({ notes: Object.values(records), folders: [], tags: [], deletions: [], cursor: 1, full: true, facetsFull: true, hasMore: false, nextKey: null, settingsChanged: false, profileChanged: false, siteChanged: false, serverTime: 1 }), get: async (id: string) => ({ ...records[id]! }), patch, flush: async () => ({ pending: 0, failed: 0 }), backlinks: async () => [] },
+    notes: { list: async () => ({ notes: Object.values(records).map((note) => { const summary = { ...note }; delete (summary as Partial<Note>).content; return summary }), nextCursor: null }), snapshot: async () => ({ notes: Object.values(records), folders: [], tags: [], deletions: [], cursor: 1, full: true, facetsFull: true, hasMore: false, nextKey: null, settingsChanged: false, profileChanged: false, siteChanged: false, serverTime: 1 }), get: async (id: string) => ({ ...records[id]! }), patch, flush: async () => ({ pending: 0, failed: 0 }), backlinks: async () => [] },
     changes: new ChangeFeedEmitter(), dispose: async () => {},
   } as unknown as Backend
   const deps: AppDeps = { backend, prefs: { load: async key => stored.get(key), save: async (key, value) => { stored.set(key, value) }, remove: async key => { stored.delete(key) } }, logger: { debug() {}, info() {}, warn() {}, error() {} }, notifier: { toast() {}, confirm: async () => false }, clock: { now: () => 1 }, extensions: { settingsSections: [], aboutPanels: [] } }
@@ -61,10 +61,10 @@ test('two panes keep independent bodies and undo history across all layouts', as
   expect(EditorView.findFromDOM(secondary.querySelector('.cm-editor')!)).toBe(second)
   expect(undo(first)).toBe(true)
   await app.flush()
-  expect(records.one!.content).not.toContain('left edit')
-  expect(records.two!.content).toContain('right edit')
-  expect(patch.mock.calls.some(([id]) => id === 'one')).toBe(true)
-  expect(patch.mock.calls.some(([id]) => id === 'two')).toBe(true)
+  expect(records['00000000000000000000000001']!.content).not.toContain('left edit')
+  expect(records['00000000000000000000000002']!.content).toContain('right edit')
+  expect(patch.mock.calls.some(([id]) => id === '00000000000000000000000001')).toBe(true)
+  expect(patch.mock.calls.some(([id]) => id === '00000000000000000000000002')).toBe(true)
 })
 
 test('source curves map nonuniform blocks and only the user driver scrolls the other side', async () => {

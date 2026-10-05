@@ -198,7 +198,7 @@ fn replace_tag(content: &str, from: &str, to: Option<&str>) -> String {
     out
 }
 
-fn rewrite(
+pub(crate) fn rewrite(
     w: &mut super::WriteTx<'_>,
     tag_id: &str,
     from: &str,

@@ -32,7 +32,7 @@ echo.
 echo Will remove:
 echo   - dist\installer       (NSIS setup and portable zip)
 echo   - dist\AutoNote\*.exe  (collected release binary; dist\AutoNote\data is kept)
-echo   - src-tauri\target     (Rust build cache and bundles)
+echo   - generated Rust caches and binaries ^(every data subtree and junction kept^)
 echo   - build                (SvelteKit static output)
 echo   - .svelte-kit          (SvelteKit generated types)
 echo   - .tmp                 (test work files)
@@ -77,17 +77,10 @@ if defined STRAY if defined KILL (
   ping -n 2 127.0.0.1 >nul 2>nul
 )
 
-call :killdir "%ROOT%dist\installer"
-if exist "%ROOT%dist\AutoNote\AutoNote.exe" (
-  echo   removing %ROOT%dist\AutoNote\AutoNote.exe
-  del /q "%ROOT%dist\AutoNote\AutoNote.exe" 2>nul
-)
-call :killdir "%ROOT%src-tauri\target"
-call :killdir "%ROOT%build"
-call :killdir "%ROOT%.svelte-kit"
-call :killdir "%ROOT%.tmp"
-
-if defined DEEP call :killdir "%ROOT%node_modules"
+set "DEEP_FLAG="
+if defined DEEP set "DEEP_FLAG=-Deep"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%scripts\clean-artifacts.ps1" -Root "%ROOT%." %DEEP_FLAG%
+if errorlevel 1 exit /b 1
 
 echo.
 echo ============================================
@@ -105,12 +98,6 @@ rem projects are never touched.
 powershell -NoProfile -Command "$root='%ROOT%'.TrimEnd('\').ToLower(); Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -and $_.CommandLine.ToLower().Contains($root) } | ForEach-Object { $_.ProcessId }" 2>nul
 exit /b 0
 
-:killdir
-if not exist "%~1" goto :eof
-echo   removing %~1
-rd /s /q "%~1" 2>nul
-if exist "%~1" echo     WARNING: could not fully remove ^(file in use?^)
-goto :eof
 
 :usage
 echo Usage: scripts\clean.bat [--deep] [--kill] [--yes]

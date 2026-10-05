@@ -24,6 +24,10 @@ test('BroadcastTabBus 可注入 channel 并过滤伪造消息', () => {
   expect(posted).toEqual({ type: 'profile-changed', clientId: 'client-a', userId: 'user-a' })
   const dispatch = handler as ((event: MessageEvent<unknown>) => void) | null
   dispatch?.({ data: { type: 'profile-changed', clientId: 'other', userId: 'user-b' } } as MessageEvent<unknown>)
+  dispatch?.({
+    data: { type: 'claim-leader', clientId: 'fake', at: 'invalid', userId: 'user-a' },
+  } as MessageEvent<unknown>)
+  dispatch?.({ data: { type: 'unknown', clientId: 'fake', userId: 'user-a' } } as MessageEvent<unknown>)
   dispatch?.({ data: { type: 'profile-changed', clientId: 'same', userId: 'user-a' } } as MessageEvent<unknown>)
   expect(received).toEqual([{ type: 'profile-changed', clientId: 'same', userId: 'user-a' }])
   bus.close()

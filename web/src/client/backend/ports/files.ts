@@ -7,12 +7,15 @@ import { BackendError } from '@app/backend/errors'
 
 export interface FilesPortDeps {
   readonly transport: Pick<HttpTransport, 'json'>
+  readonly resolveFileUrl?: (url: string) => string
 }
 
 export class HttpFilesPort implements FilesPort {
   readonly #transport: Pick<HttpTransport, 'json'>
+  readonly #resolveFileUrl: (url: string) => string
   constructor(deps: FilesPortDeps) {
     this.#transport = deps.transport
+    this.#resolveFileUrl = deps.resolveFileUrl ?? ((url) => url)
   }
 
   async list(cursor?: string, options?: CallOptions): Promise<AttachmentPage> {
@@ -21,7 +24,10 @@ export class HttpFilesPort implements FilesPort {
       query: { cursor },
       signal: options?.signal,
     })
-    return { files: result.files, nextCursor: result.nextCursor ?? null }
+    return {
+      files: result.files.map((file) => ({ ...file, url: this.#resolveFileUrl(file.url) })),
+      nextCursor: result.nextCursor ?? null,
+    }
   }
   async upload(file: File, noteId?: string, options?: CallOptions): Promise<Attachment> {
     if (file.size > LIMITS.attachmentMaxBytes)
@@ -29,12 +35,13 @@ export class HttpFilesPort implements FilesPort {
     const form = new FormData()
     form.set('file', file)
     if (noteId !== undefined) form.set('noteId', noteId)
-    return this.#transport.json<Attachment>({
+    const result = await this.#transport.json<Attachment>({
       method: 'POST',
       path: '/api/files',
       form,
       signal: options?.signal,
     })
+    return { ...result, url: this.#resolveFileUrl(result.url) }
   }
   remove(id: string, options?: CallOptions): Promise<{ ok: true }> {
     return this.#transport.json<{ ok: true }>({
@@ -51,6 +58,6 @@ export class HttpFilesPort implements FilesPort {
     })
   }
   resolveUrl(url: string): string {
-    return url
+    return this.#resolveFileUrl(url)
   }
 }

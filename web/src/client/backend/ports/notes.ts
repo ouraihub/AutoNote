@@ -4,8 +4,7 @@ import type { Note, PatchNoteBody } from '@shared/types'
 import type { NoteWriteResult, WriteQueueEvent } from '@shared/backend-types'
 import type { HttpTransport } from '../transport'
 import type { LocalDb } from '../../local'
-import type { OutboxItem } from '../../outbox/types'
-import { LocalOutboxStore } from '../../outbox/outbox-store'
+import { LocalOutboxStore, type OutboxItem } from '../../outbox'
 import { offlineError } from '../errors'
 
 export interface NotesTextWriterDeps {
@@ -18,7 +17,7 @@ export interface NotesTextWriterDeps {
 
 const TEXT_KEYS: Record<string, true> = { rev: true, content: true, title: true, preserveVersion: true }
 
-/** W3-1's write path; W3-3 owns the remaining NotesPort methods. */
+/** Text writes are durable before confirmation; network replay is independently scheduled. */
 export class HttpNotesTextWriter {
   readonly #transport: Pick<HttpTransport, 'json'>
   readonly #localDb: LocalDb
@@ -157,6 +156,15 @@ export class HttpNotesTextWriter {
     return { pending: pending.size, failed: failed.size }
   }
 
+  async waitForLocalCommit(): Promise<void> {
+    let chains: Promise<void>[]
+    do {
+      chains = [...this.#enqueueChains.values()]
+      await Promise.all(chains)
+    } while ([...this.#enqueueChains.values()].some((chain, index) => chain !== chains[index]))
+    if (this.#failed.size) throw new BackendError('internal', 0, 'Local changes are not persisted')
+  }
+
   patch(id: string, body: PatchNoteBody, options: NoteWriteOptions): Promise<NoteWriteResult> {
     if (!Object.keys(body).every((key) => TEXT_KEYS[key])) return this.#patchRemote(id, body, options)
     return this.#queueTextPatch(id, body, options)
@@ -187,9 +195,14 @@ export class HttpNotesTextWriter {
   #queueTextPatch(id: string, body: PatchNoteBody, options: NoteWriteOptions): Promise<NoteWriteResult> {
     const user = this.#localDb.activeUserId()
     const previous = this.#enqueueChains.get(id) ?? Promise.resolve()
-    const result = previous.then(() => {
-      this.#assertUser(user)
-      return this.#enqueueTextPatch(id, body, options)
+    const result = previous.then(async () => {
+      try {
+        this.#assertUser(user)
+        return await this.#enqueueTextPatch(id, body, options)
+      } catch (error) {
+        this.#failed.add(id)
+        throw error
+      }
     })
     this.#enqueueChains.set(
       id,
@@ -222,6 +235,7 @@ export class HttpNotesTextWriter {
       ...(dependsOnWriteId === undefined ? {} : { dependsOnWriteId }),
       noteId: id,
       payload: {
+        ...stored?.payload,
         rev: Math.max(body.rev, stored?.payload.rev ?? body.rev),
         content,
         contentDirty,

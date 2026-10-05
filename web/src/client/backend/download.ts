@@ -2,7 +2,10 @@ interface SaveHandle {
   createWritable(): Promise<WritableStream<Uint8Array>>
 }
 type SavePicker = (options: { suggestedName: string }) => Promise<SaveHandle>
-const saveFilePicker = (window as Window & { showSaveFilePicker?: SavePicker }).showSaveFilePicker
+const saveFilePicker =
+  typeof window === 'undefined'
+    ? undefined
+    : (window as Window & { showSaveFilePicker?: SavePicker }).showSaveFilePicker
 export async function saveDownload(response: Response, fallbackName: string, signal?: AbortSignal): Promise<boolean> {
   if (signal?.aborted) return false
   const disposition = response.headers.get('Content-Disposition')
@@ -12,10 +15,12 @@ export async function saveDownload(response: Response, fallbackName: string, sig
     try {
       const handle = await saveFilePicker({ suggestedName: name })
       const writable = await handle.createWritable()
-      await response.body?.pipeTo(writable, { signal })
+      if (!response.body) throw new Error('Download response has no body')
+      await response.body.pipeTo(writable, { ...(signal ? { signal } : {}) })
       return !signal?.aborted
     } catch (error) {
       if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) return false
+      throw error
     }
   }
   if (signal?.aborted) return false
@@ -28,5 +33,4 @@ export async function saveDownload(response: Response, fallbackName: string, sig
   anchor.click()
   setTimeout(() => URL.revokeObjectURL(url), 0)
   return true
-
-
+}

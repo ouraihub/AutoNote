@@ -152,3 +152,28 @@ test('网络失败抛 offline 而不是伪造服务端错误', async () => {
   await expect(transport.json({ path: '/api/notes' })).rejects.toMatchObject({ code: 'offline', status: 0 })
   expect(transport).toBeInstanceOf(HttpTransport)
 })
+
+test('rejects an old account response whose body finishes after epoch changes without broadcasting', async () => {
+  let epoch = 1
+  const { promise, resolve } = Promise.withResolvers<string>()
+  const messages: unknown[] = []
+  const response = Response.json({ ok: true })
+  response.text = () => promise
+  const transport = new HttpTransport({
+    fetch: async () => response,
+    clientId: 'tab',
+    getLocale: () => 'en-US',
+    timers: new TestTimers(),
+    logger,
+    bus: { post: (message) => messages.push(message), subscribe: () => () => undefined, close() {} },
+    captureCurrent: () => {
+      const started = epoch
+      return () => started === epoch
+    },
+  })
+  const result = transport.json({ method: 'POST', path: '/api/notes' })
+  epoch++
+  resolve('{"ok":true}')
+  await expect(result).rejects.toMatchObject({ code: 'cancelled' })
+  expect(messages).toEqual([])
+})

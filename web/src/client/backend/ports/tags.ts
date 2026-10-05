@@ -5,12 +5,15 @@ import type { HttpTransport } from '../transport'
 
 export interface TagsPortDeps {
   readonly transport: Pick<HttpTransport, 'json'>
+  readonly beforeTextChange?: (options?: CallOptions) => Promise<void>
 }
 
 export class HttpTagsPort implements TagsPort {
   readonly #transport: Pick<HttpTransport, 'json'>
+  readonly #beforeTextChange: TagsPortDeps['beforeTextChange']
   constructor(deps: TagsPortDeps) {
     this.#transport = deps.transport
+    this.#beforeTextChange = deps.beforeTextChange
   }
 
   async list(options?: CallOptions): Promise<Tag[]> {
@@ -21,6 +24,7 @@ export class HttpTagsPort implements TagsPort {
     return this.#transport.json<Tag>({ method: 'POST', path: '/api/tags', body, signal: options?.signal })
   }
   async patch(id: string, body: TagPatch, options?: CallOptions): Promise<TagPatchResult> {
+    if (body.name !== undefined) await this.#beforeTextChange?.(options)
     const result = await this.#transport.json<Tag | { ok: true; renamed: number }>({
       method: 'PATCH',
       path: `/api/tags/${encodeURIComponent(id)}`,
@@ -29,7 +33,8 @@ export class HttpTagsPort implements TagsPort {
     })
     return 'renamed' in result ? { tag: null, renamed: result.renamed } : { tag: result, renamed: 0 }
   }
-  remove(id: string, options?: CallOptions): Promise<{ ok: true; affected: number }> {
+  async remove(id: string, options?: CallOptions): Promise<{ ok: true; affected: number }> {
+    await this.#beforeTextChange?.(options)
     return this.#transport.json<{ ok: true; affected: number }>({
       method: 'DELETE',
       path: `/api/tags/${encodeURIComponent(id)}`,

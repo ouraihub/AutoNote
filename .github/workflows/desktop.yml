@@ -45,13 +45,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop/src-tauri
-      # Puts the runner's preinstalled Visual Studio Build Tools (cl.exe, link.exe,
-      # Windows SDK) on PATH. scripts\msvc-env.bat uses it only because GitHub sets
-      # CI=true; local runs always use the portable MSVC instead.
+      # Explicit runner-only MSVC branch; local CI=true never selects system tools.
       - uses: ilammy/msvc-dev-cmd@v1
-      - name: Confirm the runner MSVC toolchain is active
+        with:
+          arch: x64
+      - name: Enforce runner compiler ownership
         shell: cmd
-        run: where cl.exe && where link.exe
+        run: call desktop\scripts\msvc-env.bat
       - run: pnpm install --frozen-lockfile
       - name: Verify gate
         run: pnpm run desktop:verify

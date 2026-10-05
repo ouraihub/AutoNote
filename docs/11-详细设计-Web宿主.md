@@ -1,6 +1,6 @@
 # 11 详细设计：Web 宿主
 
-> 状态：全阶段设计基线；仅定义目标实现，尚未开发或执行验证。任务组 W1–W6，实施任务见 §13。
+> 状态：全阶段设计基线；W4–W6 本轮代码交付见 §14，真实运行判据仍待统一验收，未据代码落地宣称通过。任务组 W1–W6，实施任务见 §13。
 > 契约以 `02-概要设计.md` 为准，写法以 `04-工程规范.md` 为准。端口的完整 TS 签名见 `10-详细设计-共享应用层.md` §2，本文只引用，不重新定义。
 > 源码对照：AutoNote `src/client/lib/{api,db,sync}.ts`、`store/{notes,session,pwa}.ts`、分享页、demo 与 PWA 配置；本轮另核对 AutoPad 当前 worker 的 `app.ts`、`routes/{sync,mcp-settings}.ts`。本文保留可用的源码定位，不以旧行号替代契约；依赖兼容性和运行判据在实施时验证。
 
@@ -577,7 +577,7 @@ Web Vite保留Svelte/Tailwind、Cloudflare插件和 `AUTONOTE_EPHEMERAL_DEV`，�
 
 ## 13. 实施计划
 
-本组在全部设计定稿后执行。共 W1–W6，每组3项；每条的真实运行判据都属于未来实施验收，本轮未执行测试、build、lint或浏览器。共享任务ID按10冻结，章节引用仅指本文现存§1–13。
+本组在全部设计定稿后执行。共 W1–W6，每组3项；真实运行判据须凭命令/浏览器证据确认，本轮代码交付与尚未运行项见 §14。共享任务ID按10冻结。
 
 ### W1-1 Web平台边界与工程接缝
 
@@ -740,3 +740,17 @@ Web Vite保留Svelte/Tailwind、Cloudflare插件和 `AUTONOTE_EPHEMERAL_DEV`，�
 - **步骤**：1. 按§11对请求/队列/同步/PWA/迁移最终处理层接结构化日志并消除重复。2. 提供200条诊断导出与明确敏感信息提示。3. 完整AppHandle.destroy→Backend.dispose清理序列在正常退出、错误重挂、分享切换中复用，删除迁移期间临时脚手架。
 - **判据**：真实制造离线/401/迁移失败各产生一次可追踪且无正文凭据的日志；导出超过200条时仅保留最新；多次重挂后无幽灵WS/轮询/重复toast；dispose前本地提交失败明确阻止销毁，已持久pending不因退出被清除。
 - **陷阱**：dump原始Error/Request泄密；debug循环刷屏覆盖真正故障；为清理资源先清队列或把dispose挂在不可靠unload异步等待上。
+
+## 14. 本轮代码交付与待运行验收
+
+以下记录代码已接线，不代替 §13 的真实验收，也不据此勾选 `03`。本轮未执行测试、构建、lint、dry-run 或浏览器检查；由主线程在全部模块落地后统一执行。
+
+- **W4-1 / W4-3**：组合根在判断路由后才创建登录 Backend，深链等待共享 AppHandle 就绪；匿名页只构造 public transport。所有端口复用现有 Worker 路由；下载中断括号已修复，目录导入校验 COMPLETE、manifest 和哈希，附件先于笔记分批；破坏性文件夹/标签写入先检查完整用户 outbox。导出选择取消返回 null，已提交导入批次在取消后计数保留。真实导出/导入附件哈希、WebDAV/S3 隔离目标、MCP 授权撤销仍需 §W4-3 联验。
+- **W4-2**：`WebBackendDeps.sockets: SocketFactory | null` 明确注入；生产用公开入口的 `browserSocketFactory`，demo 传 null。实时能力表示可建立通道，不冒充当前已连接；无 DO/握手失败按轮询回退。leader、心跳、最早截止调度、设置/账号 epoch、完整分页 checkpoint 与统一 changes 已接线。执行 `pnpm --filter autonote-web test:unit` 后还需两个真实页面验证单 leader、聚焦接管、无 pong、无 DO 与大于 syncBatchSize 的分页中变更。
+- **W5-1**：`SharePageState` 对 401 密码错误、429 retryAfter、404 与网络错误分支；请求取消与 generation 防迟到正文。分享只使用 `/api/public/:slug`，不创建 NotesState 或登录 Backend；共享 `MarkdownArticle.publicReadonly` 禁止任务/私人 Wiki/嵌入/标签写入，services 不访问私有笔记。附件仅精确同源文件路径添加 share，标题仅恢复自己设置的值；倒计时结束后仅开放人工重试，不自动猜口令。运行 share/router 行为测试，仍需无痕窗口公开/口令/过期/撤销与 OG、附件权限、路由销毁真实验收。
+- **W5-2**：`autonotePwa()` 已在 Vite 接线；Svelte/app 核心资源图、产物内容 hash、可选静态预热、build 清单限定历史缓存。PwaPanel 通过 `HostPanel.props.state` 注入；waiting 更新点击后等待 AppHandle.flush，failed 阻止、已持久 pending 可刷新，只有本页更新意图刷新一次。API、认证、附件和分享正文均 network-only，永不清理 IDB。运行 pwa 状态用例后，仍需真实 production preview 安装、断网缓存编辑/回放、两个版本升级、配额失败与 Cache Storage 审核。
+- **W5-3**：`createWebServices()` 仅 demo 模式动态载入 `createDemoRuntime()`，不覆盖 global fetch；只清 `autonote-demo`，生产 `autonote` 不动。独立内存 bus/lock、关闭 WS、TOTP/真实 AI/更新能力隐藏；本页备份/MCP 设置明确演示反馈。附件预解析受控 blob 并 dispose 撤销；公开初始示例 `/s/00000000000000000020`。demo 登录使用 `admin` / `password`，生产 bundle 不静态引用演示处理器。`pnpm --filter autonote-web build:demo` 后用 `pnpm --filter autonote-web preview:demo` 在独立 origin 验证登录、编辑、附件、分享、设置、JSON/ZIP/目录导入导出、刷新重置及 Network 无私有 API/WS。
+- **W6-1**：`deploy` / `deploy:kv` / `deploy:demo` 经 deploy.mjs 构建本次 mode，验证唯一新鲜 Wrangler 配置、name/assets/source/绑定/路由后才发布；本轮禁止执行这些发布命令。统一验收使用 `build`、`build:kv`、`build:demo` 以及 `deploy:check`、`deploy:check:kv`、`deploy:check:demo`（均 dry-run，不发布）。旧多个配置拒绝误选，脚本不删除旧目录；原 R2/KV 资源 ID/绑定保留，demo 独立无绑定。临时自定义 name、旧候选拒绝、隔离 health/deep link/OAuth/MCP 实测仍待运行。
+- **W6-3**：ConsoleRingLogger 仅保留最新 200 条；fields 按允许键、有限数值、ErrorCode/资源 ID 净化，原始错误/正文/标题/URL/凭据不导出。about 诊断只包含版本、浏览器能力与净化记录，Blob URL 使用后撤销。路由切换统一等待 destroy 成功才释放资源，Backend.dispose 先等待本地日志提交，失败保留旧 UI/资源；退出不清 outbox、不以 unload 异步当持久保证。运行 logger/生命周期行为用例后，仍需真实离线/401/迁移失败去重与反复重挂无幽灵 WS/轮询/通知。
+
+生产升级沿用原 origin、cookie、D1 和附件绑定；切换 origin 前先在旧站同步待上传日志。发布前在隔离实例备份、API 回归和 R2/KV dry-run，再人工验证旧 PWA 等待激活与 pending 恢复。回滚仅 Worker/assets 版本，不回滚或清空用户 IDB/D1。上述命令与场景未运行，不宣称已部署或验收通过。

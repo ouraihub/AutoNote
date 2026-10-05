@@ -13,10 +13,12 @@ rem Keep this file CRLF and ASCII-only.
 rem
 rem Exit code 0 when cl.exe is ready, 1 otherwise.
 
-if defined GITHUB_ACTIONS (
-  where /q cl.exe && exit /b 0
-  echo ERROR: GitHub Actions has no cl.exe on PATH. Run ilammy/msvc-dev-cmd first. 1>&2
-  exit /b 1
+if /i "%GITHUB_ACTIONS%"=="true" (
+  if not defined RUNNER_TOOL_CACHE exit /b 1
+  if not defined VCToolsInstallDir exit /b 1
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0compiler-paths.ps1" -Root "%VCToolsInstallDir%"
+  if errorlevel 1 exit /b 1
+  exit /b 0
 )
 
 set "MSVC_ROOT=%PORTABLE_MSVC_ROOT%"
@@ -32,22 +34,7 @@ if not exist "%MSVC_ROOT%\setup_x64.bat" (
 rem setup_x64.bat prepends its bin directories to PATH, so its cl.exe and
 rem link.exe win over any Build Tools or Git coreutils copies further down.
 call "%MSVC_ROOT%\setup_x64.bat" >nul
+if errorlevel 1 exit /b 1
 
-set "MSVC_CL="
-for /f "delims=" %%C in ('where cl.exe 2^>nul') do if not defined MSVC_CL set "MSVC_CL=%%C"
-if not defined MSVC_CL (
-  echo ERROR: cl.exe still not found after injecting %MSVC_ROOT%. 1>&2
-  exit /b 1
-)
-rem The first cl.exe must live under MSVC_ROOT: removing MSVC_ROOT from its path
-rem only changes the string when it is a substring (the check is case-insensitive).
-call set "MSVC_REST=%%MSVC_CL:%MSVC_ROOT%=%%"
-if /i "%MSVC_REST%"=="%MSVC_CL%" goto foreign
-set "MSVC_REST="
-exit /b 0
-
-:foreign
-echo ERROR: the first cl.exe on PATH is not the portable MSVC: 1>&2
-echo        %MSVC_CL% 1>&2
-echo        Expected it under %MSVC_ROOT% 1>&2
-exit /b 1
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0compiler-paths.ps1" -Root "%MSVC_ROOT%"
+exit /b %ERRORLEVEL%

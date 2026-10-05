@@ -88,10 +88,11 @@ pub async fn files_upload_cancel(
     window: tauri::WebviewWindow,
     context: tauri::State<'_, AppContext>,
     upload_id: String,
-) -> Result<(), AppError> {
+) -> Result<Ok<serde_json::Map<String, serde_json::Value>>, AppError> {
     let owner = window.label().to_owned();
     run("files_upload_cancel", &context, move |library| {
-        library.files_upload_cancel(&owner, &upload_id)
+        library.files_upload_cancel(&owner, &upload_id)?;
+        Ok(ok(serde_json::Map::new()))
     })
     .await
 }

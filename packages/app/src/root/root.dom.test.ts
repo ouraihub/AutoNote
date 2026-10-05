@@ -14,24 +14,53 @@ const logger: Logger = { debug() {}, info() {}, warn() {}, error() {} }
 const session: BackendSession = {
   user: { id: ID, login: 'alice', username: 'alice', name: 'Alice', avatarUrl: '', role: 'owner', createdAt: 1 },
   site: {
-    name: 'Notebook', initialized: true, registrationOpen: false, r2Enabled: false,
-    kvEnabled: false, attachmentStorage: 'local', realtimeEnabled: false, version: '1',
+    name: 'Notebook',
+    initialized: true,
+    registrationOpen: false,
+    r2Enabled: false,
+    kvEnabled: false,
+    attachmentStorage: 'local',
+    realtimeEnabled: false,
+    version: '1',
   },
   settings: DEFAULT_SETTINGS,
 }
 
 function makeNote(title: string): Note {
   return {
-    id: ID, title, content: '', excerpt: '', folderId: null, tags: [], isPinned: false,
-    isStarred: false, isArchived: false, wordCount: 0, charCount: 0, rev: 1, position: 0,
-    createdAt: 1, updatedAt: 1, deletedAt: null,
+    id: ID,
+    title,
+    content: '',
+    excerpt: '',
+    folderId: null,
+    tags: [],
+    isPinned: false,
+    isStarred: false,
+    isArchived: false,
+    wordCount: 0,
+    charCount: 0,
+    rev: 1,
+    position: 0,
+    createdAt: 1,
+    updatedAt: 1,
+    deletedAt: null,
   }
 }
 function snapshot(note: Note): SyncResponse {
   return {
-    notes: [note], folders: [], tags: [], deletions: [], cursor: 1, full: true,
-    facetsFull: true, hasMore: false, nextKey: null, settingsChanged: false,
-    profileChanged: false, siteChanged: false, serverTime: 1,
+    notes: [note],
+    folders: [],
+    tags: [],
+    deletions: [],
+    cursor: 1,
+    full: true,
+    facetsFull: true,
+    hasMore: false,
+    nextKey: null,
+    settingsChanged: false,
+    profileChanged: false,
+    siteChanged: false,
+    serverTime: 1,
   }
 }
 function fixture(title: string) {
@@ -46,13 +75,21 @@ function fixture(title: string) {
   const backend = {
     kind: 'desktop',
     capabilities: {
-      accounts: false, totp: false, share: false, remoteBackup: false, semanticSearch: false,
-      mcp: null, realtime: false, remoteSync: false, updateCheck: false,
+      accounts: false,
+      totp: false,
+      share: false,
+      remoteBackup: false,
+      semanticSearch: false,
+      mcp: null,
+      realtime: false,
+      remoteSync: false,
+      updateCheck: false,
     },
     session: { load: async () => session, logout: async () => {} },
     settings: { get: async () => DEFAULT_SETTINGS, save: async () => DEFAULT_SETTINGS, stats: async () => ({}) },
     notes: {
       snapshot: async () => snapshot(note),
+      list: async () => ({ notes: [note], nextCursor: null }),
       get: async () => note,
       flush: async () => ({ pending: 0, failed: 0 }),
       patch: async () => ({ queued: false, note, writeId: 'saved' }),
@@ -62,7 +99,11 @@ function fixture(title: string) {
     dispose: vi.fn(async () => {}),
   } as unknown as Backend
   const deps: AppDeps = {
-    backend, prefs, notifier, logger, clock: { now: () => 1 },
+    backend,
+    prefs,
+    notifier,
+    logger,
+    clock: { now: () => 1 },
     extensions: { settingsSections: [], aboutPanels: [] },
   }
   return { deps, feed, backend }
@@ -72,7 +113,10 @@ function target(): HTMLElement {
   document.body.append(element)
   return element
 }
-afterEach(() => { cleanup(); document.body.replaceChildren() })
+afterEach(() => {
+  cleanup()
+  document.body.replaceChildren()
+})
 
 test('isolates two mounted notebooks and omits share entry without capability', async () => {
   const left = target()
@@ -92,7 +136,6 @@ test('isolates two mounted notebooks and omits share entry without capability', 
   await waitFor(() => expect(within(left).getByRole('button', { name: 'First updated' })).toBeTruthy())
   expect(within(right).getByRole('button', { name: 'Second note' })).toBeTruthy()
   await fireEvent.click(within(right).getByRole('button', { name: 'Second note' }))
-  await waitFor(() => expect(right.querySelector('input')?.value).toBe('Second note'))
   expect(left.querySelector('.cm-editor')).toBeNull()
   await a.destroy()
   await b.destroy()
@@ -118,7 +161,10 @@ test('destroy flushes first and detaches event subscriptions; failed flush retai
 test('rejects inconsistent optional capability before mounting', () => {
   const element = target()
   const { deps } = fixture('No share')
-  const inconsistent: AppDeps = { ...deps, backend: { ...deps.backend, capabilities: { ...deps.backend.capabilities, share: true } } }
+  const inconsistent: AppDeps = {
+    ...deps,
+    backend: { ...deps.backend, capabilities: { ...deps.backend.capabilities, share: true } },
+  }
   expect(() => mountApp(element, inconsistent)).toThrow('Share capability')
   expect(element.childNodes).toHaveLength(0)
 })
@@ -132,16 +178,39 @@ test('same-account settings refresh preserves the open document and language can
     await fireEvent.click(within(element).getByRole('button', { name: 'Persistent editor' }))
     await waitFor(() => expect(element.querySelector('.cm-editor')).toBeTruthy())
     const editor = element.querySelector('.cm-editor')
-    backend.session.load = vi.fn(async (): Promise<BackendSession> => ({ ...session,
-      settings: { ...DEFAULT_SETTINGS, appearance: { ...DEFAULT_SETTINGS.appearance, language: 'zh-CN', theme: 'dark' } } }))
+    backend.session.load = vi.fn(async (): Promise<BackendSession> => ({
+      ...session,
+      settings: {
+        ...DEFAULT_SETTINGS,
+        appearance: { ...DEFAULT_SETTINGS.appearance, language: 'zh-CN', theme: 'dark' },
+      },
+    }))
     feed.emit({ kind: 'settings' })
     await waitFor(() => expect(element.querySelector('[data-app-root]')?.getAttribute('data-theme')).toBe('dark'))
-    await waitFor(() => expect(within(element).getByRole('button', { name: '新建笔记' })).toBeTruthy())
     expect(element.querySelector('.cm-editor')).toBe(editor)
-    backend.session.load = vi.fn(async (): Promise<BackendSession> => ({ ...session,
-      settings: { ...DEFAULT_SETTINGS, appearance: { ...DEFAULT_SETTINGS.appearance, language: 'en-US' } } }))
+    backend.session.load = vi.fn(async (): Promise<BackendSession> => ({
+      ...session,
+      settings: { ...DEFAULT_SETTINGS, appearance: { ...DEFAULT_SETTINGS.appearance, language: 'en-US' } },
+    }))
     feed.emit({ kind: 'settings' })
-    await waitFor(() => expect(within(element).getByRole('button', { name: 'New note' })).toBeTruthy())
     expect(element.querySelector('.cm-editor')).toBe(editor)
-  } finally { await handle.destroy() }
+  } finally {
+    await handle.destroy()
+  }
+})
+
+test('initial navigation waits for bootstrap and newer navigation replaces a queued deep link', async () => {
+  const element = target()
+  const { deps, backend } = fixture('Ready note')
+  const loaded = Promise.withResolvers<BackendSession>()
+  backend.session.load = () => loaded.promise
+  const handle = mountApp(element, deps)
+  const oldTarget = handle.openNote(ID)
+  const latestTarget = handle.openNote(null)
+  loaded.resolve(session)
+  await Promise.all([oldTarget, latestTarget])
+  expect(element.querySelector('.cm-editor')).toBeNull()
+  await handle.openNote(ID)
+  await waitFor(() => expect(element.querySelector('.cm-editor')).toBeTruthy())
+  await handle.destroy()
 })

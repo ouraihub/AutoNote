@@ -20,3 +20,13 @@ it('preserves attachment page cursor', async () => {
   await expect(port.list('current')).resolves.toEqual({ files: [], nextCursor: 'next' })
   expect(json).toHaveBeenCalledWith(expect.objectContaining({ query: { cursor: 'current' } }))
 })
+
+it('resolves demo attachments without a private network request', () => {
+  const json = vi.fn()
+  const port = new HttpFilesPort({
+    transport: { json } as never,
+    resolveFileUrl: (url) => (url === '/api/files/demo' ? 'blob:controlled' : url),
+  })
+  expect(port.resolveUrl('/api/files/demo')).toBe('blob:controlled')
+  expect(json).not.toHaveBeenCalled()
+})

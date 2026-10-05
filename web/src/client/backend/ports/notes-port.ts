@@ -14,15 +14,13 @@ import type {
 } from '@shared/types'
 import type { HttpTransport } from '../transport'
 import type { LocalDb } from '../../local'
-import { SyncPuller } from '../../sync/puller'
+import { SyncPuller } from '../../sync'
 import type { ChangeEvent } from '@app/backend'
 import type { Clock } from '@app/platform/clock'
 import type { Logger } from '@app/log/logger'
 import type { Timers } from '../../platform'
 import type { TabBus } from '../tab-bus'
-import type { ReplayLock } from '../../outbox/replay-lock'
-import { OutboxReplayer } from '../../outbox/replayer'
-import { LocalOutboxStore } from '../../outbox/outbox-store'
+import { OutboxReplayer, LocalOutboxStore, type ReplayLock } from '../../outbox'
 import { HttpNotesTextWriter } from './notes'
 
 export interface HttpNotesPortDeps {
@@ -36,6 +34,9 @@ export interface HttpNotesPortDeps {
   readonly timers: Timers
   readonly emitChange: (event: ChangeEvent) => void
   readonly getAutoSaveDelay: () => number
+  readonly puller?: SyncPuller
+  readonly requestPull?: (force: boolean) => void
+  readonly onUnauthenticated?: () => void
 }
 
 export class HttpNotesPort implements NotesPort {
@@ -46,10 +47,11 @@ export class HttpNotesPort implements NotesPort {
   readonly #unsubscribe: () => void
   #timer: number | null = null
   #disposed = false
+  readonly #creates = new Map<string, Promise<Note>>()
 
   constructor(deps: HttpNotesPortDeps) {
     this.#deps = deps
-    this.#puller = new SyncPuller(deps)
+    this.#puller = deps.puller ?? new SyncPuller(deps)
     this.#writer = new HttpNotesTextWriter({
       transport: deps.transport,
       localDb: deps.localDb,
@@ -62,8 +64,12 @@ export class HttpNotesPort implements NotesPort {
       outbox: new LocalOutboxStore(deps.localDb),
       pending: this.#writer,
       content: deps.localDb,
+      waitForCreate: async (id) => {
+        await this.#creates.get(id)
+      },
       requestPull: ({ force }) => {
-        void this.#puller.pull(force).catch(this.#backgroundFailure)
+        if (deps.requestPull) deps.requestPull(force)
+        else void this.#puller.pull(force).catch(this.#backgroundFailure)
       },
     })
     this.#unsubscribe = this.#replayer.consumeBus()
@@ -71,16 +77,29 @@ export class HttpNotesPort implements NotesPort {
 
   readonly #backgroundFailure = (error: unknown): void => {
     if (this.#disposed) return
-    this.#deps.logger.warn('notes.background.failed', { code: error instanceof BackendError ? error.code : 'internal' })
+    if (error instanceof BackendError && error.code === 'cancelled') return
+    this.#deps.logger.warn('sync.pull.failed', { code: error instanceof BackendError ? error.code : 'internal' })
     if (error instanceof BackendError && error.code === 'unauthenticated') this.#deps.emitChange({ kind: 'settings' })
   }
 
   dispose(): void {
+    if (this.#disposed) return
     this.#disposed = true
     if (this.#timer !== null) this.#deps.timers.clearTimeout(this.#timer)
     this.#unsubscribe()
     this.#replayer.dispose()
     this.#puller.dispose()
+  }
+
+  waitForLocalCommit(): Promise<void> {
+    return this.#writer.waitForLocalCommit()
+  }
+
+  pause(): void {
+    this.#replayer.pause()
+  }
+  resume(): void {
+    this.#replayer.resume()
   }
 
   snapshot(options?: CallOptions): Promise<SyncResponse> {
@@ -97,22 +116,39 @@ export class HttpNotesPort implements NotesPort {
     return this.#writer.get(id, options)
   }
   create(body: CreateNoteBody, options?: CallOptions): Promise<Note> {
-    return this.#deps.transport.json<Note>({
+    const request = this.#deps.transport.json<Note>({
       path: '/api/notes',
       method: 'POST',
       body,
       signal: options?.signal,
       timeoutMs: 30_000,
     })
+    if (!body.id) return request
+    const id = body.id
+    const running = request.finally(() => {
+      if (this.#creates.get(id) === running) this.#creates.delete(id)
+    })
+    this.#creates.set(id, running)
+    return running
   }
   async patch(id: string, body: PatchNoteBody, options: NoteWriteOptions): Promise<NoteWriteResult> {
-    const result = await this.#writer.patch(id, body, options)
+    let result: NoteWriteResult
+    try {
+      result = await this.#writer.patch(id, body, options)
+    } catch (error) {
+      this.#deps.logger.error('outbox.enqueue.failed', {
+        noteId: id,
+        writeId: options.writeId,
+        code: error instanceof BackendError ? error.code : 'internal',
+      })
+      throw error
+    }
     if (result.queued && !this.#disposed) {
       if (this.#timer !== null) this.#deps.timers.clearTimeout(this.#timer)
       this.#timer = this.#deps.timers.setTimeout(
         () => {
           this.#timer = null
-          void this.#replayer.replay().catch(this.#backgroundFailure)
+          void this.#replayer.replay().catch(() => undefined) // The replayer owns the final error log.
         },
         Math.max(100, this.#deps.getAutoSaveDelay()),
       )

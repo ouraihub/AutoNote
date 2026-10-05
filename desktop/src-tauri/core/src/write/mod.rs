@@ -33,6 +33,9 @@ pub struct ChangeSet {
     pub tags_changed: bool,
     #[serde(skip)]
     pub settings_changed: bool,
+    /// Bulk import commits are read back from the durable changes feed.
+    #[serde(skip)]
+    pub import_changed: bool,
     #[serde(skip)]
     pub origin: Option<WriteOrigin>,
 }
@@ -299,8 +302,9 @@ mod notes;
 pub(crate) mod versions;
 pub use folders::{FolderDeleteResult, FolderDeleteStrategy};
 pub use tags::{TagPatchResult, TagRemoveResult};
-mod folders;
-mod tags;
+pub(crate) mod folders;
+pub(crate) mod mcp;
+pub(crate) mod tags;
 #[cfg(test)]
 #[allow(
     clippy::unwrap_used,

@@ -183,11 +183,19 @@ pub async fn settings_get(context: Ctx<'_>) -> Result<UserSettings, AppError> {
 }
 
 #[tauri::command]
-pub async fn settings_save(context: Ctx<'_>, patch: Value) -> Result<UserSettings, AppError> {
-    run("settings_save", &context, move |lib| {
+pub async fn settings_save(
+    app: tauri::AppHandle,
+    context: Ctx<'_>,
+    patch: Value,
+) -> Result<UserSettings, AppError> {
+    let settings = run("settings_save", &context, move |lib| {
         Ok(lib.settings_save(&patch, WriteOrigin::Ui)?.value)
     })
-    .await
+    .await?;
+    if crate::tray::refresh_locale(&app, &settings.appearance.language).is_err() {
+        tracing::warn!(code = "internal", "app.tray.locale_failed");
+    }
+    Ok(settings)
 }
 
 #[tauri::command]

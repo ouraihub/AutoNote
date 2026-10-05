@@ -1,11 +1,15 @@
 <script lang="ts">
-  import { getBackend, getI18n, getNotifier, getSession } from '@app/root/context'
+  import type { MessageKey } from '@shared/locales/en-US'
+  import { getBackend, getExtensions, getI18n, getNotifier, getSession } from '@app/root/context'
   import { messageKeyForError } from '@app/i18n/errors'
 
   const backend = getBackend()
+  const extensions = getExtensions()
   const session = getSession()
   const i18n = getI18n()
   const notifier = getNotifier()
+  const panels = $derived([...extensions.aboutPanels].sort((a, b) => a.order - b.order))
+
   let busy = $state(false)
   let error = $state<string | null>(null)
   async function logout(): Promise<void> {
@@ -35,4 +39,11 @@
     <div><strong>{i18n.t('common.product_name')}</strong><p>{i18n.t('settings.version')} {session.site?.version ?? '—'}</p></div>
     <a href="https://github.com/ouraihub/AutoNote" target="_blank" rel="noopener noreferrer">{i18n.t('common.github')}</a>
   </section>
+  {#each panels as panel (panel.id)}
+    {@const Panel = panel.component}
+    <section class="space-y-2 border-t pt-4" aria-labelledby={`about-panel-${panel.id}`}>
+      <h3 id={`about-panel-${panel.id}`} class="font-semibold">{i18n.t(panel.titleKey as MessageKey)}</h3>
+      <Panel {...(panel.props ?? {})} />
+    </section>
+  {/each}
 </div>

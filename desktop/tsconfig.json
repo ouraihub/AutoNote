@@ -10,10 +10,12 @@
     "sourceMap": true,
     "strict": true,
     "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
     "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "noImplicitOverride": true,
     "types": ["node"]
-  }
+  },
+  "include": ["src/**/*.ts", "src/**/*.svelte", "../packages/app/src/markdown/*.d.ts"]
 }

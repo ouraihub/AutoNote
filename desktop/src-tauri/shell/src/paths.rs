@@ -23,6 +23,34 @@ pub fn data_dir() -> std::io::Result<PathBuf> {
     Ok(dir.join("data"))
 }
 
+/// Creates and probes the executable-side runtime directories before opening a library.
+/// Logs are excluded: unavailable logging must not prevent durable note saves.
+///
+/// # Errors
+/// Returns the filesystem error when a required directory cannot be created or written.
+pub fn prepare_data_dir(root: &Path) -> std::io::Result<()> {
+    use std::io::Write;
+    for directory in [
+        root.to_path_buf(),
+        root.join("files"),
+        root.join("webview"),
+        root.join("staging"),
+    ] {
+        std::fs::create_dir_all(&directory)?;
+        let probe = directory.join(format!(".autonote-write-probe-{}", std::process::id()));
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&probe)?;
+        let result = file.write_all(b"writable").and_then(|()| file.sync_all());
+        drop(file);
+        let cleanup = std::fs::remove_file(probe);
+        result?;
+        cleanup?;
+    }
+    Ok(())
+}
+
 /// SQLite library file inside `data_dir`.
 #[must_use]
 pub fn library_db(data_dir: &Path) -> PathBuf {
@@ -40,6 +68,15 @@ pub fn log_file(data_dir: &Path) -> PathBuf {
 #[must_use]
 pub fn webview_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("webview")
+}
+
+/// Portable host-only configuration.
+pub fn desktop_prefs_file(data_dir: &Path) -> PathBuf {
+    data_dir.join("desktop-prefs.json")
+}
+/// Portable normal window bounds.
+pub fn window_state_file(data_dir: &Path) -> PathBuf {
+    data_dir.join("window-state.json")
 }
 
 #[cfg(test)]
@@ -68,5 +105,19 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn writability_gate_rejects_files_and_removes_probes() {
+        let dir = tempfile::tempdir().unwrap();
+        prepare_data_dir(dir.path()).unwrap();
+        assert!(dir.path().join("webview").is_dir());
+        assert!(
+            !dir.path()
+                .join(format!(".autonote-write-probe-{}", std::process::id()))
+                .exists()
+        );
+        std::fs::write(dir.path().join("blocked"), b"occupied").unwrap();
+        assert!(prepare_data_dir(&dir.path().join("blocked")).is_err());
     }
 }

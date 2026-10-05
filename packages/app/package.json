@@ -13,6 +13,7 @@
     "./log": "./src/log/logger.ts",
     "./platform": "./src/platform/index.ts",
     "./markdown": "./src/markdown/renderer.ts",
+    "./features/preview": "./src/features/preview/index.ts",
     "./root": "./src/root/index.ts",
     "./styles/*": "./src/styles/*.css",
     "./theme": "./src/theme/index.ts"

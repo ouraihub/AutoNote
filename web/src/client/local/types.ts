@@ -46,6 +46,7 @@ export interface LocalDbOptions {
   sessionKey?: string
   timers?: LocalDbTimers
   onReadFailure?: (key: string, error: unknown) => void
+  onMigrationFailure?: () => void
 }
 
 export interface LocalDbTimers {

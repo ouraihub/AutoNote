@@ -1,0 +1,17 @@
+{
+  "v2": {
+    "origin": "Locally constructed reference fixture from packages/shared/src/backup-format.ts v2 layout",
+    "historicalProductionArtifact": false,
+    "purpose": "Validate snapshots/<stamp>/manifest.json, COMPLETE, payload SHA-256, folder and attachment link semantics"
+  },
+  "obsidian": {
+    "origin": "Locally constructed deterministic vault",
+    "purpose": "Relative note match, basename ambiguity, title frontmatter, fragments, aliases and code preservation"
+  },
+  "missingEvidence": [
+    "A genuine historical Web-generated v2 backup",
+    "Actual current Web ZIP/JSON import in both directions",
+    "Interactive Windows dialog, Channel receiver loss and shutdown behavior",
+    "Real disk-full and process power-loss durability on target filesystem"
+  ]
+}

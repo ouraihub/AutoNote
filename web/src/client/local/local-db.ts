@@ -56,6 +56,7 @@ export class LocalDbImpl implements LocalDb {
   readonly #sessionKey: string
   readonly #timers: LocalDbOptions['timers']
   readonly #onReadFailure: (key: string, error: unknown) => void
+  readonly #onMigrationFailure: (() => void) | undefined
   #activeUser: string | null = null
   #shellTimer: number | null = null
   #pendingShell: { data: ShellData; userId: string } | null = null
@@ -66,6 +67,7 @@ export class LocalDbImpl implements LocalDb {
     this.#sessionKey = options.sessionKey ?? KEY.session
     this.#timers = options.timers ?? defaultTimers
     this.#onReadFailure = options.onReadFailure ?? (() => undefined)
+    this.#onMigrationFailure = options.onMigrationFailure
   }
 
   activeUserId(): string | null {
@@ -82,10 +84,12 @@ export class LocalDbImpl implements LocalDb {
     }
     try {
       const storedUser = await this.#kv.get<string>(this.#userIdKey)
-      if (storedUser === userId) await this.#migrateLegacy(userId)
-      this.#activeUser = userId
+      if (typeof storedUser === 'string') await this.#migrateLegacy(storedUser)
+      else if ((await this.#kv.get(KEY.outbox)) !== undefined) throw localError()
       await this.#kv.set(this.#userIdKey, userId)
+      this.#activeUser = userId
     } catch {
+      this.#onMigrationFailure?.()
       throw localError()
     }
   }
@@ -99,6 +103,7 @@ export class LocalDbImpl implements LocalDb {
       await this.bindUser(value.user.id)
       return value
     } catch (error) {
+      if (error instanceof BackendError) throw error
       this.#onReadFailure(this.#sessionKey, error)
       return null
     }
@@ -312,6 +317,9 @@ export class LocalDbImpl implements LocalDb {
       const targetValue = existing[index]
       if (targetValue !== undefined) {
         if (legacyKey === KEY.outbox) {
+          if (!isOutboxList(targetValue) || !isOutboxList(legacyValue)) throw localError()
+          if (legacyValue.some((old) => targetValue.some((item) => item.id === old.id && item.writeId !== old.writeId)))
+            throw localError()
           const merged = mergeOutboxValues(targetValue, legacyValue)
           if (merged !== targetValue) {
             await this.#kv.set(scopedKeys[index]!, merged)

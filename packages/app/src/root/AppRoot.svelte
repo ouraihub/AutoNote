@@ -15,10 +15,20 @@
   import type { AppDeps } from './types'
   import { ThemeController } from '../theme/apply'
   import {
-    setBackend, setClock, setExtensions, setI18n, setLogger, setNotes, setNotifier,
-    setOrganize, setPrefs, setSession, setSettings, setUi, setRegisterFlush,
+    setBackend,
+    setClock,
+    setExtensions,
+    setI18n,
+    setLogger,
+    setNotes,
+    setNotifier,
+    setOrganize,
+    setPrefs,
+    setSession,
+    setSettings,
+    setUi,
+    setRegisterFlush,
   } from './context'
-
   interface Props {
     deps: AppDeps
     i18n: I18nState
@@ -30,16 +40,18 @@
     notifier: Notifier
     overlay: OverlayNotifier
     registerFlush(flush: () => Promise<void>): () => void
+    onReadyChange(ready: boolean): void
   }
 
-  let { deps, i18n, notes, session, settings, ui, organize, notifier, overlay, registerFlush }: Props = $props()
+  let { deps, i18n, notes, session, settings, ui, organize, notifier, overlay, registerFlush, onReadyChange }: Props =
+    $props()
   let surface = $state<HTMLDivElement>()
   setContext('autonote-surface', () => surface)
   setRegisterFlush((flush) => registerFlush(flush))
   let ready = $state(false)
   let loadFailed = $state(false)
   let retry = $state(0)
-  const owner = $derived(session.status === 'authed' ? session.user?.id ?? null : null)
+  const owner = $derived(session.status === 'authed' ? (session.user?.id ?? null) : null)
   let theme: ThemeController | undefined
   function provideContexts(read: () => Props): void {
     const value = read()
@@ -56,19 +68,40 @@
     setUi(value.ui)
     setOrganize(value.organize)
   }
-  provideContexts(() => ({ deps, i18n, notes, session, settings, ui, organize, notifier, overlay, registerFlush }))
+  provideContexts(() => ({
+    deps,
+    i18n,
+    notes,
+    session,
+    settings,
+    ui,
+    organize,
+    notifier,
+    overlay,
+    registerFlush,
+    onReadyChange,
+  }))
 
   onMount(() => {
     let active = true
     if (surface && typeof matchMedia === 'function') {
-      theme = new ThemeController({ documentElement: surface }, ui.appearance,
-        matchMedia('(prefers-color-scheme: dark)'), matchMedia('(prefers-reduced-motion: reduce)'))
+      theme = new ThemeController(
+        { documentElement: surface },
+        ui.appearance,
+        matchMedia('(prefers-color-scheme: dark)'),
+        matchMedia('(prefers-reduced-motion: reduce)'),
+      )
     }
     const unsubscribeNotes = notes.watch()
     const unsubscribeSession = session.watch(deps.backend.changes)
-    void i18n.init().then(() => { if (active) return session.load() }).catch((error: unknown) => {
-      deps.logger.error('root.session.load_failed', { name: error instanceof Error ? error.name : 'unknown' })
-    })
+    void i18n
+      .init()
+      .then(() => {
+        if (active) return session.load()
+      })
+      .catch((error: unknown) => {
+        deps.logger.error('root.session.load_failed', { name: error instanceof Error ? error.name : 'unknown' })
+      })
     return () => {
       active = false
       theme?.dispose()
@@ -83,6 +116,7 @@
     if (untrack(() => session.status) === 'loading') return
     let cancelled = false
     ready = false
+    onReadyChange(false)
     loadFailed = false
     void untrack(async () => {
       try {
@@ -98,6 +132,7 @@
         }
         if (!cancelled) {
           ready = notes.hydrated
+          onReadyChange(ready)
           loadFailed = !ready
         }
       } catch (error) {
@@ -107,7 +142,9 @@
         }
       }
     })
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   })
 
   $effect(() => {
@@ -125,19 +162,20 @@
 </script>
 
 <div bind:this={surface} class="h-full min-h-0 bg-[var(--bg-base)] text-[var(--text-primary)]" data-app-root>
-<OverlayProvider notifier={overlay} resolveMessage={(key) => i18n.t(key as MessageKey)} />
-{#if session.status === 'loading'}
-  <p role="status">{i18n.t('common.loading')}</p>
-{:else if session.status === 'anonymous' && deps.backend.capabilities.accounts}
-  <LoginPage {session} {i18n} />
-{:else if session.status === 'authed'}
-  <svelte:boundary>
-    {#if ready}<AppShell />
-    {:else if loadFailed}<p role="alert">{i18n.t('common.action_failed')}</p><button type="button" onclick={() => retry++}>{i18n.t('common.retry')}</button>
-    {:else}<p role="status">{i18n.t('common.loading')}</p>{/if}
-    {#snippet failed()}
-      <p role="alert">{i18n.t('app.something_went_wrong')}</p>
-    {/snippet}
-  </svelte:boundary>
-{/if}
+  <OverlayProvider notifier={overlay} resolveMessage={(key, params) => i18n.t(key as MessageKey, params)} />
+  {#if session.status === 'loading'}
+    <p role="status">{i18n.t('common.loading')}</p>
+  {:else if session.status === 'anonymous' && deps.backend.capabilities.accounts}
+    <LoginPage {session} {i18n} />
+  {:else if session.status === 'authed'}
+    <svelte:boundary>
+      {#if ready}<AppShell />
+      {:else if loadFailed}<p role="alert">{i18n.t('common.action_failed')}</p>
+        <button type="button" onclick={() => retry++}>{i18n.t('common.retry')}</button>
+      {:else}<p role="status">{i18n.t('common.loading')}</p>{/if}
+      {#snippet failed()}
+        <p role="alert">{i18n.t('app.something_went_wrong')}</p>
+      {/snippet}
+    </svelte:boundary>
+  {/if}
 </div>

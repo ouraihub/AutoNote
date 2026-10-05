@@ -1,0 +1,6 @@
+export { SyncEngine } from './engine'
+export type { SyncEngineDeps } from './engine'
+export { SyncPuller, shellSnapshot } from './puller'
+export type { SyncPullerDeps } from './puller'
+export { browserSocketFactory } from './socket'
+export type { SocketFactory, SyncSocket } from './socket'

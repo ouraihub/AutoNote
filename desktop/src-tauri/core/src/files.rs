@@ -107,7 +107,7 @@ fn referenced(conn: &rusqlite::Connection, id: &str) -> Result<bool, Error> {
     )?)
 }
 
-fn checked_mime(reported: &str, bytes: &[u8]) -> &'static str {
+pub(crate) fn checked_mime(reported: &str, bytes: &[u8]) -> &'static str {
     match reported {
         "image/png" if bytes.len() >= 24 && bytes.starts_with(b"\x89PNG\r\n\x1a\n") => "image/png",
         "image/jpeg" if bytes.starts_with(&[0xff, 0xd8, 0xff]) => "image/jpeg",
@@ -160,6 +160,20 @@ impl FileStore {
             root,
             sessions: Mutex::new(HashMap::new()),
         }
+    }
+
+    pub(crate) fn transfer_root(&self) -> &Path {
+        &self.root
+    }
+
+    // Export copies pinned objects into its own stage before releasing this
+    // existing prune/upload lock; compression never holds the library lock.
+    pub(crate) fn transfer_guard<T>(
+        &self,
+        f: impl FnOnce() -> Result<T, Error>,
+    ) -> Result<T, Error> {
+        let _guard = self.sessions.lock()?;
+        f()
     }
 
     fn stage(&self) -> Result<PathBuf, Error> {
@@ -359,6 +373,35 @@ impl Library {
     /// # Errors
     /// On failure the unpublished object remains protected for startup recovery.
     pub fn files_upload_finish(&self, window: &str, upload_id: &str) -> Result<Attachment, Error> {
+        self.files_finish(window, upload_id, None)
+    }
+
+    /// Publishes verified download metadata and its epoch-scoped mapping together.
+    /// The digest proves local integrity, not authenticity of remote bytes.
+    ///
+    /// # Errors
+    /// Rejects invalid IDs, unknown/foreign/incomplete uploads, digest mismatch,
+    /// or inactive bindings. Filesystem and SQLite failures abort publication.
+    pub fn files_sync_finish(
+        &self,
+        window: &str,
+        upload_id: &str,
+        binding: &crate::sync::Binding,
+        remote_id: &str,
+        sha256: &str,
+    ) -> Result<Attachment, Error> {
+        if !crate::id::is_valid_id(remote_id) {
+            return Err(Error::invalid("remoteId", "must be a valid attachment id"));
+        }
+        self.files_finish(window, upload_id, Some((binding, remote_id, sha256)))
+    }
+
+    fn files_finish(
+        &self,
+        window: &str,
+        upload_id: &str,
+        mapping: Option<(&crate::sync::Binding, &str, &str)>,
+    ) -> Result<Attachment, Error> {
         let mut sessions = self.files.sessions.lock()?;
         let session = sessions
             .get(upload_id)
@@ -374,6 +417,10 @@ impl Library {
             .ok_or_else(|| Error::invalid("uploadId", "unknown upload"))?;
         session.file.sync_all()?;
         drop(session.file);
+        let hash = format!("{:x}", session.hash.finalize());
+        if mapping.is_some_and(|(_, _, expected)| expected != hash) {
+            return Err(Error::invalid("sha256", "download digest mismatch"));
+        }
         let dest = self.files.root.join(session.id.as_str());
         if dest.exists() {
             return Err(Error::Duplicate {
@@ -385,6 +432,9 @@ impl Library {
         let result = (|| {
             let mut conn = self.conn.lock()?;
             let tx = conn.transaction()?;
+            if let Some((binding, _, _)) = mapping {
+                crate::sync::require_binding(&tx, binding)?;
+            }
             let used: i64 =
                 tx.query_row("SELECT COALESCE(SUM(size),0) FROM attachments", [], |r| {
                     r.get(0)
@@ -412,10 +462,13 @@ impl Library {
                     });
                 }
             }
-            let hash = format!("{:x}", session.hash.finalize());
             let mime = checked_mime(&session.mime, &session.prefix);
             tx.execute("INSERT INTO attachments (id,note_id,filename,mime,size,sha256,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7)",
                 params![session.id.as_str(), session.note_id.as_ref().map(NoteId::as_str), session.filename, mime, session.size as i64, hash, session.created_at.get()])?;
+            if let Some((binding, remote_id, _)) = mapping {
+                tx.execute("INSERT INTO sync_attachment_map(binding_id,binding_epoch,local_attachment_id,remote_attachment_id,sha256,size,state) VALUES(?1,?2,?3,?4,?5,?6,'ready')",
+                    params![binding.binding_id, binding.binding_epoch, session.id.as_str(), remote_id, hash, session.size as i64])?;
+            }
             tx.commit()?;
             Ok(Attachment {
                 id: session.id.clone(),
@@ -537,6 +590,22 @@ impl Library {
         }
         Ok((file, metadata))
     }
+    /// Reads an attachment bytes and integrity hash for synchronization.
+    ///
+    /// # Errors
+    /// Returns not_found for absent metadata, rejects unsafe paths or mismatched
+    /// sizes, and propagates filesystem read and SQLite errors.
+    pub fn files_sync_source(
+        &self,
+        id: &AttachmentId,
+    ) -> Result<(Vec<u8>, Attachment, String), Error> {
+        use std::io::Read;
+        let (mut file, metadata) = self.files_open(id)?;
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)?;
+        let hash = format!("{:x}", Sha256::digest(&bytes));
+        Ok((bytes, metadata, hash))
+    }
 
     /// AutoNote `GET /files`: 500 per page, newest first, cursor `<createdAt>.<id>`.
     ///
@@ -634,6 +703,95 @@ impl Library {
     }
 }
 
+impl FileStore {
+    pub(crate) fn mcp_publish(
+        &self,
+        tx: &rusqlite::Transaction<'_>,
+        identity: (&str, Option<&str>),
+        filename: &str,
+        mime: &str,
+        bytes: &[u8],
+        now: i64,
+    ) -> Result<Attachment, Error> {
+        let (id, note_id) = identity;
+        if !crate::id::is_valid_id(id) {
+            return Err(Error::invalid("attachment_id", "invalid attachment id"));
+        }
+        if filename.is_empty() || filename.len() > 720 || filename.chars().any(char::is_control) {
+            return Err(Error::invalid("filename", "invalid filename"));
+        }
+        if bytes.len() > MAX_BYTES as usize {
+            return Err(Error::TooLarge {
+                field: "data",
+                limit: MAX_BYTES,
+            });
+        }
+        if let Some(note) = note_id {
+            let exists: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM notes WHERE id=?1 AND deleted_at IS NULL)",
+                [note],
+                |r| r.get(0),
+            )?;
+            if !exists {
+                return Err(Error::NotFound {
+                    entity: Entity::Note,
+                    id: note.to_owned(),
+                });
+            }
+        }
+        let hash = format!("{:x}", Sha256::digest(bytes));
+        let stage = self.stage()?;
+        let part = stage.join(format!("{id}.mcp.part"));
+        let dest = self.root.join(id);
+        if dest.exists()
+            || tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM attachments WHERE id=?1)",
+                [id],
+                |r| r.get::<_, bool>(0),
+            )?
+        {
+            return Err(Error::Duplicate {
+                entity: Entity::Attachment,
+            });
+        }
+        {
+            let mut file = OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&part)?;
+            file.write_all(bytes)?;
+            file.sync_all()?;
+        }
+        if let Err(error) = fs::rename(&part, &dest) {
+            let _ = fs::remove_file(&part);
+            return Err(error.into());
+        }
+        let result = (|| {
+            tx.execute("INSERT INTO attachments(id,note_id,filename,mime,size,sha256,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7)", params![id,note_id,filename,mime,bytes.len() as i64,hash,now])?;
+            Ok(Attachment {
+                id: id
+                    .parse()
+                    .map_err(|_| Error::invalid("attachment_id", "invalid attachment id"))?,
+                note_id: note_id
+                    .map(|v| v.parse())
+                    .transpose()
+                    .map_err(|_| Error::invalid("note_id", "invalid note id"))?,
+                filename: filename.to_owned(),
+                mime: mime.to_owned(),
+                size: bytes.len() as u64,
+                width: None,
+                height: None,
+                url: format!("/api/files/{id}"),
+                created_at: Millis::new(now)?,
+            })
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(&dest);
+        }
+        result
+    }
+}
+
 #[cfg(test)]
 #[allow(
     clippy::unwrap_used,
@@ -671,6 +829,136 @@ mod tests {
         lib.files_upload_chunk("main", &begin.upload_id, 0, bytes)
             .unwrap();
         lib.files_upload_finish("main", &begin.upload_id).unwrap()
+    }
+
+    #[test]
+    fn sync_commits_verified_metadata_and_only_the_frozen_write() -> Result<(), Error> {
+        use crate::sync::{Binding, SyncCookie, SyncEntity};
+        use serde_json::json;
+        let dir = tempfile::tempdir().unwrap();
+        let lib = library(dir.path());
+        let binding = Binding {
+            binding_id: "test".into(),
+            binding_epoch: 1,
+            site_origin: "https://example.test".into(),
+            account_hint: "test".into(),
+            remote_user_id: "user".into(),
+        };
+        let cookie = SyncCookie {
+            ciphertext: None,
+            domain: "example.test".into(),
+            path: "/".into(),
+            expires_at: None,
+            secure: true,
+            host_only: true,
+            name: "session".into(),
+            same_site: "Lax".into(),
+        };
+        lib.sync_bind(&binding, &cookie).unwrap();
+        let remote = "01arz3ndektsv4rrffq69g5fax";
+        let hash = format!("{:x}", Sha256::digest(b"data"));
+        let stage = || {
+            let begin = lib
+                .files_upload_begin("sync", "a.txt", "text/plain", 4, None)
+                .unwrap();
+            lib.files_upload_chunk("sync", &begin.upload_id, 0, b"data")
+                .unwrap();
+            begin
+        };
+        let begin = stage();
+        assert!(
+            lib.files_sync_finish("sync", &begin.upload_id, &binding, remote, "wrong")
+                .is_err()
+        );
+        lib.conn.lock()?.execute_batch("CREATE TRIGGER reject_map BEFORE INSERT ON sync_attachment_map BEGIN SELECT RAISE(ABORT,'test'); END;")?;
+        let begin = stage();
+        assert!(
+            lib.files_sync_finish("sync", &begin.upload_id, &binding, remote, &hash)
+                .is_err()
+        );
+        assert_eq!(
+            lib.conn
+                .lock()?
+                .query_row("SELECT COUNT(*) FROM attachments", [], |r| r
+                    .get::<_, i64>(0))?,
+            0
+        );
+        lib.conn.lock()?.execute_batch("DROP TRIGGER reject_map;")?;
+        let begin = stage();
+        let saved = lib
+            .files_sync_finish("sync", &begin.upload_id, &binding, remote, &hash)
+            .unwrap();
+        let maps = lib.sync_attachment_maps(&binding).unwrap();
+        assert_eq!(maps[0].local_attachment_id, saved.id.as_str());
+        assert_eq!(maps[0].sha256, hash);
+        let stale = Binding {
+            binding_epoch: 2,
+            ..binding.clone()
+        };
+        let begin = stage();
+        assert!(
+            lib.files_sync_finish("sync", &begin.upload_id, &stale, remote, &hash)
+                .is_err()
+        );
+        let base = json!({"id":remote,"name":"old","color":null,"count":0,"createdAt":1});
+        let payload = json!({"method":"PATCH","input":{"name":"new"},"base":base});
+        let enqueue = |write: &str,
+                       entity: &str,
+                       payload: &serde_json::Value|
+         -> Result<(), Error> {
+            lib.conn.lock()?.execute("INSERT INTO sync_outbox(binding_id,binding_epoch,entity,write_id,local_id,local_rev,sent_local_rev,observed_cursor,ack_prereq,kind,payload,attachment_refs,next_attempt_at,state,created_at) VALUES('test',1,?1,?2,?3,0,0,0,'{}',?4,?5,'[]',0,'sending',1)",
+                params![entity, write, remote, if entity == "note" { "patch" } else { "metadata" }, payload.to_string().as_bytes()])?;
+            Ok(())
+        };
+        enqueue("recovery", "note", &json!({}))?;
+        lib.sync_defer_outbox(&binding, "recovery", 1, "offline")?;
+        assert_eq!(
+            lib.conn.lock()?.query_row(
+                "SELECT state FROM sync_outbox WHERE write_id='recovery'",
+                [],
+                |r| r.get::<_, String>(0)
+            )?,
+            "deferred"
+        );
+        let recovery = lib.sync_mark_recovery(&binding, "recovery").unwrap();
+        assert!(crate::id::is_valid_id(&recovery));
+        assert_eq!(
+            recovery,
+            lib.sync_mark_recovery(&binding, "recovery").unwrap()
+        );
+        enqueue("meta", "tag", &payload)?;
+        let mut latest = base.clone();
+        latest["count"] = json!(4);
+        assert!(lib.sync_metadata_guard(&binding, "meta", &latest).unwrap());
+        enqueue("newer", "tag", &payload)?;
+        latest["name"] = json!("new");
+        assert!(
+            lib.sync_ack_metadata(&binding, "meta", 1, remote, &latest, 1)
+                .is_err()
+        );
+        lib.sync_ack_metadata(&binding, "meta", 0, remote, &latest, 1)
+            .unwrap();
+        let map = lib
+            .sync_map_for_local(&binding, SyncEntity::Tag, remote)
+            .unwrap()
+            .unwrap();
+        assert_eq!(map.last_write_id.as_deref(), Some("meta"));
+        assert_eq!(map.state, "dirty");
+        assert!(!lib.sync_metadata_guard(&binding, "newer", &latest).unwrap());
+        assert_eq!(lib.sync_conflicts().unwrap()[0].reason, "metadata_conflict");
+        assert_eq!(lib.sync_state(&binding).unwrap().cursor, 0);
+        lib.sync_confirm_binding(
+            &binding,
+            &cookie,
+            crate::sync::BindPolicy::ExportLocal,
+            &crate::sync::BindingSnapshot {
+                notes: Vec::new(),
+                folders: Vec::new(),
+                tags: Vec::new(),
+                cursor: 0,
+            },
+        )?;
+        Ok(())
     }
 
     fn age(path: &Path) {

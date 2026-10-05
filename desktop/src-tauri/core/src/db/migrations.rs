@@ -90,4 +90,30 @@ CREATE VIRTUAL TABLE notes_fts USING fts5(
 CREATE TABLE prefs (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);
 "#,
     },
+    Migration {
+        version: 3,
+        sql: include_str!("../sync/schema.sql"),
+    },
+    Migration {
+        version: 4,
+        sql: r#"
+CREATE TABLE mcp_tokens (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE,
+  scopes TEXT NOT NULL, created_at INTEGER NOT NULL,
+  last_used_at INTEGER, revoked_at INTEGER
+);
+CREATE TABLE mcp_preferences (
+  id INTEGER PRIMARY KEY CHECK(id=1), write_enabled INTEGER NOT NULL DEFAULT 0,
+  trash_enabled INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL
+);
+INSERT INTO mcp_preferences(id,write_enabled,trash_enabled,updated_at) VALUES(1,0,0,unixepoch('subsec') * 1000);
+CREATE TABLE mcp_operations (
+  operation_id TEXT PRIMARY KEY, tool TEXT NOT NULL,
+  request_hash TEXT NOT NULL, response_json TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('completed','expired')),
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX idx_mcp_operations_created ON mcp_operations(created_at);
+"#,
+    },
 ];

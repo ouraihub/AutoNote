@@ -88,3 +88,25 @@ test('the real welcome note exposes modern containers and safe copyable examples
   expect(root.querySelector('[data-embed-target]')?.textContent).toContain('This content is embedded again below.')
   expect(root.querySelector('a[href="https://example.com"]')?.getAttribute('rel')).toBe('noopener noreferrer')
 })
+
+test('public articles cannot write tasks or follow private links, but tabs remain interactive', async () => {
+  const source = '- [ ] Task\n\n[[Private]]\n\n#secret\n\n:::: tabs\n::: tab-item One\nFirst\n:::\n::: tab-item Two\nSecond\n:::\n::::'
+  const root = document.createElement('article')
+  root.innerHTML = renderMarkdown(source).html
+  const openNote = vi.fn(), toggleTask = vi.fn(async () => {}), onTag = vi.fn()
+  const readonlyServices = { ...services, openNote, toggleTask }
+  prepareArticle(root, { noteId: 'public', services: readonlyServices, i18n, collapseLines: 0, publicReadonly: true })
+  const cleanup = bindArticleInteractions(root, { services: readonlyServices, source: () => source, renderedSource: source, i18n, notifier: { toast() {}, confirm: async () => false }, onTag, publicReadonly: true })
+  try {
+    root.querySelector<HTMLElement>('[role="checkbox"]')!.click()
+    root.querySelector<HTMLElement>('[data-wikilink]')!.click()
+    root.querySelector<HTMLElement>('[data-tag]')!.click()
+    root.querySelectorAll<HTMLButtonElement>('[data-tab-button]')[1]!.click()
+    await Promise.resolve()
+    expect(root.querySelector('[role="checkbox"]')?.getAttribute('aria-checked')).toBe('false')
+    expect(root.querySelector('[data-tab-button="1"]')?.getAttribute('aria-selected')).toBe('true')
+    expect(openNote).not.toHaveBeenCalled()
+    expect(toggleTask).not.toHaveBeenCalled()
+    expect(onTag).not.toHaveBeenCalled()
+  } finally { cleanup() }
+})

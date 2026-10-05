@@ -186,10 +186,11 @@ pub async fn notes_flush(
     context: Ctx<'_>,
     note_id: Option<String>,
 ) -> Result<FlushResult, AppError> {
-    run("notes_flush", &context, move |_| {
+    run("notes_flush", &context, move |library| {
         if let Some(id) = note_id {
             id.parse::<NoteId>()?;
         }
+        library.library_cursor()?;
         Ok(FlushResult {
             pending: 0,
             failed: 0,

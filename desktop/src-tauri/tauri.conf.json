@@ -7,7 +7,8 @@
     "beforeDevCommand": "pnpm run dev",
     "devUrl": "http://localhost:1430",
     "beforeBuildCommand": "pnpm run build",
-    "frontendDist": "../build"
+    "frontendDist": "../build",
+    "windows": { "staticVCRuntime": true }
   },
   "app": {
     "windows": [
@@ -28,6 +29,7 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "windows": { "nsis": { "installMode": "currentUser", "installerHooks": "nsis-hooks.nsh" }, "webviewInstallMode": { "type": "downloadBootstrapper", "silent": false } },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

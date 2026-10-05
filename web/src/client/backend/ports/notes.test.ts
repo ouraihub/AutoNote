@@ -250,3 +250,21 @@ describe('HttpNotesTextWriter', () => {
     expect(await db.getContent('note')).toBeUndefined()
   })
 })
+
+it('refuses local disposal after a failed journal and allows it after the edit is persisted', async () => {
+  const kv = new MemoryKvStore()
+  const db = createLocalDb({ kv })
+  const notes = await writer(db)
+  const update = kv.update.bind(kv)
+  kv.update = async () => {
+    throw new Error('quota')
+  }
+  await expect(notes.patch('note', { rev: 1, content: 'retain' }, { writeId: 'failed' })).rejects.toMatchObject({
+    code: 'internal',
+  })
+  await expect(notes.waitForLocalCommit()).rejects.toMatchObject({ code: 'internal' })
+  kv.update = update
+  await notes.patch('note', { rev: 1, content: 'retain' }, { writeId: 'persisted' })
+  await notes.waitForLocalCommit()
+  expect(await db.getOutbox()).toMatchObject([{ writeId: 'persisted', payload: { content: 'retain' } }])
+})

@@ -6,9 +6,13 @@
 //! the kernel returns, never a transport-level decode error. Kernel failures
 //! become `AppError` through `From<note_core::Error>`.
 
+pub(crate) mod app;
 pub(crate) mod files;
 pub(crate) mod library;
+pub(crate) mod mcp;
 pub(crate) mod notes;
+pub(crate) mod sync;
+pub(crate) mod transfer;
 
 use std::sync::Arc;
 

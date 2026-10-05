@@ -1,11 +1,11 @@
 <script lang="ts">
   import { Toaster } from './sonner'
   import ConfirmationHost from './ConfirmationHost.svelte'
-  import type { OverlayNotifier } from './overlay-notifier.svelte'
+  import type { OverlayNotifier, MessageResolver } from './overlay-notifier.svelte'
 
   interface Props {
     notifier: OverlayNotifier
-    resolveMessage: (key: string) => string
+    resolveMessage: MessageResolver
   }
 
   let { notifier, resolveMessage }: Props = $props()

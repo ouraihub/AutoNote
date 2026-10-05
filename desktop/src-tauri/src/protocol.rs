@@ -57,6 +57,18 @@ pub fn serve(library: &Arc<Library>, request: Request<Vec<u8>>) -> Response<Cow<
     // convertFileSrc(id, 'autonote-file') yields /id. Reject any other path,
     // percent escape, query, fragment or authority on every platform.
     let uri = request.uri();
+    let trusted_authority = matches!(
+        (
+            uri.scheme_str(),
+            uri.authority().map(|value| value.as_str())
+        ),
+        (Some("autonote-file"), Some("localhost"))
+            | (Some("http"), Some("autonote-file.localhost"))
+            | (None, None)
+    );
+    if !trusted_authority {
+        return response(StatusCode::NOT_FOUND, Vec::new());
+    }
     let path = uri.path();
     let Some(id) = path.strip_prefix('/') else {
         return response(StatusCode::NOT_FOUND, Vec::new());
@@ -183,6 +195,9 @@ mod tests {
 
         for uri in [
             format!("autonote-file://localhost/{id}?x=1"),
+            format!("autonote-file://elsewhere/{id}"),
+            format!("http://evil.example/{id}"),
+            format!("http://autonote-file.localhost:9999/{id}"),
             "autonote-file://localhost/../library.secret".to_owned(),
             "autonote-file://localhost/%2e%2e%2flibrary.secret".to_owned(),
             "autonote-file://localhost/a/b".to_owned(),

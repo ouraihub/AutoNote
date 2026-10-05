@@ -13,9 +13,14 @@ thiserror.workspace = true
 tracing.workspace = true
 rusqlite.workspace = true
 sha2.workspace = true
-
-[dev-dependencies]
+base64 = "0.22"
 tempfile.workspace = true
+zip = { version = "=2.4.2", default-features = false, features = ["deflate"] }
+cap-std = "=3.4.5"
+cap-fs-ext = "=3.4.5"
+time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
+fs2 = "=0.4.3"
+
 
 [lints]
 workspace = true

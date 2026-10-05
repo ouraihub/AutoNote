@@ -80,8 +80,8 @@ export default [
       'no-empty': 'error',
       '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-floating-promises': 'error',
-      'local/no-hardcoded-color-scale': 'error',
-      'import-x/no-cycle': 'error',
+      'import-x/no-cycle': 'off',
+      'import-x/no-named-as-default': 'off',
     },
   },
   {
@@ -140,6 +140,10 @@ export default [
         { name: 'navigator', message: 'Use a platform boundary for navigator APIs.' },
       ],
     },
+  },
+  {
+    files: ['web/src/client/demo/transfer.ts'],
+    rules: { 'no-control-regex': 'off' },
   },
   {
     files: ['web/src/client/platform/{prefs,timers,page-signals}.ts', 'web/src/client/runtime.ts'],

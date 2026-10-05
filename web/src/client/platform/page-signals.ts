@@ -33,3 +33,17 @@ export const browserPageSignals: PageSignals = {
     return () => window.removeEventListener(event, guardedListener)
   },
 }
+export const browserCapabilities = {
+  get serviceWorker(): boolean {
+    return 'serviceWorker' in globalThis.navigator
+  },
+  get locks(): boolean {
+    return 'locks' in globalThis.navigator
+  },
+  get online(): boolean {
+    return globalThis.navigator.onLine
+  },
+  get serviceWorkerContainer(): ServiceWorkerContainer {
+    return globalThis.navigator.serviceWorker
+  },
+}

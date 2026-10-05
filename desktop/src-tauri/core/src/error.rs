@@ -148,9 +148,16 @@ impl fmt::Display for ErrorCode {
 #[serde(untagged, rename_all_fields = "camelCase")]
 pub enum ErrorDetails {
     /// `bad_request`: which input field was rejected.
-    Field { field: &'static str },
-    /// `not_found` for a deleted note.
-    Deletion { deletion_cursor: Option<Cursor> },
+    Field {
+        field: &'static str,
+    },
+    /// MCP-specific machine-readable reason.
+    Reason {
+        reason: &'static str,
+    },
+    Deletion {
+        deletion_cursor: Option<Cursor>,
+    },
     /// `conflict` on a local note rev. `server` matches worker
     /// `{ server: Note }`; `resource/id/expected/actual` serve MCP (22 §3.1).
     NoteConflict {
@@ -161,7 +168,9 @@ pub enum ErrorDetails {
         server: Box<Note>,
     },
     /// `conflict` on a taken ID or name.
-    Resource { resource: Entity },
+    Resource {
+        resource: Entity,
+    },
 }
 
 /// IPC/MCP wire error: `{ code, message, details? }`.
@@ -214,7 +223,7 @@ impl AppError {
         self.details.as_ref()
     }
 
-    fn with_details(mut self, details: ErrorDetails) -> Self {
+    pub fn with_details(mut self, details: ErrorDetails) -> Self {
         self.details = Some(details);
         self
     }

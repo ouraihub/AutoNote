@@ -26,6 +26,7 @@ export interface SessionPortDeps {
   readonly clientId: string
   readonly flush?: () => Promise<void>
   readonly pending?: () => Promise<LogoutPending>
+  readonly waitForLocalCommit?: () => Promise<void>
 }
 
 export class HttpSessionPort implements SessionPort {
@@ -33,6 +34,7 @@ export class HttpSessionPort implements SessionPort {
   readonly #localDb: LocalDb
   readonly #flush: (() => Promise<void>) | undefined
   readonly #pending: (() => Promise<LogoutPending>) | undefined
+  readonly #waitForLocalCommit: (() => Promise<void>) | undefined
   readonly #account: SessionAccountPort
   #epoch = 0
   #cacheWrites: Promise<void> = Promise.resolve()
@@ -43,6 +45,7 @@ export class HttpSessionPort implements SessionPort {
     this.#localDb = deps.localDb
     this.#flush = deps.flush
     this.#pending = deps.pending
+    this.#waitForLocalCommit = deps.waitForLocalCommit
     this.#account = new HttpSessionAccountPort(
       this.#transport,
       deps.bus,
@@ -81,6 +84,8 @@ export class HttpSessionPort implements SessionPort {
     const write = this.#cacheWrites
       .catch(() => undefined)
       .then(async () => {
+        this.#assertCurrent(epoch, signal)
+        if (result.user && result.user.id !== this.#localDb.activeUserId()) await this.#waitForLocalCommit?.()
         this.#assertCurrent(epoch, signal)
         if (result.user) await this.#localDb.saveSession(result)
         else await this.#localDb.clearSession()

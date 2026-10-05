@@ -82,5 +82,8 @@ describe('SyncPuller checkpoint', () => {
     })
     await expect(bad.pull()).rejects.toMatchObject({ code: 'invalid_response' })
     expect((await db.loadShell())?.cursor).toBe(4)
+    puller.dispose()
+    await expect(puller.snapshot()).rejects.toMatchObject({ code: 'cancelled' })
+    await expect(puller.pull()).rejects.toMatchObject({ code: 'cancelled' })
   })
 })

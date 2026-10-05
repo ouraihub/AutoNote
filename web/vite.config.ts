@@ -4,6 +4,7 @@ import { svelte } from '@sveltejs/vite-plugin-svelte'
 import tailwindcss from '@tailwindcss/vite'
 import { cloudflare } from '@cloudflare/vite-plugin'
 import { themeBootstrapPlugin } from '../packages/app/src/theme/vite-plugin'
+import { autonotePwa } from './pwa.config'
 
 const ephemeralDevState = process.env.AUTONOTE_EPHEMERAL_DEV === '1'
 
@@ -12,8 +13,9 @@ const config: UserConfigFnPromise = async ({ mode, command }) => ({
     svelte(),
     tailwindcss(),
     themeBootstrapPlugin('autonote.ui:layout'),
-    cloudflare({
-      configPath: mode === 'kv' ? './wrangler.kv.toml' : undefined,
+    autonotePwa(),
+    ...(mode === 'demo' ? [] : cloudflare({
+      configPath: mode === 'kv' ? './wrangler.kv.toml' : './wrangler.toml',
       persistState: !ephemeralDevState,
       ...(command === 'serve' && mode !== 'ai'
         ? {
@@ -22,7 +24,7 @@ const config: UserConfigFnPromise = async ({ mode, command }) => ({
             },
           }
         : {}),
-    }),
+    })),
   ],
 
   resolve: {
@@ -34,16 +36,17 @@ const config: UserConfigFnPromise = async ({ mode, command }) => ({
   },
 
   server: {
-    port: 7712,
-    strictPort: false,
+    port: mode === 'demo' ? 7714 : 7712,
+    strictPort: mode === 'demo',
   },
 
   preview: {
-    port: 7713,
+    port: mode === 'demo' ? 7715 : 7713,
   },
 
   build: {
     target: 'esnext',
+    ...(mode === 'demo' ? { outDir: 'dist/demo', emptyOutDir: true } : {}),
     sourcemap: false,
     cssMinify: 'lightningcss',
   },

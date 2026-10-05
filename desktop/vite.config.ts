@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 import { sveltekit } from '@sveltejs/kit/vite'
 import tailwindcss from '@tailwindcss/vite'
 
@@ -14,6 +14,12 @@ export default defineConfig({
     resolve: {
       conditions: ['svelte', 'node'],
     },
+  },
+  build: {
+    reportCompressedSize: false,
+  },
+  test: {
+    include: ['src/**/*.test.ts'],
   },
   server: {
     port: 1430,

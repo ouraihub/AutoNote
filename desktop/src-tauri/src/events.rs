@@ -45,17 +45,24 @@ impl ChangeSink for TauriChangeSink {
             return;
         };
         let library = &app.state::<AppContext>().library;
-        let payload = match *sent {
-            Some(since) => library.library_changes(since),
-            None => library.notes_snapshot(),
-        };
-        let result = payload.map_err(AppError::from).and_then(|payload| {
-            let cursor = payload.cursor;
-            app.emit(LIBRARY_CHANGED, &payload)
-                .map_err(|_| AppError::new(note_core::ErrorCode::Internal, "emit failed"))?;
-            *sent = Some(cursor);
+        let result = (|| -> Result<(), AppError> {
+            loop {
+                let payload = match *sent {
+                    Some(since) => library.library_changes(since),
+                    None => library.notes_snapshot(),
+                }
+                .map_err(AppError::from)?;
+                let more = payload.has_more;
+                let cursor = payload.cursor;
+                app.emit(LIBRARY_CHANGED, &payload)
+                    .map_err(|_| AppError::new(note_core::ErrorCode::Internal, "emit failed"))?;
+                *sent = Some(cursor);
+                if !more {
+                    break;
+                }
+            }
             Ok(())
-        });
+        })();
         if let Err(error) = result {
             tracing::warn!(code = error.code().as_str(), "ipc.event.failed");
         }
@@ -66,6 +73,16 @@ impl ChangeSink for TauriChangeSink {
             && app.emit(WRITE, &event).is_err()
         {
             tracing::warn!("ipc.event.failed");
+        }
+    }
+}
+
+impl note_sync::StatusSink for TauriChangeSink {
+    fn changed(&self, status: &note_sync::SyncStatus) {
+        if let Some(app) = self.app.get()
+            && app.emit("autonote://sync-status", status).is_err()
+        {
+            tracing::warn!(code = "internal", "ipc.event.failed");
         }
     }
 }

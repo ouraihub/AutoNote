@@ -14,8 +14,13 @@ mod error;
 mod files;
 pub mod id;
 pub mod markdown;
+pub mod mcp;
+#[path = "mcp_read.rs"]
+mod mcp_read;
 mod prefs;
 mod query;
+pub mod sync;
+pub mod transfer;
 mod types;
 mod write;
 
@@ -33,6 +38,7 @@ pub use query::{
     GraphEdge, GraphMeta, GraphNode, GraphQuery, GraphResponse, GraphTag, ListNotesQuery,
     NoteOrder, NoteSort, NoteView, SearchHit, SearchMode, SearchQuery, SearchResponse, SearchTerms,
 };
+pub use sync::{ConflictSummary, QuarantinedSummary};
 pub use types::{
     AttachmentId, Cursor, FolderId, MAX_SAFE_INTEGER, Millis, NoteId, RemoteRev, Rev, TagId,
     VersionId,

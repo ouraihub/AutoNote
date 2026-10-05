@@ -20,7 +20,7 @@ pub struct FolderDeleteResult {
     pub notes: u64,
 }
 
-fn name(raw: &str) -> Result<&str, Error> {
+pub(crate) fn name(raw: &str) -> Result<&str, Error> {
     let name = raw.trim();
     if name.is_empty() || name.encode_utf16().count() > 120 {
         return Err(Error::invalid("name", "must be 1 to 120 UTF-16 units"));
@@ -33,7 +33,7 @@ fn icon(value: Option<&str>) -> Option<String> {
         .map(|v| truncate_utf16(v, 8))
         .filter(|v| !v.is_empty())
 }
-fn color(value: Option<&str>) -> Result<(), Error> {
+pub(crate) fn color(value: Option<&str>) -> Result<(), Error> {
     if value.is_some_and(|value| {
         !matches!(
             value,
@@ -63,7 +63,7 @@ fn load(tx: &Transaction<'_>, id: &str) -> Result<Folder, Error> {
             id: id.into(),
         })
 }
-fn check_parent(
+pub(crate) fn check_parent(
     tx: &Transaction<'_>,
     parent: Option<&FolderId>,
     self_id: Option<&FolderId>,
@@ -99,14 +99,14 @@ fn check_parent(
     }
     Ok(())
 }
-fn height(tx: &Transaction<'_>, id: &str) -> Result<i64, Error> {
+pub(crate) fn height(tx: &Transaction<'_>, id: &str) -> Result<i64, Error> {
     Ok(tx.query_row(
         "WITH RECURSIVE tree(id,depth) AS (SELECT id,1 FROM folders WHERE id=?1 UNION ALL SELECT f.id,t.depth+1 FROM folders f JOIN tree t ON f.parent_id=t.id WHERE f.deleted_at IS NULL AND t.depth<=12) SELECT MAX(depth) FROM tree",
         [id],
         |r| r.get::<_, Option<i64>>(0),
     )?.unwrap_or(0))
 }
-fn depth(tx: &Transaction<'_>, parent: Option<&FolderId>) -> Result<i64, Error> {
+pub(crate) fn depth(tx: &Transaction<'_>, parent: Option<&FolderId>) -> Result<i64, Error> {
     let mut current = parent.map(|p| p.as_str().to_owned());
     let mut depth = 0;
     while let Some(id) = current {
@@ -120,7 +120,7 @@ fn depth(tx: &Transaction<'_>, parent: Option<&FolderId>) -> Result<i64, Error> 
     }
     Ok(depth)
 }
-fn check_name(
+pub(crate) fn check_name(
     tx: &Transaction<'_>,
     parent: Option<&FolderId>,
     name: &str,

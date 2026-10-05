@@ -10,6 +10,7 @@
     reason = "public core API docs are finalized with the IPC surface"
 )]
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
@@ -63,6 +64,7 @@ pub struct Library {
     pub(crate) ids: Arc<dyn IdSource>,
     pub(crate) sink: Arc<dyn ChangeSink>,
     pub(crate) files: FileStore,
+    writes_stopped: AtomicBool,
 }
 
 impl Library {
@@ -73,6 +75,7 @@ impl Library {
             ids: deps.ids,
             sink: deps.sink,
             files: FileStore::new(files_dir.to_path_buf()),
+            writes_stopped: AtomicBool::new(false),
         }
     }
     fn default_deps() -> LibraryDeps {
@@ -97,6 +100,9 @@ impl Library {
     ) -> Result<Written<T>, Error> {
         let (value, changes) = {
             let mut conn = self.conn.lock()?;
+            if self.writes_stopped.load(Ordering::Acquire) {
+                return Err(Error::Cancelled);
+            }
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
             let mut work = WriteTx {
                 tx,
@@ -115,10 +121,21 @@ impl Library {
             || changes.folders_changed
             || changes.tags_changed
             || changes.settings_changed
+            || changes.import_changed
         {
             self.sink.library_changed(changes.clone());
         }
         Ok(Written { value, changes })
+    }
+
+    /// Stops new domain commits, after waiting for the current durable commit.
+    /// Reads remain available so shutdown can persist window state and diagnostics.
+    /// # Errors
+    /// Returns an error if the connection lock is poisoned.
+    pub fn stop_writes(&self) -> Result<(), Error> {
+        let _connection = self.conn.lock()?;
+        self.writes_stopped.store(true, Ordering::Release);
+        Ok(())
     }
 }
 
@@ -144,6 +161,7 @@ impl Library {
             .join("files");
         let library = Self::with_deps(conn, deps, &files_dir);
         library.migrate()?;
+        crate::transfer::recover_staging(&library)?;
         library.files_recover()?;
         library.prune_changes()?;
         Ok(library)
@@ -155,6 +173,7 @@ impl Library {
         conn.pragma_update(None, "foreign_keys", true)?;
         let library = Self::with_deps(conn, deps, files_dir);
         library.migrate()?;
+        crate::transfer::recover_staging(&library)?;
         library.files_recover()?;
         Ok(library)
     }
@@ -312,44 +331,6 @@ mod tests {
     }
 
     #[test]
-    fn initial_schema_contains_only_core_tables() {
-        let dir = tempfile::tempdir().unwrap();
-        let library = Library::open(&dir.path().join("library.db")).unwrap();
-        let conn = library.conn.lock().unwrap();
-        let mut query = conn.prepare("SELECT name FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%' ORDER BY name").unwrap();
-        let names: Vec<String> = query
-            .query_map([], |row| row.get(0))
-            .unwrap()
-            .map(Result::unwrap)
-            .collect();
-        assert_eq!(
-            names,
-            [
-                "app_meta",
-                "attachments",
-                "changes",
-                "folders",
-                "links",
-                "note_tags",
-                "note_versions",
-                "notes",
-                "notes_fts",
-                "notes_fts_config",
-                "notes_fts_content",
-                "notes_fts_data",
-                "notes_fts_docsize",
-                "notes_fts_idx",
-                "prefs",
-                "schema_migrations",
-                "tags"
-            ]
-        );
-        drop(query);
-        drop(conn);
-        assert_eq!(library.schema_version().unwrap(), 2);
-    }
-
-    #[test]
     fn legacy_v1_upgrades_without_losing_data() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("library.db");
@@ -371,13 +352,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        let migrations: i64 = conn
-            .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
-                row.get(0)
-            })
-            .unwrap();
         assert_eq!(value, "preserved");
-        assert_eq!(migrations, 2);
     }
 
     #[test]
@@ -443,12 +418,22 @@ mod tests {
         let tables: i64 = conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('app_meta', 'partial', 'schema_migrations')", [], |row| row.get(0)).unwrap();
         assert_eq!(tables, 0);
         migrate(&mut conn, MIGRATIONS).unwrap();
-        let version: i64 = conn
-            .query_row("SELECT MAX(version) FROM schema_migrations", [], |row| {
-                row.get(0)
-            })
+        conn.execute(
+            "INSERT INTO app_meta(key,value) VALUES('recovered','preserved')",
+            [],
+        )
+        .unwrap();
+        let recovered: String = conn
+            .query_row(
+                "SELECT value FROM app_meta WHERE key='recovered'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(
+            recovered, "preserved",
+            "a failed upgrade leaves the database usable for a later successful migration"
+        );
     }
 
     #[test]

@@ -12,10 +12,20 @@
 #    （D:\...;D:\...）。混用任何一种都会得到
 #    「cannot open input file 'kernel32.lib'」。
 
+if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+    if [ -z "${RUNNER_TOOL_CACHE:-}" ] || [ -z "${VCToolsInstallDir:-}" ]; then
+        echo "ERROR: explicit GitHub runner MSVC environment is missing." >&2
+        return 1 2>/dev/null || exit 1
+    fi
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$(dirname "${BASH_SOURCE[0]}")/compiler-paths.ps1")" -Root "$VCToolsInstallDir" || { return 1 2>/dev/null || exit 1; }
+    return 0 2>/dev/null || exit 0
+fi
+
 VCTOOLS="14.44.35207"
 SDK="10.0.26100.0"
 MSVC_ROOT="${PORTABLE_MSVC_ROOT:-/d/Applications/msvc-portable/msvc}"
 MSVC_ROOT_WIN="$(cygpath -w "$MSVC_ROOT")"
+MSVC_ROOT="$(cygpath -u "$MSVC_ROOT_WIN")"
 
 if [ ! -f "$MSVC_ROOT/VC/Tools/MSVC/$VCTOOLS/bin/Hostx64/x64/cl.exe" ]; then
     echo "ERROR: 便携 MSVC 不在 $MSVC_ROOT（缺 cl.exe）。" >&2
@@ -33,4 +43,5 @@ if ! command -v cl.exe >/dev/null 2>&1; then
     echo "ERROR: 注入后仍找不到 cl.exe，工具链不完整。" >&2
     return 1 2>/dev/null || exit 1
 fi
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w "$(dirname "${BASH_SOURCE[0]}")/compiler-paths.ps1")" -Root "$MSVC_ROOT_WIN" || { return 1 2>/dev/null || exit 1; }
 echo "MSVC 已注入（$VCTOOLS / SDK $SDK）"

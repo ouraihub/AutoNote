@@ -6,6 +6,8 @@
   import CommandPalette from '../command/CommandPalette.svelte'
   import ShortcutsPanel from '../command/ShortcutsPanel.svelte'
   import GraphPanel from '../graph/GraphPanel.svelte'
+  import Sidebar from '../sidebar/Sidebar.svelte'
+  import NoteList from '../list/NoteList.svelte'
   import { createHotkeys, type Hotkeys } from '../../lib/hotkeys'
   import { getBackend, getExtensions, getI18n, getNotes, getNotifier, getOrganize, getSettings, getUi } from '../../root/context'
 
@@ -30,7 +32,10 @@
       { id: 'new', combo: 'mod+n', description: () => i18n.t('common.new_note'), group: () => i18n.t('common.navigation'), handler: () => void createNote() },
       { id: 'shortcuts', combo: 'shift+?', description: () => i18n.t('command.keyboard_shortcuts'), group: () => i18n.t('common.interface'), handler: () => ui.togglePanel('shortcuts') },
     ])
-    return () => registry.dispose()
+    const unsubscribeIntent = extensions.subscribeIntents?.((intent) => {
+      if (intent === 'new-note') void createNote()
+    })
+    return () => { registry.dispose(); unsubscribeIntent?.() }
   })
 
   async function createNote(): Promise<void> {
@@ -62,11 +67,8 @@
     <Button variant="ghost" onclick={() => ui.openPanel('settings')}>{i18n.t('common.open_settings')}</Button>
   </header>
   <div class="flex min-h-0 flex-1">
-    <nav class="note-navigation w-56 shrink-0 overflow-auto border-r border-[var(--border-default)] p-2" class:mobile-hidden={ui.mobilePane !== 'list'} aria-label={i18n.t('common.navigation')}>
-      {#each Object.values(notes.summaries).filter((note) => note.deletedAt === null) as note (note.id)}
-        <Button class="mb-1 w-full justify-start truncate" variant={ui.activeNoteId === note.id ? 'secondary' : 'ghost'} onclick={(event) => void openNote(note.id, event.shiftKey || event.altKey)}>{note.title || i18n.t('common.untitled_note')}</Button>
-      {/each}
-    </nav>
+    <aside class="note-navigation shrink-0 overflow-auto border-r border-[var(--border-default)]" style:width={`${ui.layout.navCollapsed ? 48 : ui.layout.navWidth}px`} aria-label={i18n.t('common.navigation')}><Sidebar /></aside>
+    <section class="note-list-pane min-h-0 shrink-0 border-r border-[var(--border-default)]" style:width={`${ui.layout.listWidth}px`} class:mobile-hidden={ui.mobilePane !== 'list'}><NoteList /></section>
     <main class="min-h-0 min-w-0 flex-1" class:mobile-hidden={ui.mobilePane === 'list'}><Workspace /></main>
   </div>
   {#if ui.panel === 'settings'}<SettingsPanel onClose={() => ui.closePanel()} />{/if}
@@ -78,8 +80,11 @@
 </div>
 
 <style>
+  @media (max-width: 1179px) {
+    .note-navigation { width: 0 !important; border-right: 0; }
+  }
   @media (max-width: 767px) {
     .mobile-hidden { display: none; }
-    .note-navigation { width: 100%; border-right: 0; }
+    .note-list-pane { width: 100% !important; border-right: 0; }
   }
 </style>
