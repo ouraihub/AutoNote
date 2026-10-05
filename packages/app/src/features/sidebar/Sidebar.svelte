@@ -556,13 +556,6 @@
         ui.openPanel('graph')
       }}>{i18n.t('common.graph')}</Button
     >
-    <Button
-      variant="ghost"
-      onclick={() => {
-        ui.toggleNavDrawer(false)
-        ui.openPanel('settings')
-      }}>{i18n.t('common.settings')}</Button
-    >
     {#if feedback && !editorOpen}<p role="alert" class="whitespace-pre-line text-sm text-destructive">
         {feedback}
       </p>{/if}
