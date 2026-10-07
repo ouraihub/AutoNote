@@ -1,11 +1,19 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { KeyRound, Lock, Moon, Sun, X } from '@lucide/svelte'
   import { BackendError } from '@app/backend'
+  import Avatar from '@app/components/primitives/Avatar.svelte'
+  import Button from '@app/components/primitives/Button.svelte'
+  import IconButton from '@app/components/primitives/IconButton.svelte'
+  import Logo from '@app/components/primitives/Logo.svelte'
+  import TextInput from '@app/components/primitives/TextInput.svelte'
   import { MarkdownArticle } from '@app/features/preview'
+  import LoadingBlock from '@app/features/share/LoadingBlock.svelte'
   import type { I18nState } from '@app/i18n/runtime.svelte'
   import type { Notifier } from '@app/platform/notifier'
   import type { Logger } from '@app/log/logger'
   import type { RenderServices } from '@app/markdown/embeds'
+  import type { MessageKey } from '@shared/locales/en-US'
   import { countText, readingMinutes } from '@shared/markdown-utils'
   import { LIMITS } from '@shared/constants'
   import { SharePageState } from './share-page.svelte'
@@ -90,111 +98,177 @@
   }
 </script>
 
-<div class="h-dvh overflow-y-auto bg-[var(--bg-base)] text-[var(--text-primary)]">
-  <header class="sticky top-0 z-10 border-b border-[var(--border-subtle)] bg-[var(--bg-base)]">
-    <div class="mx-auto flex max-w-[860px] items-center gap-3 px-5 py-3">
-      <img src="/autonote-logo.png" width="24" height="24" alt="" />
-      <span class="font-semibold">{shareState.note?.site.name ?? language.t('common.product_name')}</span>
+
+<div class="h-dvh overflow-y-auto overscroll-contain bg-[var(--bg-base)] text-[var(--text-primary)]">
+  <header
+    class="sticky top-0 z-10 border-b border-[var(--border-subtle)] bg-[var(--bg-base)]/85 pt-[env(safe-area-inset-top)] backdrop-blur"
+  >
+    <div class="mx-auto flex h-12 max-w-[860px] items-center gap-3 px-4 md:px-5">
+      <span class="flex items-center gap-1.5 text-[var(--accent)]"><Logo size={15} /></span>
+      <span class="text-[12.5px] font-semibold tracking-[-0.01em] text-[var(--text-primary)]">
+        {shareState.note?.site.name ?? language.t('common.product_name')}
+      </span>
+      <span class="flex-1"></span>
       <button
-        class="ml-auto rounded p-2 hover:bg-[var(--bg-hover)]"
         type="button"
         onclick={() => {
           dark = !dark
           document.documentElement.dataset.theme = dark ? 'dark' : 'light'
         }}
-        aria-label={language.t('share.switch_theme')}>{language.t(dark ? 'settings.light' : 'settings.dark')}</button
+        aria-label={language.t('share.switch_theme')}
+        title={language.t('share.switch_theme')}
+        class="inline-flex size-9 items-center justify-center rounded-[var(--r-md)] text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] md:size-7"
       >
+        {#if dark}<Sun size={14} />{:else}<Moon size={14} />{/if}
+      </button>
     </div>
   </header>
-  <main class="mx-auto max-w-[860px] px-5 pb-16 pt-8">
-    {#if shareState.status === 'loading'}<p role="status">{language.t('share.opening')}</p>
+
+  <main class="mx-auto max-w-[860px] px-4 pb-[calc(64px+env(safe-area-inset-bottom))] md:px-5 md:pb-24">
+    {#if shareState.status === 'loading'}
+      <div class="pt-24"><LoadingBlock label={language.t('share.opening')} /></div>
     {:else if shareState.status === 'passwordRequired'}
-      <section class="mx-auto max-w-sm py-16">
-        <h1 class="text-xl font-semibold">{language.t('share.this_note_requires_a_password')}</h1>
-        <p class="my-3 text-[var(--text-tertiary)]">
+      <div class="anim-rise mx-auto max-w-[340px] pt-[16vh] text-center">
+        <div
+          class="mx-auto mb-4 flex size-12 items-center justify-center rounded-[16px] border border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-tertiary)]"
+        >
+          <Lock size={20} />
+        </div>
+        <h1 class="text-[16px] font-semibold text-[var(--text-primary)]">
+          {language.t('share.this_note_requires_a_password')}
+        </h1>
+        <p class="mt-1.5 text-[12.5px] text-[var(--text-tertiary)]">
           {language.t('share.ask_the_person_who_shared_this_note_for_its_passcode')}
         </p>
-        <form onsubmit={submit} class="grid gap-3">
-          <label for="share-password">{language.t('share.passcode')}</label><input
-            id="share-password"
-            class="rounded border border-[var(--border-default)] bg-[var(--bg-surface)] p-2"
+        <form class="mt-5 space-y-2.5" onsubmit={submit}>
+          <TextInput
+            aria-label={language.t('common.access_passcode')}
             type="password"
             bind:value={password}
-            autocomplete="off"
+            placeholder={language.t('common.access_passcode')}
+            autocomplete="current-password"
             maxlength={LIMITS.passwordMaxLength}
             required
-          />{#if shareState.errorKey}<p role="alert">{language.t(shareState.errorKey)}</p>{/if}<button
-            class="rounded bg-[var(--accent)] p-2 text-[var(--text-on-accent)]"
-            type="submit">{language.t('share.view_content')}</button
+            autofocus
+            invalid={Boolean(shareState.errorKey)}
           >
+            {#snippet leading()}<KeyRound size={13} />{/snippet}
+          </TextInput>
+          {#if shareState.errorKey}<p role="alert" class="text-[12px] text-[var(--danger)]">
+              {language.t(shareState.errorKey as MessageKey)}
+            </p>{/if}
+          <Button type="submit" variant="primary" block>{language.t('share.view_content')}</Button>
         </form>
-      </section>
+      </div>
     {:else if shareState.status === 'ready' && shareState.note}
-      <h1 class="text-3xl font-bold">{shareState.note.title || language.t('common.untitled_note')}</h1>
-      <div class="my-4 flex flex-wrap items-center gap-3 text-sm text-[var(--text-tertiary)]">
-        {#if shareState.note.author.avatarUrl}<img
-            class="rounded-full"
-            src={resolveAssetUrl(shareState.note.author.avatarUrl)}
-            width="24"
-            height="24"
-            alt=""
-          />{/if}<span>{shareState.note.author.name}</span><time
-          datetime={new Date(shareState.note.updatedAt).toISOString()}
-          >{new Date(shareState.note.updatedAt).toLocaleString(language.locale)}</time
-        >{#if stats}<span
-            >{stats.words} {language.t('common.words')} · {readingMinutes(stats.words)} {language.t('common.min')}</span
-          >{/if}
+      {@const note = shareState.note}
+      <article class="pt-7 md:pt-10">
+        <header class="mb-6 md:mb-8">
+          <h1
+            class="text-[26px] leading-[1.25] font-bold tracking-[-0.03em] text-[var(--text-primary)] md:text-[30px]"
+          >
+            {note.title || language.t('common.untitled_note')}
+          </h1>
+          <div
+            class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12px] text-[var(--text-quaternary)]"
+          >
+            <span class="flex items-center gap-1.5">
+              <Avatar src={note.author.avatarUrl} name={note.author.name} size={18} />
+              {note.author.name}
+            </span>
+            <span>·</span>
+            <time datetime={new Date(note.updatedAt).toISOString()}>
+              {language.formatDate(note.updatedAt, {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </time>
+            {#if stats}
+              <span>·</span>
+              <span>{stats.words}{language.t('common.words')}</span>
+              <span>·</span>
+              <span>{language.t('common.about')}{readingMinutes(stats.words)}{language.t('common.min')}</span>
+            {/if}
+          </div>
+        </header>
+
+        <div bind:this={host}>
+          <MarkdownArticle
+            noteId={slug}
+            source={note.content}
+            {services}
+            math={true}
+            mermaid={true}
+            {dark}
+            collapseLines={24}
+            publicReadonly={true}
+            onHeadings={() => undefined}
+            onReady={prepareLinks}
+            onImage={(value) => {
+              image = value
+            }}
+            onTag={() => undefined}
+          />
+        </div>
+
+        <footer class="mt-16 border-t border-[var(--border-subtle)] pt-6 text-center">
+          <a
+            href="/"
+            rel="external"
+            class="inline-flex items-center gap-1.5 text-[11.5px] text-[var(--text-quaternary)] transition-colors hover:text-[var(--accent)]"
+          >
+            <Logo size={12} />{language.t('share.shared_via_site', { site: note.site.name })}
+          </a>
+        </footer>
+      </article>
+    {:else}
+      <div class="mx-auto max-w-[380px] pt-[18vh] text-center">
+        <h1 class="text-[16px] font-semibold text-[var(--text-primary)]">
+          {language.t('share.content_unavailable')}
+        </h1>
+        {#if shareState.errorKey}<p role="alert" class="mt-2 text-[13px] leading-relaxed text-[var(--text-tertiary)]">
+            {language.t(shareState.errorKey as MessageKey)}
+          </p>{/if}
+        {#if shareState.retryAfter}<p role="status" class="mt-2 text-[12px] text-[var(--text-quaternary)]">
+            {language.t('host.retry_after_seconds', { seconds: shareState.retryAfter })}
+          </p>{/if}
+        {#if shareState.status === 'failed' && !shareState.retryAfter}
+          <Button
+            class="mt-5"
+            size="sm"
+            onclick={() => {
+              void shareState.load(slug)
+            }}>{language.t('common.retry')}</Button
+          >
+        {/if}
       </div>
-      <div bind:this={host}>
-        <MarkdownArticle
-          noteId={slug}
-          source={shareState.note.content}
-          {services}
-          math={true}
-          mermaid={true}
-          {dark}
-          collapseLines={24}
-          publicReadonly={true}
-          onHeadings={() => undefined}
-          onReady={prepareLinks}
-          onImage={(value) => {
-            image = value
-          }}
-          onTag={() => undefined}
-        />
-      </div>
-      <footer class="mt-12 border-t border-[var(--border-subtle)] pt-5">
-        <button type="button" class="text-[var(--accent)]" onclick={() => location.assign('/')}
-          >{language.t('share.shared_via_site', { site: shareState.note.site.name })}</button
-        >
-      </footer>
-    {:else}<h1 class="text-xl font-semibold">{language.t('share.content_unavailable')}</h1>
-      {#if shareState.errorKey}<p role="alert" class="my-3">
-          {language.t(shareState.errorKey)}
-        </p>{/if}{#if shareState.retryAfter}<p role="status">
-          {language.t('host.retry_after_seconds', { seconds: shareState.retryAfter })}
-        </p>{/if}{#if shareState.status === 'failed' && !shareState.retryAfter}<button
-          type="button"
-          class="my-3 rounded border border-[var(--border-default)] p-2"
-          onclick={() => {
-            void shareState.load(slug)
-          }}>{language.t('common.retry')}</button
-        >{/if}
     {/if}
   </main>
 </div>
 <dialog
   bind:this={dialog}
-  class="max-h-[90vh] max-w-[90vw] rounded bg-[var(--bg-base)] p-4 text-[var(--text-primary)]"
+  aria-label={language.t('preview.image_preview')}
+  class="app-viewport-fixed anim-fade m-0 flex max-h-none max-w-none items-center justify-center border-0 bg-transparent p-0 backdrop:bg-[oklch(0%_0_0/78%)] backdrop:backdrop-blur-[2px] not-open:hidden"
   onclose={() => {
     image = null
   }}
 >
-  <button
-    type="button"
-    class="mb-3 rounded border border-[var(--border-default)] p-2"
-    onclick={() => {
-      image = null
-    }}>{language.t('common.close')}</button
-  >{#if image}<img class="max-h-[75vh] max-w-full" src={image.src} alt={image.alt} />{/if}
+  <div class="absolute top-[calc(12px+env(safe-area-inset-top))] right-2 md:top-4 md:right-4">
+    <IconButton
+      label={language.t('common.close')}
+      title={language.t('common.close')}
+      class="text-white/70 hover:bg-white/10 hover:text-white"
+      onclick={() => {
+        image = null
+      }}><X size={17} /></IconButton
+    >
+  </div>
+  {#if image}<img
+      class="max-h-[86vh] max-w-[92vw] rounded-[var(--r-md)] object-contain"
+      src={image.src}
+      alt={image.alt}
+    />{/if}
 </dialog>

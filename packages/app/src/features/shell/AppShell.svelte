@@ -11,6 +11,7 @@
   import CommandPalette from '../command/CommandPalette.svelte'
   import ShortcutsPanel from '../command/ShortcutsPanel.svelte'
   import GraphPanel from '../graph/GraphPanel.svelte'
+  import SharePanel from '../share/SharePanel.svelte'
   import Sidebar from '../sidebar/Sidebar.svelte'
   import NoteList from '../list/NoteList.svelte'
   import { createHotkeys, type Hotkeys } from '../../lib/hotkeys'
@@ -202,4 +203,5 @@
       }}
     />{/if}
   {#if ui.panel === 'graph'}<GraphPanel {backend} {ui} {notes} {i18n} onClose={() => ui.closePanel()} />{/if}
+  {#if ui.panel === 'share'}<SharePanel onClose={() => ui.closePanel()} />{/if}
 </div>
