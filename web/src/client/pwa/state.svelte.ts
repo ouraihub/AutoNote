@@ -160,6 +160,8 @@ export class PwaState {
   dispose(): void {
     if (this.#disposed) return
     this.#disposed = true
+    this.#prompt = null
+    if (!this.#started) return
     window.removeEventListener('beforeinstallprompt', this.#onBeforeInstallPrompt)
     window.removeEventListener('appinstalled', this.#onInstalled)
     window.removeEventListener('online', this.#onOnline)
@@ -181,7 +183,6 @@ export class PwaState {
     }
     if (this.#timer !== undefined) window.clearTimeout(this.#timer)
     this.#timer = undefined
-    this.#prompt = null
   }
 
   async #register(): Promise<void> {

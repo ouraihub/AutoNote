@@ -153,22 +153,44 @@
 </script>
 
 {#snippet field(label: string, value: string, set: (value: string) => void, attrs: Record<string, unknown>)}
-  <TextInput {...attrs} aria-label={label} placeholder={(attrs.placeholder as string | undefined) ?? label} {value} disabled={session.busy} oninput={(event) => set(event.currentTarget.value)} />
+  <TextInput
+    {...attrs}
+    aria-label={label}
+    placeholder={(attrs.placeholder as string | undefined) ?? label}
+    {value}
+    disabled={session.busy}
+    oninput={(event) => set(event.currentTarget.value)}
+  />
 {/snippet}
 
 {#if session.canSignIn}
-  <main class="relative flex min-h-full flex-col items-center justify-center overflow-y-auto px-4 pt-[calc(32px+env(safe-area-inset-top))] pb-[calc(24px+env(safe-area-inset-bottom))] md:px-6 md:py-10">
+  <main
+    class="relative flex min-h-full flex-col items-center justify-center overflow-y-auto px-4 pt-[calc(32px+env(safe-area-inset-top))] pb-[calc(24px+env(safe-area-inset-bottom))] md:px-6 md:py-10"
+  >
     <div aria-hidden="true" class="pointer-events-none absolute inset-0 overflow-hidden">
-      <div class="absolute left-1/2 top-[-22%] size-[720px] -translate-x-1/2 rounded-full opacity-[0.13] blur-[120px]" style:background="var(--accent)"></div>
-      <div class="absolute inset-0 opacity-[0.5]" style:background-image="linear-gradient(var(--border-subtle) 1px, transparent 1px), linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px)" style:background-size="52px 52px" style:mask-image="radial-gradient(ellipse 80% 55% at 50% 40%, #000 20%, transparent 78%)"></div>
+      <div
+        class="absolute left-1/2 top-[-22%] size-[720px] -translate-x-1/2 rounded-full opacity-[0.13] blur-[120px]"
+        style:background="var(--accent)"
+      ></div>
+      <div
+        class="absolute inset-0 opacity-[0.5]"
+        style="background-image: linear-gradient(var(--border-subtle) 1px, transparent 1px), linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px); background-size: 52px 52px; mask-image: radial-gradient(ellipse 80% 55% at 50% 40%, #000 20%, transparent 78%)"
+      ></div>
     </div>
 
     <div class="anim-rise relative w-full max-w-[380px]">
       <div class="mb-6 flex flex-col items-center text-center md:mb-8">
-        <div class="mb-5 flex size-14 items-center justify-center rounded-[18px] border border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--accent)] shadow-[var(--shadow-pop)]">
+        <div
+          class="mb-5 flex size-14 items-center justify-center rounded-[18px] border border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--accent)] shadow-[var(--shadow-pop)]"
+        >
           <Logo size={27} />
         </div>
-        <h1 class="text-[30px] font-semibold tracking-[0.01em] text-[var(--text-primary)]" style:font-family="var(--font-serif)">{i18n.t('common.product_name')}</h1>
+        <h1
+          class="text-[30px] font-semibold tracking-[0.01em] text-[var(--text-primary)]"
+          style:font-family="var(--font-serif)"
+        >
+          {i18n.t('common.product_name')}
+        </h1>
         <p class="mt-2.5 text-[13px] leading-relaxed text-[var(--text-tertiary)]">
           {#if challenge}
             {i18n.t('auth.two_step_verification_description')}
@@ -188,7 +210,9 @@
         }}
       >
         {#if challenge}
-          <div class="mb-3 flex items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2.5 text-[12px] text-[var(--text-secondary)]">
+          <div
+            class="mb-3 flex items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2.5 text-[12px] text-[var(--text-secondary)]"
+          >
             <KeyRound size={14} class="shrink-0 text-[var(--accent)]" />
             <span class="min-w-0 truncate">@{username.trim()}</span>
           </div>
@@ -207,10 +231,44 @@
             oninput={(event) => normalizeVerificationCode(event.currentTarget.value)}
           />
         {:else}
-          {@render field(i18n.t('common.username'), username, (value) => { username = value; clearError() }, { autocomplete: 'username', autocapitalize: 'none', spellcheck: false })}
-          {@render field(i18n.t('common.password'), password, (value) => { password = value; clearError() }, { type: 'password', maxlength: LIMITS.passwordMaxLength, autocomplete: registerMode ? 'new-password' : 'current-password', placeholder: registerMode ? i18n.t('auth.password_minimum_8_characters') : undefined })}
+          {@render field(
+            i18n.t('common.username'),
+            username,
+            (value) => {
+              username = value
+              clearError()
+            },
+            { autocomplete: 'username', autocapitalize: 'none', spellcheck: false },
+          )}
+          {@render field(
+            i18n.t('common.password'),
+            password,
+            (value) => {
+              password = value
+              clearError()
+            },
+            {
+              type: 'password',
+              maxlength: LIMITS.passwordMaxLength,
+              autocomplete: registerMode ? 'new-password' : 'current-password',
+              placeholder: registerMode ? i18n.t('auth.password_minimum_8_characters') : undefined,
+            },
+          )}
           {#if registerMode}
-            {@render field(i18n.t('auth.confirm_password'), confirmation, (value) => { confirmation = value; clearError() }, { type: 'password', maxlength: LIMITS.passwordMaxLength, autocomplete: 'new-password', 'aria-invalid': localError === 'common.the_passwords_do_not_match' })}
+            {@render field(
+              i18n.t('auth.confirm_password'),
+              confirmation,
+              (value) => {
+                confirmation = value
+                clearError()
+              },
+              {
+                type: 'password',
+                maxlength: LIMITS.passwordMaxLength,
+                autocomplete: 'new-password',
+                'aria-invalid': localError === 'common.the_passwords_do_not_match',
+              },
+            )}
           {/if}
         {/if}
 
@@ -219,7 +277,11 @@
           disabled={session.busy || submitController !== null}
           class="flex h-11 w-full items-center justify-center gap-2.5 rounded-[var(--r-lg)] bg-[var(--accent)] text-[13.5px] font-medium text-[var(--accent-contrast)] transition-[transform,opacity,background-color] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-[var(--accent-hover)] active:translate-y-px disabled:opacity-50"
         >
-          {#if session.busy}<LoaderCircle size={16} class="animate-[ink-spin_.7s_linear_infinite]" aria-hidden="true" />{/if}
+          {#if session.busy}<LoaderCircle
+              size={16}
+              class="animate-[ink-spin_.7s_linear_infinite]"
+              aria-hidden="true"
+            />{/if}
           {#if challenge}
             {i18n.t('auth.verify_and_sign_in')}
           {:else if registerMode}
@@ -231,23 +293,41 @@
 
         {#if challenge}
           <div class="flex items-center justify-between gap-3 pt-1">
-            <button type="button" disabled={session.busy} onclick={resetChallenge} class="inline-flex items-center gap-1 text-[12px] text-[var(--text-tertiary)] transition-colors hover:text-[var(--accent)]">
+            <button
+              type="button"
+              disabled={session.busy}
+              onclick={resetChallenge}
+              class="inline-flex items-center gap-1 text-[12px] text-[var(--text-tertiary)] transition-colors hover:text-[var(--accent)]"
+            >
               <ArrowLeft size={12} aria-hidden="true" />
               {i18n.t('auth.back_to_password')}
             </button>
-            <button type="button" disabled={session.busy} onclick={toggleRecoveryMode} class="text-[12px] text-[var(--text-tertiary)] transition-colors hover:text-[var(--accent)]">
+            <button
+              type="button"
+              disabled={session.busy}
+              onclick={toggleRecoveryMode}
+              class="text-[12px] text-[var(--text-tertiary)] transition-colors hover:text-[var(--accent)]"
+            >
               {i18n.t(recoveryMode ? 'auth.use_authenticator_code' : 'auth.use_recovery_code')}
             </button>
           </div>
         {:else if showModeSwitch}
-          <button type="button" disabled={session.busy} onclick={switchMode} class="mx-auto block text-[12px] text-[var(--text-tertiary)] transition-colors hover:text-[var(--accent)]">
+          <button
+            type="button"
+            disabled={session.busy}
+            onclick={switchMode}
+            class="mx-auto block text-[12px] text-[var(--text-tertiary)] transition-colors hover:text-[var(--accent)]"
+          >
             {i18n.t(registerMode ? 'auth.already_have_an_account_sign_in' : 'auth.no_account_create_one')}
           </button>
         {/if}
       </form>
 
       {#if errorMessage}
-        <div role="alert" class="anim-rise mt-4 flex items-start gap-2 rounded-[var(--r-md)] border border-[color-mix(in_oklab,var(--danger)_35%,transparent)] bg-[color-mix(in_oklab,var(--danger)_9%,transparent)] px-3 py-2.5">
+        <div
+          role="alert"
+          class="anim-rise mt-4 flex items-start gap-2 rounded-[var(--r-md)] border border-[color-mix(in_oklab,var(--danger)_35%,transparent)] bg-[color-mix(in_oklab,var(--danger)_9%,transparent)] px-3 py-2.5"
+        >
           <TriangleAlert size={14} class="mt-[1px] shrink-0 text-[var(--danger)]" aria-hidden="true" />
           <span class="text-[12px] leading-relaxed text-[var(--text-secondary)]">{errorMessage}</span>
         </div>
@@ -265,7 +345,9 @@
       </div>
     </div>
 
-    <footer class="pointer-events-none mt-6 text-center text-[11px] tracking-[0.05em] text-[var(--text-quaternary)] md:mt-8">
+    <footer
+      class="pointer-events-none mt-6 text-center text-[11px] tracking-[0.05em] text-[var(--text-quaternary)] md:mt-8"
+    >
       {i18n.t('auth.self_hosted_on_cloudflare_workers_your_data_is_yours')}
     </footer>
   </main>
