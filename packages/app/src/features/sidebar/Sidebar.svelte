@@ -1,15 +1,52 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte'
   import { SvelteMap } from 'svelte/reactivity'
-  import { ChevronRight, Folder, Hash, MoreHorizontal, PanelLeft, Plus, X } from '@lucide/svelte'
+  import {
+    Archive,
+    ChevronRight,
+    Clock,
+    FilePlus2,
+    FileText,
+    FolderClosed,
+    FolderPlus,
+    Hash,
+    Inbox,
+    LogOut,
+    Moon,
+    MoreHorizontal,
+    PanelLeft,
+    PanelLeftClose,
+    Plus,
+    Settings,
+    Star,
+    Sun,
+    Trash2,
+    Waypoints,
+    X,
+  } from '@lucide/svelte'
+  import type { Component } from 'svelte'
   import { LIMITS } from '@shared/constants'
   import { ORGANIZER_COLORS, organizerColorOrNull } from '@shared/organizer-colors'
   import type { MessageKey } from '@shared/locales/en-US'
   import type { FolderNode } from '@app/state/selectors'
   import type { ViewKind } from '@shared/types'
   import { buildFolderTree, folderPath, selectNavigation } from '@app/state/selectors'
-  import { getExtensions, getI18n, getNotes, getNotifier, getOrganize, getUi } from '@app/root/context'
-  import { Button, buttonVariants } from '@app/components/ui/button'
+  import {
+    getExtensions,
+    getI18n,
+    getNotes,
+    getNotifier,
+    getOrganize,
+    getSession,
+    getSettings,
+    getUi,
+  } from '@app/root/context'
+  import IconButton from '@app/components/primitives/IconButton.svelte'
+  import Logo from '@app/components/primitives/Logo.svelte'
+  import SectionLabel from '@app/components/primitives/SectionLabel.svelte'
+  import SearchButton from '@app/components/primitives/SearchButton.svelte'
+  import Avatar from '@app/components/primitives/Avatar.svelte'
+  import { Button } from '@app/components/ui/button'
   import { Input } from '@app/components/ui/input'
   import * as DropdownMenu from '@app/components/ui/dropdown-menu'
   import * as Dialog from '@app/components/ui/dialog'
@@ -25,7 +62,9 @@
     organize = getOrganize(),
     i18n = getI18n(),
     extensions = getExtensions(),
-    notifier = getNotifier()
+    notifier = getNotifier(),
+    session = getSession(),
+    settings = getSettings()
   const instanceId = $props.id()
   const snapshot = $derived(notes.readOrganizeSnapshot())
   const navigation = $derived(selectNavigation(notes.summaries))
@@ -37,14 +76,19 @@
         for (const tag of note.tags) counts.set(tag, (counts.get(tag) ?? 0) + 1)
     return counts
   })
-  const views: { view: ViewKind; key: MessageKey; count?: keyof typeof navigation.counts }[] = [
-    { view: 'all', key: 'navigation.all_notes', count: 'all' },
-    { view: 'recent', key: 'navigation.recently_edited' },
-    { view: 'starred', key: 'navigation.favorites', count: 'starred' },
-    { view: 'unfiled', key: 'navigation.unfiled', count: 'unfiled' },
-    { view: 'archived', key: 'navigation.archive', count: 'archived' },
-    { view: 'trash', key: 'navigation.trash', count: 'trash' },
+  type ViewEntry = { view: ViewKind; key: MessageKey; icon: Component; count?: keyof typeof navigation.counts }
+  const views: ViewEntry[] = [
+    { view: 'all', key: 'navigation.all_notes', icon: FileText, count: 'all' },
+    { view: 'recent', key: 'navigation.recently_edited', icon: Clock },
+    { view: 'starred', key: 'navigation.favorites', icon: Star, count: 'starred' },
+    { view: 'unfiled', key: 'navigation.unfiled', icon: Inbox, count: 'unfiled' },
   ]
+  const bottomViews: ViewEntry[] = [
+    { view: 'archived', key: 'navigation.archive', icon: Archive, count: 'archived' },
+    { view: 'trash', key: 'navigation.trash', icon: Trash2, count: 'trash' },
+  ]
+  const user = $derived(session.user)
+  const displayName = $derived(user ? user.name || user.username : '')
   let narrow = $state(false)
   let busy = $state(false)
   let feedback = $state('')
@@ -63,6 +107,11 @@
   const drawerOpen = $derived(ui.navDrawerOpen)
   const editingFolder = $derived(snapshot.folders.find((folder) => folder.id === editId))
   const editingTag = $derived(snapshot.tags.find((tag) => tag.id === editId))
+  const isDark = $derived(
+    settings.current.appearance.theme === 'dark' ||
+      (settings.current.appearance.theme === 'system' &&
+        anchorElement?.closest<HTMLElement>('[data-app-root]')?.dataset.theme === 'dark'),
+  )
 
   onMount(() => {
     const media = matchMedia('(max-width: 1179px)')
@@ -181,7 +230,7 @@
       if (parent) ui.expandFolders([parent])
     })
   }
-  async function newNote(folderId: string): Promise<void> {
+  async function newNote(folderId: string | null): Promise<void> {
     await run(async () => {
       const note = await notes.create({ folderId })
       ui.openNote(note.id)
@@ -311,6 +360,9 @@
 {#snippet folders(nodes: readonly FolderNode[])}
   {#each nodes as node, index (node.id)}
     {@const previous = nodes[index - 1]}
+      {@const active = ui.filter.view === 'folder' && ui.filter.folderId === node.id}
+      {@const expanded = ui.expandedFolders.includes(node.id)}
+      {@const folderColor = organizerColorOrNull(node.color)}
     <li
       role="treeitem"
       aria-level={node.depth + 1}
@@ -319,11 +371,15 @@
     >
       <div
         role="presentation"
-        class="folder-row flex items-center gap-1"
-        class:drop-before={dropTarget === node.id && dropPosition === 'before'}
-        class:drop-inside={dropTarget === node.id && dropPosition === 'inside'}
-        class:drop-after={dropTarget === node.id && dropPosition === 'after'}
-        style:padding-left={`${node.depth * 12}px`}
+        class={[
+          'group relative flex h-10 items-center gap-1 rounded-[var(--r-md)] pr-1 md:h-[30px]',
+          'transition-colors duration-[var(--dur-fast)]',
+          active
+            ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]'
+            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]',
+          dropTarget === node.id && dropPosition === 'inside' && 'ring-1 ring-[var(--accent)]',
+        ]}
+        style:padding-left={`${6 + node.depth * 13}px`}
         draggable={!busy}
         ondragstart={(event) => startFolderDrag(event, node.id)}
         ondragend={clearDrag}
@@ -334,20 +390,43 @@
           event.currentTarget.querySelector<HTMLButtonElement>('[data-folder-menu]')?.click()
         }}
       >
-        <Button
-          variant="ghost"
-          size="icon-sm"
+        {#if dropTarget === node.id && dropPosition === 'before'}<span
+            aria-hidden="true"
+            class="pointer-events-none absolute top-0 right-1 left-1 h-px bg-[var(--accent)]"
+          ></span>{/if}
+        {#if dropTarget === node.id && dropPosition === 'after'}<span
+            aria-hidden="true"
+            class="pointer-events-none absolute right-1 bottom-0 left-1 h-px bg-[var(--accent)]"
+          ></span>{/if}
+        <button
+          type="button"
           disabled={!node.children.length}
-          aria-label={i18n.t(ui.expandedFolders.includes(node.id) ? 'sidebar.collapse' : 'sidebar.expand')}
-          onclick={() => ui.toggleFolder(node.id)}
-          ><ChevronRight
-            style={ui.expandedFolders.includes(node.id) ? 'transform: rotate(90deg)' : undefined}
-          /></Button
+          aria-hidden={!node.children.length || undefined}
+          tabindex={node.children.length ? undefined : -1}
+          aria-label={i18n.t(expanded ? 'sidebar.collapse' : 'sidebar.expand')}
+          onclick={(event) => {
+            event.stopPropagation()
+            ui.toggleFolder(node.id)
+          }}
+          class={[
+            'flex size-8 shrink-0 items-center justify-center rounded text-[var(--text-quaternary)] md:size-4',
+            'transition-transform duration-[var(--dur-base)] ease-[var(--ease-out)]',
+            expanded && 'rotate-90',
+            !node.children.length && 'invisible',
+          ]}><ChevronRight size={12} /></button
         >
-        <Button
+        <span
+          class={['shrink-0', !folderColor && (active ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]')]}
+          style:color={folderColor ?? undefined}
+          >{#if node.icon}<span class="text-[13px] leading-none">{node.icon}</span>{:else}<FolderClosed
+              size={14}
+            />{/if}</span
+        >
+        <button
+          type="button"
           data-folder-navigation={node.id}
-          variant={ui.filter.folderId === node.id ? 'secondary' : 'ghost'}
-          class="min-w-0 flex-1 justify-start"
+          aria-current={active ? 'page' : undefined}
+          class="min-w-0 flex-1 truncate py-1 text-left text-[12.5px] font-medium"
           title={folderPath(snapshot.folders, node.id)
             .map((item) => item.name)
             .join(' / ')}
@@ -369,7 +448,7 @@
                   .closest('nav')
                   ?.querySelectorAll<HTMLButtonElement>('[data-folder-navigation]') ?? []),
               ]
-              const current = buttons.indexOf(event.currentTarget as HTMLButtonElement)
+              const current = buttons.indexOf(event.currentTarget)
               const next =
                 event.key === 'Home'
                   ? 0
@@ -378,27 +457,25 @@
                     : current + (event.key === 'ArrowDown' ? 1 : -1)
               buttons[Math.max(0, Math.min(buttons.length - 1, next))]?.focus()
             }
-            if (event.key === 'ArrowRight' && node.children.length && !ui.expandedFolders.includes(node.id)) {
+            if (event.key === 'ArrowRight' && node.children.length && !expanded) {
               event.preventDefault()
               ui.toggleFolder(node.id)
             }
-            if (event.key === 'ArrowLeft' && ui.expandedFolders.includes(node.id)) {
+            if (event.key === 'ArrowLeft' && expanded) {
               event.preventDefault()
               ui.toggleFolder(node.id)
             }
-          }}
+          }}>{node.name || i18n.t('common.new_folder')}</button
         >
-          <span style:color={organizerColorOrNull(node.color) ?? undefined}
-            >{#if node.icon}{node.icon}{:else}<Folder />{/if}</span
-          ><span class="truncate">{node.name || i18n.t('common.new_folder')}</span><span class="ml-auto tabular-nums"
-            >{node.totalNotes}</span
-          >
-        </Button>
+        <span class="tabular shrink-0 text-[11px] text-[var(--text-quaternary)] transition-opacity group-hover:opacity-0"
+          >{node.totalNotes > 0 ? node.totalNotes : ''}</span
+        >
         <DropdownMenu.Root>
           <DropdownMenu.Trigger
             data-folder-menu
-            class={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
-            aria-label={`${i18n.t('common.more_actions')}: ${node.name}`}><MoreHorizontal /></DropdownMenu.Trigger
+            title={i18n.t('common.more_actions')}
+            class="absolute right-1 inline-flex size-8 shrink-0 items-center justify-center rounded-[var(--r-md)] text-[var(--text-secondary)] opacity-100 transition-opacity hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] md:size-6 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
+            aria-label={`${i18n.t('common.more_actions')}: ${node.name}`}><MoreHorizontal size={13} /></DropdownMenu.Trigger
           >
           <DropdownMenu.Content
             ><DropdownMenu.Group>
@@ -446,141 +523,285 @@
   {/each}
 {/snippet}
 
-{#snippet content()}
-  <nav
-    class="flex h-full min-h-0 flex-col gap-2 overflow-auto bg-[var(--bg-sunken)] p-2"
-    aria-label={i18n.t('common.navigation')}
-    data-testid="sidebar"
+{#snippet viewItem(item: ViewEntry)}
+  {@const active = ui.filter.view === item.view}
+  {@const count = item.count ? navigation.counts[item.count] : 0}
+  <button
+    type="button"
+    aria-current={active ? 'page' : undefined}
+    ondragover={(event) => {
+      if (item.view === 'unfiled' && !draggingFolder) hover(event, null)
+    }}
+    ondrop={(event) => {
+      if (item.view === 'unfiled' && !draggingFolder) void drop(event, null)
+    }}
+    onclick={() => navigate(item.view)}
+    class={[
+      'group relative flex h-10 w-full items-center gap-2.5 rounded-[var(--r-md)] px-2 text-left md:h-[30px]',
+      'transition-colors duration-[var(--dur-fast)]',
+      active
+        ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]'
+        : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]',
+    ]}
   >
-    <div class="flex items-center justify-between">
-      <strong>{i18n.t('common.product_name')}</strong><Button
-        variant="ghost"
-        size="icon-sm"
-        aria-label={i18n.t(narrow ? 'common.close' : 'sidebar.collapse_navigation')}
-        onclick={() => (narrow ? ui.toggleNavDrawer(false) : ui.toggleNav())}
-        >{#if narrow}<X />{:else}<PanelLeft />{/if}</Button
-      >
-    </div>
-    {#each views as item (item.view)}<Button
-        class="w-full justify-between"
-        variant={ui.filter.view === item.view ? 'secondary' : 'ghost'}
-        aria-current={ui.filter.view === item.view ? 'page' : undefined}
-        ondragover={(event) => {
-          if (item.view === 'unfiled' && !draggingFolder) hover(event, null)
-        }}
-        ondrop={(event) => {
-          if (item.view === 'unfiled' && !draggingFolder) void drop(event, null)
-        }}
-        onclick={() => navigate(item.view)}
-        >{i18n.t(item.key)}{#if item.count}<span class="tabular-nums">{navigation.counts[item.count]}</span
-          >{/if}</Button
-      >{/each}
-    <section aria-label={i18n.t('navigation.folder')}>
-      <div class="flex items-center justify-between">
-        <h2 class="text-sm">{i18n.t('navigation.folder')}</h2>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          disabled={busy}
-          aria-label={i18n.t('common.new_folder')}
-          onclick={() => void edit('folder')}><Plus /></Button
+    <span class={['shrink-0', active ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]']}
+      ><item.icon size={14} /></span
+    >
+    <span class="min-w-0 flex-1 truncate text-[12.5px] font-medium">{i18n.t(item.key as MessageKey)}</span>
+    {#if count > 0}<span class="tabular shrink-0 text-[11px] text-[var(--text-quaternary)]">{count}</span>{/if}
+  </button>
+{/snippet}
+
+{#snippet accountMenu(rail: boolean)}
+  {#if user}
+    <DropdownMenu.Root>
+      {#if rail}
+        <DropdownMenu.Trigger
+          aria-label={i18n.t('sidebar.account_and_settings')}
+          title={`${i18n.t('sidebar.account_and_settings')} · ${displayName}`}
+          class="rounded-full transition-transform duration-[var(--dur-fast)] hover:scale-105 active:scale-95"
+          ><Avatar src={user.avatarUrl} name={displayName} size={28} /></DropdownMenu.Trigger
         >
-      </div>
-      {#if tree.length}<ul role="tree" aria-label={i18n.t('navigation.folder')}>
-          {@render folders(tree)}
-        </ul>{:else}<Button variant="ghost" onclick={() => void edit('folder')}
-          >{i18n.t('sidebar.create_first_folder')}</Button
-        >{/if}
-      {#if draggingFolder}<Button
-          variant="outline"
-          class="w-full"
-          disabled={busy}
-          ondragover={(event) => hover(event, null)}
-          ondrop={(event) => void drop(event, null)}
-          onclick={() => {
-            const id = draggingFolder
-            clearDrag()
-            if (id) void move(id, null)
-          }}>{i18n.t('folders.drop_top_level')}</Button
-        >{/if}
-    </section>
-    <section aria-label={i18n.t('navigation.tag')}>
-      <div class="flex items-center justify-between">
-        <h2 class="text-sm">{i18n.t('navigation.tag')}</h2>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          disabled={busy}
-          aria-label={i18n.t('tags.new')}
-          onclick={() => void edit('tag')}><Plus /></Button
-        >
-      </div>
-      {#each snapshot.tags as tag (tag.id)}
-        <div
-          role="presentation"
-          class="flex items-center gap-1"
-          oncontextmenu={(event) => {
-            event.preventDefault()
-            void edit('tag', tag.id)
-          }}
-        >
-          <Button
-            class="min-w-0 flex-1 justify-start"
-            variant={ui.filter.tag === tag.name ? 'secondary' : 'ghost'}
-            onclick={() => navigate('tag', { tag: tag.name })}
-            onkeydown={(event) => {
-              if (event.key === 'F2' || event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
-                event.preventDefault()
-                void edit('tag', tag.id)
-              }
-            }}
-            ><Hash
-              data-icon="inline-start"
-              style={tag.color ? `color: ${organizerColorOrNull(tag.color) ?? 'inherit'}` : undefined}
-            /><span class="truncate">{tag.name}</span><span class="ml-auto tabular-nums"
-              >{tagCounts.get(tag.name) ?? 0}</span
-            ></Button
-          ><Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={`${i18n.t('tags.rename')}: ${tag.name}`}
-            onclick={() => void edit('tag', tag.id)}><MoreHorizontal /></Button
+      {:else}
+        <div class="group flex h-11 w-full items-center rounded-[var(--r-md)] transition-colors hover:bg-[var(--bg-hover)]">
+          <DropdownMenu.Trigger
+            aria-label={i18n.t('sidebar.account_and_settings')}
+            class="flex h-full min-w-0 flex-1 items-center gap-2.5 rounded-l-[var(--r-md)] pl-2 text-left"
+          >
+            <Avatar src={user.avatarUrl} name={displayName} size={28} />
+            <span class="min-w-0 flex-1">
+              <span class="block truncate text-[12.5px] font-semibold text-[var(--text-primary)]">{displayName}</span>
+              <span class="block truncate text-[10.5px] text-[var(--text-quaternary)]">@{user.username}</span>
+            </span>
+          </DropdownMenu.Trigger>
+          <IconButton
+            label={i18n.t('common.settings')}
+            title={i18n.t('common.settings')}
+            size="sm"
+            onclick={() => ui.openPanel('settings')}
+            class="mr-1 shrink-0 text-[var(--text-quaternary)] group-hover:text-[var(--text-tertiary)]"
+            ><Settings size={14} /></IconButton
           >
         </div>
-      {/each}
-    </section>
-    <Button
-      variant="ghost"
-      onclick={() => {
-        ui.toggleNavDrawer(false)
-        ui.openPanel('graph')
-      }}>{i18n.t('common.graph')}</Button
-    >
-    {#if feedback && !editorOpen}<p role="alert" class="whitespace-pre-line text-sm text-destructive">
-        {feedback}
-      </p>{/if}
-  </nav>
+      {/if}
+      <DropdownMenu.Content class="w-[252px]">
+        <DropdownMenu.Group>
+          <DropdownMenu.Item onclick={() => ui.openPanel('settings')}
+            ><Settings size={13} />{i18n.t('common.settings')}</DropdownMenu.Item
+          >
+          <DropdownMenu.Item
+            onclick={() => {
+              ui.toggleNavDrawer(false)
+              ui.openPanel('graph')
+            }}><Waypoints size={13} />{i18n.t('common.graph')}</DropdownMenu.Item
+          >
+        </DropdownMenu.Group>
+        <DropdownMenu.Separator />
+        <DropdownMenu.Group>
+          <DropdownMenu.Item onclick={() => settings.update({ appearance: { theme: isDark ? 'light' : 'dark' } })}
+            >{#if isDark}<Sun size={13} />{:else}<Moon size={13} />{/if}{i18n.t(
+              isDark ? 'sidebar.switch_to_light' : 'sidebar.switch_to_dark',
+            )}</DropdownMenu.Item
+          >
+        </DropdownMenu.Group>
+        <DropdownMenu.Separator />
+        <DropdownMenu.Group>
+          <DropdownMenu.Item variant="destructive" onclick={() => void session.logout()}
+            ><LogOut size={13} />{i18n.t('sidebar.log_out')}</DropdownMenu.Item
+          >
+        </DropdownMenu.Group>
+      </DropdownMenu.Content>
+    </DropdownMenu.Root>
+  {/if}
 {/snippet}
+
+{#snippet content()}
+  <aside class="flex h-full min-h-0 flex-col bg-[var(--bg-sunken)]" data-testid="sidebar">
+    <header class="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border-subtle)] px-3">
+      <div class="flex min-w-0 items-center gap-[9px] select-none">
+        <Logo size={24} />
+        <span class="min-w-0 truncate font-serif text-[15.5px] font-semibold tracking-[0.02em] text-[var(--text-primary)]"
+          >{i18n.t('common.product_name')}</span
+        >
+      </div>
+      <IconButton
+        label={i18n.t(narrow ? 'common.close' : 'sidebar.collapse_navigation')}
+        title={i18n.t(narrow ? 'common.close' : 'sidebar.collapse_navigation')}
+        size="sm"
+        onclick={() => (narrow ? ui.toggleNavDrawer(false) : ui.toggleNav())}
+        >{#if narrow}<X size={15} />{:else}<PanelLeftClose size={15} />{/if}</IconButton
+      >
+    </header>
+
+    <div class="shrink-0 px-2 pt-2"><SearchButton /></div>
+
+    <nav class="min-h-0 flex-1 overflow-y-auto px-2 pt-2 pb-4" aria-label={i18n.t('common.navigation')}>
+      <div class="flex flex-col gap-px">
+        {#each views as item (item.view)}{@render viewItem(item)}{/each}
+      </div>
+
+      <section class="mt-4 rounded-[var(--r-md)]" aria-label={i18n.t('navigation.folder')}>
+        <div class="group/head flex items-center justify-between pr-1">
+          <SectionLabel>{i18n.t('navigation.folder')}</SectionLabel>
+          <IconButton
+            label={i18n.t('common.new_folder')}
+            title={i18n.t('common.new_folder')}
+            size="sm"
+            disabled={busy}
+            onclick={() => void edit('folder')}
+            class="opacity-100 transition-opacity md:opacity-0 md:group-hover/head:opacity-100 md:focus-visible:opacity-100"
+            ><FolderPlus size={13} /></IconButton
+          >
+        </div>
+        {#if tree.length}<ul role="tree" aria-label={i18n.t('navigation.folder')} class="mt-0.5 flex flex-col gap-px">
+            {@render folders(tree)}
+          </ul>{:else}<button
+            type="button"
+            disabled={busy}
+            onclick={() => void edit('folder')}
+            class="mt-0.5 flex h-10 w-full items-center gap-2 rounded-[var(--r-md)] px-2 text-[12px] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] disabled:pointer-events-none disabled:opacity-45 md:h-[30px]"
+            ><FolderPlus size={13} />{i18n.t('sidebar.create_first_folder')}</button
+          >{/if}
+        {#if draggingFolder}<button
+            type="button"
+            disabled={busy}
+            ondragover={(event) => hover(event, null)}
+            ondrop={(event) => void drop(event, null)}
+            onclick={() => {
+              const id = draggingFolder
+              clearDrag()
+              if (id) void move(id, null)
+            }}
+            class="mt-1 flex h-[30px] w-full items-center justify-center rounded-[var(--r-md)] border border-dashed border-[var(--border-default)] text-[11.5px] text-[var(--text-tertiary)]"
+            >{i18n.t('folders.drop_top_level')}</button
+          >{/if}
+      </section>
+
+      <section class="mt-4" aria-label={i18n.t('navigation.tag')}>
+        <div class="group/head flex items-center justify-between pr-1">
+          <SectionLabel>{i18n.t('navigation.tag')}</SectionLabel>
+          <IconButton
+            label={i18n.t('tags.new')}
+            title={i18n.t('tags.new')}
+            size="sm"
+            disabled={busy}
+            onclick={() => void edit('tag')}
+            class="opacity-100 transition-opacity md:opacity-0 md:group-hover/head:opacity-100 md:focus-visible:opacity-100"
+            ><Plus size={13} /></IconButton
+          >
+        </div>
+        <div class="mt-0.5 flex flex-col gap-px">
+          {#if !snapshot.tags.length}<button
+              type="button"
+              onclick={() => void edit('tag')}
+              class="flex h-10 w-full items-center gap-2 rounded-[var(--r-md)] px-2 text-left text-[11.5px] text-[var(--text-quaternary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)] md:h-[30px]"
+              ><Plus size={13} />{i18n.t('tags.create_first')}</button
+            >{/if}
+          {#each snapshot.tags as tag (tag.id)}
+            {@const active = ui.filter.view === 'tag' && ui.filter.tag === tag.name}
+            <div
+              role="presentation"
+              class={[
+                'group relative flex h-10 items-center gap-2 rounded-[var(--r-md)] px-2 md:h-[30px]',
+                'transition-colors duration-[var(--dur-fast)]',
+                active
+                  ? 'bg-[var(--accent-soft)] text-[var(--text-primary)]'
+                  : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]',
+              ]}
+              oncontextmenu={(event) => {
+                event.preventDefault()
+                void edit('tag', tag.id)
+              }}
+            >
+              <Hash
+                size={13}
+                class="shrink-0"
+                style={`color: ${organizerColorOrNull(tag.color) ?? (active ? 'var(--accent)' : 'var(--text-quaternary)')}`}
+              />
+              <button
+                type="button"
+                aria-current={active ? 'page' : undefined}
+                onclick={() => navigate('tag', { tag: tag.name })}
+                onkeydown={(event) => {
+                  if (event.key === 'F2' || event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
+                    event.preventDefault()
+                    void edit('tag', tag.id)
+                  }
+                }}
+                class="min-w-0 flex-1 truncate py-1 text-left text-[12.5px] font-medium">{tag.name}</button
+              >
+              <span class="tabular shrink-0 text-[11px] text-[var(--text-quaternary)] transition-opacity group-hover:opacity-0"
+                >{tagCounts.get(tag.name) || ''}</span
+              >
+              <IconButton
+                label={`${i18n.t('tags.rename')}: ${tag.name}`}
+                size="sm"
+                onclick={() => void edit('tag', tag.id)}
+                class="absolute right-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
+                ><MoreHorizontal size={13} /></IconButton
+              >
+            </div>
+          {/each}
+        </div>
+      </section>
+      {#if feedback && !editorOpen}<p role="alert" class="mt-3 px-2 text-[12px] whitespace-pre-line text-[var(--danger)]">
+          {feedback}
+        </p>{/if}
+    </nav>
+
+    <div class="flex shrink-0 flex-col gap-px border-t border-[var(--border-subtle)] px-2 py-2">
+      {#each bottomViews as item (item.view)}{@render viewItem(item)}{/each}
+    </div>
+
+    <div class="shrink-0 border-t border-[var(--border-subtle)] p-2">{@render accountMenu(false)}</div>
+  </aside>
+{/snippet}
+
+{#snippet railButton(label: string, Icon: Component, active: boolean, onclick: () => void, accent = false)}
+  <IconButton {label} title={label} {active} {onclick} class={accent ? 'text-[var(--accent)]' : undefined}
+    ><Icon size={16} /></IconButton
+  >
+{/snippet}
+
 <span bind:this={anchorElement} hidden></span>
 
 {#if narrow}
   <Drawer.Root direction="left" open={drawerOpen} onOpenChange={(open) => ui.toggleNavDrawer(open)}
     ><Drawer.Content
-      ><Drawer.Header><Drawer.Title>{i18n.t('common.navigation')}</Drawer.Title></Drawer.Header
-      >{@render content()}</Drawer.Content
+      class="p-0 data-[vaul-drawer-direction=left]:w-[272px] data-[vaul-drawer-direction=left]:sm:max-w-[272px]"
+      ><Drawer.Title class="sr-only">{i18n.t('common.navigation')}</Drawer.Title>{@render content()}</Drawer.Content
     ></Drawer.Root
   >
 {:else if ui.layout.navCollapsed}
-  <Button variant="ghost" size="icon-sm" aria-label={i18n.t('sidebar.expand_navigation')} onclick={() => ui.toggleNav()}
-    ><PanelLeft /></Button
-  >
-{:else}
-  <aside
-    class="h-full min-h-0 shrink-0 border-r border-[var(--border-default)]"
-    style:width={`${ui.layout.navWidth}px`}
-  >
-    {@render content()}
+  <aside class="flex h-full min-h-0 flex-col items-center bg-[var(--bg-sunken)]" data-testid="sidebar">
+    <div class="flex h-11 w-full shrink-0 items-center justify-center border-b border-[var(--border-subtle)]">
+      <IconButton
+        label={i18n.t('sidebar.expand_navigation')}
+        title={i18n.t('sidebar.expand_navigation')}
+        onclick={() => ui.toggleNav()}><PanelLeft size={16} /></IconButton
+      >
+    </div>
+    <div class="flex w-full flex-col items-center gap-1 py-2">
+      <SearchButton variant="icon" />
+      {@render railButton(i18n.t('navigation.all_notes'), FileText, ui.filter.view === 'all', () => navigate('all'))}
+      {@render railButton(i18n.t('navigation.favorites'), Star, ui.filter.view === 'starred', () => navigate('starred'))}
+      {@render railButton(i18n.t('navigation.trash'), Trash2, ui.filter.view === 'trash', () => navigate('trash'))}
+      <div class="my-1 h-px w-6 bg-[var(--border-subtle)]"></div>
+      {@render railButton(
+        i18n.t('common.new_note'),
+        FilePlus2,
+        false,
+        () => void newNote(ui.filter.view === 'folder' ? ui.filter.folderId : null),
+        true,
+      )}
+    </div>
+    <span class="flex-1"></span>
+    <div class="flex w-full shrink-0 justify-center border-t border-[var(--border-subtle)] py-2">
+      {@render accountMenu(true)}
+    </div>
   </aside>
+{:else}
+  {@render content()}
 {/if}
 
 <Dialog.Root bind:open={editorOpen}>
@@ -674,15 +895,3 @@
     </form>
   </Dialog.Content>
 </Dialog.Root>
-
-<style>
-  .folder-row.drop-before {
-    box-shadow: 0 -2px var(--accent);
-  }
-  .folder-row.drop-after {
-    box-shadow: 0 2px var(--accent);
-  }
-  .folder-row.drop-inside {
-    background: var(--accent-soft);
-  }
-</style>

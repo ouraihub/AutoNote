@@ -1,3 +1,4 @@
+import { ZH_CN_MESSAGES } from '@shared/locales/zh-CN'
 import { fireEvent, waitFor, within } from '@testing-library/svelte'
 import { afterEach, expect, test, vi } from 'vitest'
 import { EditorView } from '@codemirror/view'
@@ -44,9 +45,9 @@ test('two panes keep independent bodies and undo history across all layouts', as
   document.body.append(target)
   const app = mountApp(target, deps)
   handles.push(app)
-  await waitFor(() => expect(within(target).getByRole('button', { name: 'First note' })).toBeTruthy())
-  await fireEvent.click(within(target).getByRole('button', { name: 'First note' }))
-  await fireEvent.click(within(target).getByRole('button', { name: 'Second note' }), { shiftKey: true })
+  await waitFor(() => expect(within(target).getByRole('option', { name: 'First note' })).toBeTruthy())
+  await fireEvent.click(within(target).getByRole('option', { name: 'First note' }))
+  await fireEvent.click(within(target).getByRole('option', { name: 'Second note' }), { shiftKey: true })
   await waitFor(() => expect(target.querySelectorAll('.cm-editor')).toHaveLength(2))
   const primary = target.querySelector<HTMLElement>('[data-workspace-pane="primary"]')!
   const secondary = target.querySelector<HTMLElement>('[data-workspace-pane="secondary"]')!
@@ -54,9 +55,9 @@ test('two panes keep independent bodies and undo history across all layouts', as
   const second = EditorView.findFromDOM(secondary.querySelector('.cm-editor')!)!
   first.dispatch({ changes: { from: first.state.doc.length, insert: '\nleft edit' }, userEvent: 'input.type' })
   second.dispatch({ changes: { from: second.state.doc.length, insert: '\nright edit' }, userEvent: 'input.type' })
-  await fireEvent.click(primary.querySelector('[data-value="split"]')!)
-  await fireEvent.click(primary.querySelector('[data-value="preview"]')!)
-  await fireEvent.click(primary.querySelector('[data-value="live"]')!)
+  await fireEvent.click(within(primary).getByRole('radio', { name: ZH_CN_MESSAGES['workspace.split_view'] }))
+  await fireEvent.click(within(primary).getByRole('radio', { name: ZH_CN_MESSAGES['workspace.reading_mode'] }))
+  await fireEvent.click(within(primary).getByRole('radio', { name: ZH_CN_MESSAGES['workspace.live_preview'] }))
   expect(EditorView.findFromDOM(primary.querySelector('.cm-editor')!)).toBe(first)
   expect(EditorView.findFromDOM(secondary.querySelector('.cm-editor')!)).toBe(second)
   expect(undo(first)).toBe(true)

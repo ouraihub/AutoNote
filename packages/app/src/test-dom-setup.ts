@@ -10,9 +10,12 @@ globalThis.ResizeObserver = ResizeObserverStub
 
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
-  value: () => ({
-    matches: false,
-    addEventListener: () => {},
-    removeEventListener: () => {},
-  }),
+  value: (query: string) => {
+    const minWidth = /^\(min-width: (\d+)px\)$/.exec(query)?.[1]
+    return {
+      matches: minWidth !== undefined && Number(minWidth) <= 1280,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }
+  },
 })

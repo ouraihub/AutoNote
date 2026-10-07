@@ -6,15 +6,21 @@
   import { isBackendError } from '@app/backend'
   import { messageKeyForError } from '@app/i18n/errors'
   import { folderPath, selectVisibleNotes } from '@app/state/selectors'
+  import { organizerColorOrNull } from '@shared/organizer-colors'
+  import { breakpoint } from '@app/lib/breakpoint.svelte'
   import { getBackend, getExtensions, getI18n, getNotes, getNotifier, getUi } from '@app/root/context'
-  import { Button, buttonVariants } from '@app/components/ui/button'
-  import { Input } from '@app/components/ui/input'
+  import { Button } from '@app/components/ui/button'
   import * as DropdownMenu from '@app/components/ui/dropdown-menu'
   import * as Field from '@app/components/ui/field'
   import * as Dialog from '@app/components/ui/dialog'
-  import { MoreHorizontal, PanelLeft, Plus } from '@lucide/svelte'
+  import IconButton from '@app/components/primitives/IconButton.svelte'
+  import Logo from '@app/components/primitives/Logo.svelte'
+  import { ArrowDownWideNarrow, MoreHorizontal, PanelLeft, Pin, Plus, Search, Star, X } from '@lucide/svelte'
+  import Empty, { type EmptyArt } from '@app/components/primitives/Empty.svelte'
+  import { prettyCombo } from '@app/lib/hotkeys'
   import { appendPage, NOTE_DRAG_TYPE, runNoteBatch, type BatchResult } from './actions'
 
+  const layout = $derived(breakpoint())
   const notes = getNotes(),
     ui = getUi(),
     backend = getBackend(),
@@ -33,6 +39,44 @@
     folder: 'navigation.folder',
     tag: 'navigation.tag',
   }
+  const shortcut = (combo: string) => prettyCombo(combo).join('+')
+  const emptyStates: Record<ViewKind, { art: EmptyArt; title: MessageKey; description: MessageKey; combo?: string }> = {
+    all: {
+      art: 'notes',
+      title: 'notes.no_notes_yet',
+      description: 'notes.press_shortcut_or_the_plus_button_to_write_your_first_note',
+      combo: 'mod+n',
+    },
+    recent: {
+      art: 'notes',
+      title: 'notes.nothing_has_been_edited_recently',
+      description: 'notes.write_something_and_it_will_appear_here',
+    },
+    starred: {
+      art: 'starred',
+      title: 'notes.no_favorites_yet',
+      description: 'notes.right_click_a_note_or_press_shortcut_to_favorite_it',
+      combo: 'mod+d',
+    },
+    unfiled: { art: 'folder', title: 'notes.every_note_is_filed', description: 'notes.everything_is_neatly_organized' },
+    archived: {
+      art: 'archive',
+      title: 'notes.archive_is_empty',
+      description: 'notes.keep_notes_here_when_you_want_them_out_of_the_way_but_not_deleted',
+    },
+    trash: {
+      art: 'trash',
+      title: 'notes.trash_is_empty',
+      description: 'notes.deleted_notes_remain_until_you_restore_or_clear_them',
+    },
+    folder: { art: 'folder', title: 'notes.this_folder_is_still_empty', description: 'notes.drag_notes_in_or_create_new_ones_here' },
+    tag: {
+      art: 'tag',
+      title: 'notes.there_are_no_notes_with_this_tag',
+      description: 'notes.write_tags_in_the_note_to_link_them_automatically',
+    },
+  }
+  const emptyState = $derived(emptyStates[ui.filter.view])
   const snapshot = $derived(notes.readOrganizeSnapshot())
   const projection = $derived(
     selectVisibleNotes(notes.summaries, snapshot.folders, {
@@ -368,6 +412,37 @@
   }
 </script>
 
+{#snippet sortMenu(iconSize: number, triggerClass = '')}
+  <DropdownMenu.Root
+    ><DropdownMenu.Trigger
+      title={i18n.t('notes.sort_and_display')}
+      aria-label={i18n.t('notes.sort_and_display')}
+      class={[
+        'inline-flex size-8 shrink-0 items-center justify-center rounded-[var(--r-md)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] md:size-6',
+        triggerClass,
+      ]}><ArrowDownWideNarrow size={iconSize} /></DropdownMenu.Trigger
+    ><DropdownMenu.Content
+      ><DropdownMenu.Group>
+        {#if ui.filter.view === 'recent' || ui.filter.view === 'trash'}<DropdownMenu.Item disabled
+            >{i18n.t(
+              ui.filter.view === 'trash' ? 'notes.recently_deleted_first' : 'notes.recently_edited_first',
+            )}</DropdownMenu.Item
+          >{:else}
+          <DropdownMenu.Item onclick={() => ui.setSort('updated')}>{i18n.t('notes.modified')}</DropdownMenu.Item
+          ><DropdownMenu.Item onclick={() => ui.setSort('created')}>{i18n.t('notes.created')}</DropdownMenu.Item
+          ><DropdownMenu.Item onclick={() => ui.setSort('title', 'asc')}>{i18n.t('notes.title')}</DropdownMenu.Item
+          ><DropdownMenu.Item onclick={() => ui.setSort(ui.sort, ui.order === 'asc' ? 'desc' : 'asc')}
+            >{i18n.t(ui.order === 'desc' ? 'notes.sort_ascending' : 'notes.sort_descending')}</DropdownMenu.Item
+          >
+        {/if}
+        <DropdownMenu.Item onclick={() => ui.setDensity(ui.layout.density === 'compact' ? 'comfortable' : 'compact')}
+          >{i18n.t(ui.layout.density === 'compact' ? 'notes.comfortable_list' : 'notes.compact_list')}</DropdownMenu.Item
+        >
+      </DropdownMenu.Group></DropdownMenu.Content
+    ></DropdownMenu.Root
+  >
+{/snippet}
+
 {#snippet actions(ids: readonly string[], inTrash: boolean)}
   <DropdownMenu.Group>
     {#if inTrash}
@@ -408,79 +483,90 @@
   </DropdownMenu.Group>
 {/snippet}
 
-<section class="flex h-full min-h-0 flex-col bg-[var(--bg-base)]" data-testid="note-list">
-  <header class="flex flex-col gap-2 border-b border-[var(--border-default)] p-3">
-    <div class="flex items-center gap-2">
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        aria-label={i18n.t('notes.open_navigation')}
-        onclick={() => (matchMedia('(max-width: 1179px)').matches ? ui.toggleNavDrawer() : ui.toggleNav())}
-        ><PanelLeft /></Button
-      >
-      <h2 class="min-w-0 flex-1 truncate">{title}</h2>
-      <span class="tabular-nums" aria-label={i18n.t('notes.notes')}>{projection.length}</span><Button
-        variant="ghost"
-        size="icon-sm"
-        disabled={busy || ui.filter.view === 'trash'}
-        aria-label={i18n.t('common.new_note')}
-        onclick={() => void create()}><Plus /></Button
-      >
-    </div>
-    <Field.Field
-      ><Field.Label class="sr-only" for={`${instanceId}-filter`}>{i18n.t('notes.filter_in_this_view')}</Field.Label
-      ><Input
-        id={`${instanceId}-filter`}
-        type="search"
-        bind:value={filter}
-        placeholder={i18n.t('notes.filter_in_this_view')}
-      /></Field.Field
-    >
-    <div class="flex flex-wrap gap-2">
-      <DropdownMenu.Root
-        ><DropdownMenu.Trigger class={buttonVariants({ variant: 'outline', size: 'sm' })}
-          >{i18n.t('notes.sort_and_display')}</DropdownMenu.Trigger
-        ><DropdownMenu.Content
-          ><DropdownMenu.Group>
-            {#if ui.filter.view === 'recent' || ui.filter.view === 'trash'}<DropdownMenu.Item disabled
-                >{i18n.t(
-                  ui.filter.view === 'trash' ? 'notes.recently_deleted_first' : 'notes.recently_edited_first',
-                )}</DropdownMenu.Item
-              >{:else}
-              <DropdownMenu.Item onclick={() => ui.setSort('updated')}>{i18n.t('notes.modified')}</DropdownMenu.Item
-              ><DropdownMenu.Item onclick={() => ui.setSort('created')}>{i18n.t('notes.created')}</DropdownMenu.Item
-              ><DropdownMenu.Item onclick={() => ui.setSort('title', 'asc')}>{i18n.t('notes.title')}</DropdownMenu.Item
-              ><DropdownMenu.Item onclick={() => ui.setSort(ui.sort, ui.order === 'asc' ? 'desc' : 'asc')}
-                >{i18n.t(ui.order === 'desc' ? 'notes.sort_ascending' : 'notes.sort_descending')}</DropdownMenu.Item
-              >
-            {/if}
-            <DropdownMenu.Item
-              onclick={() => ui.setDensity(ui.layout.density === 'compact' ? 'comfortable' : 'compact')}
-              >{i18n.t(
-                ui.layout.density === 'compact' ? 'notes.comfortable_list' : 'notes.compact_list',
-              )}</DropdownMenu.Item
-            >
-          </DropdownMenu.Group></DropdownMenu.Content
-        ></DropdownMenu.Root
-      >
-      <Button
-        variant="ghost"
-        size="sm"
-        disabled={busy || !filtered.length}
-        onclick={() => ui.setSelection(filtered.map((note) => note.id))}
-        >{i18n.t('notes.select_all')} ({filtered.length})</Button
-      >
-      {#if ui.filter.view === 'trash' && projection.length}<Button
-          variant="outline"
-          size="sm"
-          disabled={busy}
-          onclick={() =>
-            void batch(
-              'purge',
-              projection.map((note) => note.id),
-            )}>{i18n.t('common.empty_trash')} ({projection.length})</Button
-        >{/if}
-    </div>
+<section
+  class={[
+    'relative flex h-full min-h-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-base)]',
+    layout === 'mobile' && 'mobile-note-list',
+  ]}
+  data-testid="note-list"
+>
+  <header class="shrink-0 px-3 pt-3 pb-2">
+    {#if layout === 'mobile'}
+      <div class="mobile-library-brand"><Logo size={22} /><span>{i18n.t('common.product_name')}</span></div>
+    {:else}
+      <div class="mb-2.5 flex items-center justify-between gap-2">
+        <div class="min-w-0">
+          <h2 class="truncate text-[14.5px] font-semibold tracking-[-0.016em] text-[var(--text-primary)]">{title}</h2>
+          {#if ui.filter.view === 'folder'}<p class="mt-0.5 truncate text-[10.5px] text-[var(--text-quaternary)]">
+              {i18n.t('folders.includes_subfolders')}
+            </p>{/if}
+        </div>
+        <div class="flex shrink-0 items-center gap-0.5">
+          {#if layout === 'tablet'}<IconButton
+              label={i18n.t('notes.open_navigation')}
+              title={i18n.t('notes.open_navigation')}
+              size="sm"
+              onclick={() => ui.toggleNavDrawer(true)}><PanelLeft size={14} /></IconButton
+            >{/if}
+          {@render sortMenu(14)}
+          {#if ui.filter.view !== 'trash' && ui.filter.view !== 'archived'}<IconButton
+              label={i18n.t('common.new_note')}
+              title={i18n.t('common.new_note')}
+              size="sm"
+              disabled={busy}
+              onclick={() => void create()}><Plus size={15} /></IconButton
+            >{/if}
+        </div>
+      </div>
+    {/if}
+    {#if layout === 'mobile'}
+      <div class="mobile-library-toolbar">
+        <div class="mobile-note-search relative">
+          <Search
+            size={15}
+            class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[var(--text-quaternary)]"
+          />
+          <input
+            id={`${instanceId}-filter`}
+            type="search"
+            aria-label={i18n.t('notes.filter_in_this_view')}
+            bind:value={filter}
+            onkeydown={(event) => {
+              if (event.key === 'Escape') filter = ''
+            }}
+            placeholder={i18n.t('notes.filter_in_this_view')}
+            class="h-10 w-full rounded-[var(--r-md)] border border-transparent bg-[var(--bg-inset)] pr-9 pl-8 text-[12.5px] text-[var(--text-primary)] transition-[border-color,box-shadow] duration-[var(--dur-fast)] placeholder:text-[var(--text-quaternary)] focus:border-[var(--accent)] focus:shadow-[0_0_0_3px_var(--accent-ring)] focus:outline-none md:h-[30px] md:pr-7 md:pl-7"
+          />
+          {#if filter}<button
+              type="button"
+              onclick={() => (filter = '')}
+              aria-label={i18n.t('notes.clear_filters')}
+              class="absolute top-1/2 right-1 flex size-8 -translate-y-1/2 items-center justify-center rounded text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]"
+              ><X size={12} /></button
+            >{/if}
+        </div>
+        {@render sortMenu(17, 'mobile-library-sort')}
+        {#if ui.filter.view !== 'trash' && ui.filter.view !== 'archived'}<IconButton
+            label={i18n.t('common.new_note')}
+            size="sm"
+            class="mobile-library-compose"
+            disabled={busy}
+            onclick={() => void create()}><Plus size={19} /></IconButton
+          >{/if}
+      </div>
+    {/if}
+    {#if ui.filter.view === 'trash' && projection.length}<button
+        type="button"
+        disabled={busy}
+        aria-busy={busy}
+        onclick={() =>
+          void batch(
+            'purge',
+            projection.map((note) => note.id),
+          )}
+        class="mt-2 w-full rounded-[var(--r-md)] border border-[var(--border-subtle)] py-1.5 text-[11.5px] text-[var(--text-tertiary)] transition-colors hover:border-[var(--danger)] hover:text-[var(--danger)] disabled:pointer-events-none disabled:opacity-50"
+        >{i18n.t('common.empty_trash')} ({projection.length})</button
+      >{/if}
   </header>
   <div
     id={`${instanceId}-listbox`}
@@ -492,61 +578,94 @@
     aria-activedescendant={focused && displayed.some((note) => note.id === focused) ? optionId(focused) : undefined}
     tabindex={0}
     onkeydown={(event) => void keyboard(event)}
-    class="min-h-0 flex-1 overflow-auto p-2 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    class="anim-view-content min-h-0 flex-1 overflow-y-auto px-2 pb-4 outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)] focus-visible:ring-inset"
   >
     {#each displayed as note, index (note.id)}
       {@const previous = displayed[index - 1]}
+      {@const active = ui.activeNoteId === note.id}
+      {@const selected = ui.selection.includes(note.id)}
       {#if !previous || group(previous) !== group(note)}<div
           role="presentation"
-          class="px-2 py-1 text-xs text-muted-foreground"
+          class="px-2 pt-3 pb-1 text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]"
         >
           {group(note)}
         </div>{/if}
       <DropdownMenu.Root>
+        <!-- Keyboard input is owned by the parent listbox (aria-activedescendant), like AutoNote. -->
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div
           id={optionId(note.id)}
           role="option"
           tabindex={-1}
           draggable={!busy && note.deletedAt === null}
           ondragstart={(event) => startDrag(event, note.id)}
-          aria-selected={ui.selection.includes(note.id)}
+          aria-selected={selected}
           aria-label={note.title || i18n.t('common.untitled_note')}
           aria-posinset={positions.get(note.id) ?? index + 1}
           aria-setsize={filtered.length}
-          class="note-row flex items-start gap-1 rounded-md"
-          class:selected={ui.selection.includes(note.id)}
-          class:focused={focused === note.id}
+          style:content-visibility="auto"
+          style:contain-intrinsic-size={ui.layout.density === 'compact' ? 'auto 42px' : 'auto 72px'}
+          class={[
+            'motion-note-row group relative mb-px cursor-default rounded-[var(--r-md)] border border-transparent px-2.5 pr-11 transition-[background-color,border-color,box-shadow,transform] duration-[var(--dur-fast)] md:pr-10',
+            ui.layout.density === 'compact' ? 'py-[7px]' : 'py-2.5',
+            selected && !active
+              ? 'bg-[var(--accent-soft)] ring-1 ring-[var(--accent)]/40'
+              : active
+                ? 'border-[var(--border-default)] bg-[var(--bg-surface)] shadow-[var(--shadow-sm)]'
+                : 'hover:bg-[var(--bg-hover)]',
+            focused === note.id && 'outline outline-1 -outline-offset-1 outline-[var(--accent)]',
+          ]}
+          onclick={(event) => {
+            select(note.id, event.shiftKey && !event.altKey, event.ctrlKey || event.metaKey)
+            if (!event.ctrlKey && !event.metaKey) void open(note.id, event.shiftKey || event.altKey)
+            listbox?.focus()
+          }}
           oncontextmenu={(event) => {
             event.preventDefault()
             focused = note.id
             event.currentTarget.querySelector<HTMLButtonElement>('[data-note-menu]')?.click()
           }}
         >
-          <Button
-            variant={ui.activeNoteId === note.id ? 'secondary' : 'ghost'}
-            class="h-auto min-w-0 flex-1 justify-start py-2"
-            tabindex={-1}
-            onclick={(event) => {
-              select(note.id, event.shiftKey && !event.altKey, event.ctrlKey || event.metaKey)
-              if (!event.ctrlKey && !event.metaKey) void open(note.id, event.shiftKey || event.altKey)
-              listbox?.focus()
-            }}
-          >
-            <span class="flex min-w-0 flex-1 flex-col items-start gap-1"
-              ><span class="w-full truncate"
-                >{note.isPinned ? '• ' : ''}{note.title || i18n.t('common.untitled_note')}{note.isStarred
-                  ? ' ★'
-                  : ''}</span
-              >{#if ui.layout.density !== 'compact'}<span class="w-full truncate text-xs text-muted-foreground"
-                  >{note.excerpt}</span
-                ><span class="text-xs text-muted-foreground">{note.tags.map((tag) => `#${tag}`).join(' ')}</span
-                >{/if}</span
-            >
-          </Button>
+          <div class="flex items-start gap-1.5">
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-1.5">
+                {#if note.isPinned}<Pin size={10} class="anim-mark-enter shrink-0 text-[var(--accent)]" />{/if}
+                <h3
+                  class={[
+                    'min-w-0 flex-1 truncate text-[13px] leading-snug',
+                    active ? 'font-semibold text-[var(--accent)]' : 'font-medium text-[var(--text-primary)]',
+                  ]}
+                >
+                  {note.title || i18n.t('common.untitled_note')}
+                </h3>
+                {#if note.isStarred}<Star
+                    size={10}
+                    class="anim-mark-enter shrink-0 fill-current text-[var(--warning)]"
+                  />{/if}
+              </div>
+              {#if ui.layout.density !== 'compact' && note.excerpt}<p
+                  class="truncate-2 mt-1 text-[11.5px] leading-[1.5] text-[var(--text-tertiary)]"
+                >
+                  {note.excerpt}
+                </p>{/if}
+              {#if ui.layout.density !== 'compact' && note.tags.length}<div
+                  class="mt-1.5 flex min-w-0 items-center gap-1 overflow-hidden text-[10.5px] whitespace-nowrap text-[var(--text-tertiary)]"
+                >
+                  {#each note.tags as tag (tag)}<span
+                      class="max-w-[70%] shrink-0 truncate"
+                      style:color={organizerColorOrNull(snapshot.tags.find((item) => item.name === tag)?.color)}
+                      >#{tag}</span
+                    >{/each}
+                </div>{/if}
+            </div>
+          </div>
           <DropdownMenu.Trigger
             data-note-menu
-            class={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
-            aria-label={`${i18n.t('common.more_actions')}: ${note.title}`}><MoreHorizontal /></DropdownMenu.Trigger
+            tabindex={-1}
+            title={i18n.t('common.more_actions')}
+            onclick={(event) => event.stopPropagation()}
+            class="absolute top-1.5 right-1.5 inline-flex size-8 items-center justify-center rounded-[var(--r-md)] text-[var(--text-secondary)] opacity-100 transition-opacity hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] md:size-6 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100"
+            aria-label={`${i18n.t('common.more_actions')}: ${note.title}`}><MoreHorizontal size={14} /></DropdownMenu.Trigger
           >
         </div>
         <DropdownMenu.Content
@@ -555,39 +674,80 @@
             ><DropdownMenu.Item onclick={() => void open(note.id, true)}
               >{i18n.t('notes.open_to_side')}</DropdownMenu.Item
             ><DropdownMenu.Item onclick={() => select(note.id, false, true)}
-              >{i18n.t(ui.selection.includes(note.id) ? 'notes.deselect' : 'notes.add_to_selection')}</DropdownMenu.Item
+              >{i18n.t(selected ? 'notes.deselect' : 'notes.add_to_selection')}</DropdownMenu.Item
             ></DropdownMenu.Group
           ><DropdownMenu.Separator />{@render actions([note.id], note.deletedAt !== null)}</DropdownMenu.Content
         >
       </DropdownMenu.Root>
     {/each}
-    {#if !displayed.length && !loading}<p role="status" class="p-4 text-sm text-muted-foreground">
-        {i18n.t(
-          filter.trim()
-            ? 'notes.no_matching_notes'
-            : ui.filter.view === 'trash'
-              ? 'notes.trash_is_empty'
-              : 'notes.no_notes_yet',
-        )}
+    {#if !displayed.length && !loading}
+      {#if filter.trim()}<Empty
+          art="search"
+          title={i18n.t('notes.no_matching_notes')}
+          description={i18n.t('notes.try_another_search_or_press_shortcut_to_search_everywhere', {
+            shortcut: shortcut('mod+k'),
+          })}
+        />{:else}<Empty
+          art={emptyState.art}
+          title={i18n.t(emptyState.title as MessageKey)}
+          description={i18n.t(emptyState.description as MessageKey, emptyState.combo ? { shortcut: shortcut(emptyState.combo) } : {})}
+        >
+          {#snippet action()}
+            {#if ui.filter.view !== 'trash' && ui.filter.view !== 'archived'}<button
+                type="button"
+                disabled={busy}
+                onclick={() => void create()}
+                class="inline-flex h-8 items-center gap-1.5 rounded-[var(--r-md)] border border-[var(--border-default)] px-3 text-[12.5px] text-[var(--text-secondary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
+                ><Plus size={13} />{i18n.t('common.new_note')}</button
+              >{/if}
+          {/snippet}
+        </Empty>{/if}
+    {/if}
+    {#if loading}<p role="status" class="px-2 py-3 text-[11.5px] text-[var(--text-quaternary)]">
+        {i18n.t('common.loading')}
       </p>{/if}
-    {#if loading}<p role="status">{i18n.t('common.loading')}</p>{/if}
-    {#if pageError}<p role="alert" class="text-sm text-destructive">{pageError}</p>
-      <Button variant="outline" onclick={() => refresh++}>{i18n.t('common.retry')}</Button>{/if}
-    {#if (filter.trim() && displayed.length < filtered.length) || (!filter.trim() && nextCursor)}<Button
-        variant="outline"
-        class="w-full"
+    {#if pageError}<p role="alert" class="px-2 py-2 text-[11.5px] text-[var(--danger)]">{pageError}</p>
+      <button
+        type="button"
+        onclick={() => refresh++}
+        class="mx-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] px-3 py-1 text-[11.5px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+        >{i18n.t('common.retry')}</button
+      >{/if}
+    {#if (filter.trim() && displayed.length < filtered.length) || (!filter.trim() && nextCursor)}<button
+        type="button"
         disabled={loading}
-        onclick={() => void loadMore()}>{i18n.t('notes.load_more')}</Button
+        onclick={() => void loadMore()}
+        class="mt-2 w-full rounded-[var(--r-md)] border border-[var(--border-subtle)] py-1.5 text-[11.5px] text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:opacity-50"
+        >{i18n.t('notes.load_more')}</button
       >{/if}
   </div>
-  {#if selected.length}<footer class="flex flex-wrap items-center gap-2 border-t border-[var(--border-default)] p-2">
-      <span>{i18n.t('notes.selected')}{selected.length}{i18n.t('notes.notes')}</span><DropdownMenu.Root
-        ><DropdownMenu.Trigger disabled={busy} class={buttonVariants({ variant: 'outline', size: 'sm' })}
-          >{i18n.t('common.more_actions')}</DropdownMenu.Trigger
-        ><DropdownMenu.Content>{@render actions(selected, ui.filter.view === 'trash')}</DropdownMenu.Content
-        ></DropdownMenu.Root
-      ><Button variant="ghost" disabled={busy} onclick={() => ui.setSelection([])}>{i18n.t('notes.deselect')}</Button>
-    </footer>{/if}
+  {#if selected.length >= 2}<div class="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center pb-3">
+      <div
+        class="anim-rise pointer-events-auto flex items-center gap-1 rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-1 pl-3 shadow-[var(--shadow-pop)]"
+      >
+        <span class="mr-1 text-[12px] font-medium text-[var(--text-secondary)] tabular-nums"
+          >{i18n.t('notes.selected')}{selected.length}{i18n.t('notes.notes')}</span
+        >
+        <DropdownMenu.Root
+          ><DropdownMenu.Trigger
+            disabled={busy}
+            title={i18n.t('common.more_actions')}
+            aria-label={i18n.t('common.more_actions')}
+            class="inline-flex size-8 items-center justify-center rounded-[var(--r-md)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:opacity-40 md:size-6"
+            ><MoreHorizontal size={13} /></DropdownMenu.Trigger
+          ><DropdownMenu.Content>{@render actions(selected, ui.filter.view === 'trash')}</DropdownMenu.Content
+          ></DropdownMenu.Root
+        >
+        <span class="mx-0.5 h-4 w-px bg-[var(--border-subtle)]"></span>
+        <IconButton
+          label={i18n.t('notes.deselect')}
+          title={i18n.t('notes.deselect')}
+          size="sm"
+          disabled={busy}
+          onclick={() => ui.setSelection(ui.activeNoteId ? [ui.activeNoteId] : [])}><X size={13} /></IconButton
+        >
+      </div>
+    </div>{/if}
   {#if results.length}<div
       role="status"
       aria-live="polite"
@@ -630,13 +790,3 @@
     ></Dialog.Content
   ></Dialog.Root
 >
-
-<style>
-  .note-row.selected {
-    background: var(--accent-soft);
-  }
-  .note-row.focused {
-    outline: 1px solid var(--accent);
-    outline-offset: -1px;
-  }
-</style>

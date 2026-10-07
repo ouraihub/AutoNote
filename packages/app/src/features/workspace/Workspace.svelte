@@ -13,6 +13,9 @@
   import { CoalescingPrefsWriter } from '../../state/prefs-writer'
   import type { WorkspacePane } from '../../state/layout-prefs'
   import { Button } from '../../components/ui/button'
+  import { Plus } from '@lucide/svelte'
+  import Empty from '../../components/primitives/Empty.svelte'
+  import { prettyCombo } from '../../lib/hotkeys'
   import NotePane from './NotePane.svelte'
   import SplitResizer from './SplitResizer.svelte'
   import VersionsPanel from './VersionsPanel.svelte'
@@ -101,16 +104,27 @@
       {/if}
     {/each}
     {#if !ui.panes.primary.noteId}
-      <div class="empty-workspace">
-        <h2>{i18n.t('workspace.choose_a_note_or_write_a_new_one')}</h2>
-        <p>
-          {i18n.t('workspace.open_a_note_from_the_list_or_press_shortcut_to_create_one', { shortcut: 'Ctrl / ⌘ + N' })}
-        </p>
-        <Button disabled={creating} onclick={create}>{i18n.t('common.new_note')}</Button>{#if createError}<p
-            role="alert"
-          >
-            {i18n.t('common.action_failed')}
-          </p>{/if}
+      <div class="flex h-full flex-1 items-center justify-center bg-[var(--bg-editor)]">
+        <Empty
+          art="select"
+          title={i18n.t('workspace.choose_a_note_or_write_a_new_one')}
+          description={i18n.t('workspace.open_a_note_from_the_list_or_press_shortcut_to_create_one', {
+            shortcut: prettyCombo('mod+n').join('+'),
+          })}
+        >
+          {#snippet action()}
+            <button
+              type="button"
+              disabled={creating}
+              onclick={create}
+              class="inline-flex h-8 items-center gap-1.5 rounded-[var(--r-md)] bg-[var(--accent)] px-3.5 text-[12.5px] font-medium text-[var(--accent-contrast)] transition-transform active:translate-y-px disabled:opacity-50"
+              ><Plus size={14} />{i18n.t('common.new_note')}</button
+            >
+            {#if createError}<p role="alert" class="mt-2 text-[11.5px] text-[var(--danger)]">
+                {i18n.t('common.action_failed')}
+              </p>{/if}
+          {/snippet}
+        </Empty>
       </div>
     {/if}
   </div>
@@ -162,21 +176,5 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .empty-workspace {
-    display: flex;
-    flex: 1;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    padding: 24px;
-    text-align: center;
-  }
-  .empty-workspace h2 {
-    font-size: 18px;
-    font-weight: 600;
-  }
-  .empty-workspace p {
-    color: var(--text-secondary);
-  }
+
 </style>

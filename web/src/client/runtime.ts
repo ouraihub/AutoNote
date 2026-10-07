@@ -97,13 +97,11 @@ export function createWebRuntime(services: WebServices): AppDeps {
     clientId: CLIENT_ID,
     getLocale: () => services.language.locale,
   })
-  const demoBackend = backend
-  const actualBackend = IS_DEMO_MODE
-    ? {
-        ...demoBackend,
-        capabilities: { ...backend.capabilities, totp: false, semanticSearch: false, updateCheck: false },
-      }
-    : backend
+  const actualBackend = { ...backend }
+  if (IS_DEMO_MODE) {
+    delete actualBackend.update
+    actualBackend.capabilities = { ...backend.capabilities, totp: false, semanticSearch: false, updateCheck: false }
+  }
   return {
     backend: actualBackend,
     clock: { now: () => Date.now() },
@@ -114,5 +112,6 @@ export function createWebRuntime(services: WebServices): AppDeps {
       settingsSections: [],
       aboutPanels: [{ id: 'diagnostics', order: 100, titleKey: 'host.diagnostics', component: DiagnosticsPanel }],
     },
+    ...(IS_DEMO_MODE ? { authDefaults: { username: 'admin', password: 'password' } } : {}),
   }
 }

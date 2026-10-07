@@ -1,8 +1,9 @@
 <script lang="ts">
   import type { MessageKey } from '@shared/locales/en-US'
-  import * as Dialog from '@app/components/ui/dialog'
   import type { Hotkeys } from '@app/lib/hotkeys'
-  import { hotkeyText, prettyCombo } from '@app/lib/hotkeys'
+  import { hotkeyText } from '@app/lib/hotkeys'
+  import Kbd from '@app/components/primitives/Kbd.svelte'
+  import Modal from '@app/components/primitives/Modal.svelte'
 
   interface I18n {
     t(key: MessageKey): string
@@ -21,9 +22,25 @@
     ['mod+e', 'common.inline_code'],
     ['mod+shift+x', 'common.strikethrough'],
     ['mod+shift+h', 'common.highlight'],
+    ['mod+1', 'command.heading_1_same_pattern_for_2_6'],
+    ['mod+shift+8', 'common.unordered_list'],
+    ['mod+shift+7', 'common.ordered_list'],
+    ['mod+shift+9', 'common.task_list'],
+    ['mod+shift+.', 'common.quote'],
+    ['mod+shift+enter', 'command.check_uncheck_tasks'],
+    ['alt+arrowup', 'command.move_line_up'],
+    ['alt+arrowdown', 'command.move_line_down'],
+    ['mod+shift+k', 'command.delete_line'],
+    ['mod+f', 'command.find_and_replace_in_this_note'],
     ['mod+z', 'common.undo'],
     ['mod+shift+z', 'command.redo'],
-    ['mod+f', 'command.find_and_replace_in_this_note'],
+  ]
+  const inputHints: readonly [string[], MessageKey][] = [
+    [['[', '['], 'command.link_to_another_note_autocomplete'],
+    [['#'], 'command.insert_tag_autocomplete'],
+    [['`', '`', '`'], 'command.code_block_language_autocomplete'],
+    [['↵'], 'command.continue_lists_automatically_press_enter_on_an_empty_item_to_exit'],
+    [['Tab'], 'command.jump_to_the_next_cell_in_the_table'],
   ]
   const groups = $derived.by(() => {
     const grouped: Record<string, { combo: string; description: string }[]> = {}
@@ -32,43 +49,46 @@
       ;(grouped[group] ??= []).push({ combo: hotkey.combo, description: hotkeyText(hotkey.description) })
     }
     const edit = i18n.t('common.edit')
-    ;(grouped[edit] ??= []).push(
-      ...editorShortcuts.map(([combo, key]) => ({ combo, description: i18n.t(key) })),
-    )
+    ;(grouped[edit] ??= []).push(...editorShortcuts.map(([combo, key]) => ({ combo, description: i18n.t(key) })))
     return Object.entries(grouped)
   })
+  const rowClass =
+    'flex min-h-10 items-center justify-between gap-4 rounded-[var(--r-sm)] px-1.5 py-[5px] transition-colors hover:bg-[var(--bg-hover)] md:min-h-0'
+  const textClass = 'min-w-0 text-[12.5px] leading-snug text-[var(--text-secondary)] md:truncate'
+  const headingClass = 'mb-2 text-[10.5px] font-semibold tracking-[0.07em] text-[var(--text-quaternary)]'
 </script>
 
-<Dialog.Root bind:open {onOpenChange}>
-  <Dialog.Content class="max-w-3xl" aria-describedby="shortcuts-description">
-    <Dialog.Header>
-      <Dialog.Title>{i18n.t('command.keyboard_shortcuts_021cf9')}</Dialog.Title>
-      <Dialog.Description id="shortcuts-description"
-        >{i18n.t('command.use_nearly_every_action_without_touching_the_mouse')}</Dialog.Description
-      >
-    </Dialog.Header>
-    <div class="grid max-h-[62vh] grid-cols-1 gap-5 overflow-y-auto md:grid-cols-2">
-      {#each groups as [group, items] (group)}
-        <section aria-label={group}>
-          <h3 class="mb-2 text-xs font-semibold text-muted-foreground">{group}</h3>
-          <ul class="space-y-1">
-            {#each items as item, index (index)}
-              <li class="flex min-h-9 items-center justify-between gap-4 rounded-md px-2 py-1 hover:bg-muted">
-                <span class="min-w-0 text-sm text-muted-foreground">{item.description}</span>
-                <kbd class="shrink-0 text-xs text-muted-foreground">{prettyCombo(item.combo).join(' + ')}</kbd>
-              </li>
-            {/each}
-          </ul>
-        </section>
-      {/each}
-      <section>
-        <h3 class="mb-2 text-xs font-semibold text-muted-foreground">{i18n.t('command.triggered_as_you_type')}</h3>
-        <ul class="space-y-1 text-sm text-muted-foreground">
-          <li><code>[[ ]]</code>: {i18n.t('command.link_to_another_note_autocomplete')}</li>
-          <li><code>#</code>: {i18n.t('command.insert_tag_autocomplete')}</li>
-          <li><kbd>Tab</kbd>: {i18n.t('command.jump_to_the_next_cell_in_the_table')}</li>
+<Modal
+  {open}
+  onClose={() => onOpenChange(false)}
+  title={i18n.t('command.keyboard_shortcuts_021cf9')}
+  description={i18n.t('command.use_nearly_every_action_without_touching_the_mouse')}
+  width={720}
+>
+  <div class="grid grid-cols-1 gap-x-8 gap-y-5 pr-1 md:max-h-[62vh] md:grid-cols-2 md:overflow-y-auto">
+    {#each groups as [group, items] (group)}
+      <section aria-label={group}>
+        <h3 class={headingClass}>{group}</h3>
+        <ul class="space-y-0.5">
+          {#each items as item, index (`${item.combo}-${index}`)}
+            <li class={rowClass}>
+              <span class={textClass}>{item.description}</span>
+              <Kbd combo={item.combo} />
+            </li>
+          {/each}
         </ul>
       </section>
-    </div>
-  </Dialog.Content>
-</Dialog.Root>
+    {/each}
+    <section>
+      <h3 class={headingClass}>{i18n.t('command.triggered_as_you_type')}</h3>
+      <ul class="space-y-0.5">
+        {#each inputHints as [keys, key], index (index)}
+          <li class={rowClass}>
+            <span class={textClass}>{i18n.t(key)}</span>
+            <Kbd {keys} />
+          </li>
+        {/each}
+      </ul>
+    </section>
+  </div>
+</Modal>

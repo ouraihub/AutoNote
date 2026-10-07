@@ -11,7 +11,7 @@
   background: transparent;
   color: var(--text-primary);
   font-family: var(--font-mono);
-  font-size: inherit;
+  font-size: var(--editor-size, 15px);
   font-weight: 400;
   line-height: var(--writing-line, 1.64);
   letter-spacing: -0.008em;
@@ -447,6 +447,10 @@
   .ink-editor .cm-editor { font-size: max(16px, var(--editor-size, 15px)); }
   [data-editor-layout='split'] > div { min-height: 0; }
   .editor-toolbar button { min-width: 44px; min-height: 44px; }
+}
+
+.ink-editor[data-typewriter='true'] .cm-scroller {
+  scroll-behavior: smooth;
 }
 
 @media (prefers-reduced-motion: reduce) {

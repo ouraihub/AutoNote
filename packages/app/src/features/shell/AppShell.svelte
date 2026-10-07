@@ -1,6 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Button } from '../../components/ui/button'
+  import { Eye, FileText, PanelLeft, PencilLine, UserRound } from '@lucide/svelte'
+  import IconButton from '../../components/primitives/IconButton.svelte'
+  import Resizer from '../../components/primitives/Resizer.svelte'
+  import SearchButton from '../../components/primitives/SearchButton.svelte'
+  import { PANEL_WIDTHS } from '../../state/layout-prefs'
+  import type { MobilePane } from '../../state/ui.svelte'
   import Workspace from '../workspace/Workspace.svelte'
   import SettingsPanel from '../settings/SettingsPanel.svelte'
   import CommandPalette from '../command/CommandPalette.svelte'
@@ -9,7 +14,9 @@
   import Sidebar from '../sidebar/Sidebar.svelte'
   import NoteList from '../list/NoteList.svelte'
   import { createHotkeys, type Hotkeys } from '../../lib/hotkeys'
+  import { breakpoint as currentBreakpoint } from '../../lib/breakpoint.svelte'
   import { getBackend, getExtensions, getI18n, getNotes, getNotifier, getOrganize, getSettings, getUi } from '../../root/context'
+  import type { MessageKey } from '@shared/locales/en-US'
 
   const backend = getBackend()
   const extensions = getExtensions()
@@ -21,6 +28,25 @@
   const organize = getOrganize()
   let surface = $state<HTMLDivElement>()
   let hotkeys = $state<Hotkeys>()
+  const breakpoint = $derived(currentBreakpoint())
+  const mobileTabs: { id: MobilePane; icon: typeof FileText; key: 'common.note' | 'common.edit' | 'mobile.view' | 'mobile.account' }[] = [
+    { id: 'list', icon: FileText, key: 'common.note' },
+    { id: 'editor', icon: PencilLine, key: 'common.edit' },
+    { id: 'preview', icon: Eye, key: 'mobile.view' },
+    { id: 'account', icon: UserRound, key: 'mobile.account' },
+  ]
+  const notePane = $derived(ui.mobilePane === 'editor' || ui.mobilePane === 'preview')
+
+  $effect(() => {
+    if (breakpoint === 'mobile' && notePane && !ui.activeNoteId) ui.setMobilePane('list')
+  })
+  function selectMobileTab(pane: MobilePane): void {
+    if (pane === 'account') {
+      ui.openPanel('settings')
+      return
+    }
+    ui.setMobilePane(pane)
+  }
 
   onMount(() => {
     if (!surface) return
@@ -58,33 +84,122 @@
   }
 </script>
 
-<div bind:this={surface} class="flex h-full min-h-0 flex-col" data-testid="app-shell">
-  <header class="flex flex-wrap items-center gap-2 border-b border-[var(--border-default)] px-3 py-2">
-    <strong class="mr-auto text-sm">{i18n.t('common.product_name')}</strong>
-    <Button variant="ghost" onclick={() => void createNote()}>{i18n.t('common.new_note')}</Button>
-    <Button variant="ghost" onclick={() => ui.openPanel('command')}>{i18n.t('common.command_palette')}</Button>
-    <Button variant="ghost" onclick={() => ui.openPanel('graph')}>{i18n.t('command.open_graph')}</Button>
-    <Button variant="ghost" onclick={() => ui.openPanel('settings')}>{i18n.t('common.open_settings')}</Button>
-  </header>
-  <div class="flex min-h-0 flex-1">
-    <aside class="note-navigation shrink-0 overflow-auto border-r border-[var(--border-default)]" style:width={`${ui.layout.navCollapsed ? 48 : ui.layout.navWidth}px`} aria-label={i18n.t('common.navigation')}><Sidebar /></aside>
-    <section class="note-list-pane min-h-0 shrink-0 border-r border-[var(--border-default)]" style:width={`${ui.layout.listWidth}px`} class:mobile-hidden={ui.mobilePane !== 'list'}><NoteList /></section>
-    <main class="min-h-0 min-w-0 flex-1" class:mobile-hidden={ui.mobilePane === 'list'}><Workspace /></main>
-  </div>
+<div bind:this={surface} class="h-full min-h-0" data-testid="app-shell">
+  {#if breakpoint === 'mobile'}
+    <div
+      class="relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--bg-base)] pt-[env(safe-area-inset-top)]"
+    >
+      <div class="relative min-h-0 flex-1">
+        <div
+          aria-hidden={ui.mobilePane !== 'list'}
+          inert={ui.mobilePane !== 'list'}
+          data-active={ui.mobilePane === 'list' || undefined}
+          class="mobile-pane-layer absolute inset-0"
+        >
+          <NoteList />
+        </div>
+        <div
+          aria-hidden={!notePane}
+          inert={!notePane}
+          data-active={notePane || undefined}
+          data-from="right"
+          class="mobile-pane-layer absolute inset-0"
+        >
+          {#if notePane && ui.activeNoteId}<Workspace />{/if}
+        </div>
+      </div>
+      <nav
+        aria-label={i18n.t('shell.mobile_navigation')}
+        class="mobile-bottom-nav flex h-[calc(64px+env(safe-area-inset-bottom))] shrink-0 items-stretch justify-around border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] pb-[env(safe-area-inset-bottom)]"
+      >
+        {#each mobileTabs as tab (tab.id)}
+          {@const current = tab.id === 'account' ? ui.panel === 'settings' : ui.mobilePane === tab.id && ui.panel !== 'settings'}
+          <button
+            type="button"
+            disabled={!ui.activeNoteId && (tab.id === 'editor' || tab.id === 'preview')}
+            aria-current={current ? 'page' : undefined}
+            onclick={() => selectMobileTab(tab.id)}
+            class={[
+              'flex min-w-0 flex-1 items-center justify-center text-[12px] transition-colors disabled:opacity-40',
+              current ? 'text-[var(--accent)]' : 'text-[var(--text-tertiary)]',
+            ]}
+          >
+            <span class="mobile-tab-content"><tab.icon size={19} /><span>{i18n.t(tab.key as MessageKey)}</span></span>
+          </button>
+        {/each}
+      </nav>
+      <Sidebar />
+    </div>
+  {:else}
+    <div class="relative flex h-full min-h-0 flex-col overflow-hidden bg-[var(--bg-base)]">
+      {#if breakpoint === 'tablet'}
+        <div
+          class="flex h-11 shrink-0 items-center gap-3 border-b border-[var(--border-subtle)] bg-[var(--bg-sunken)] px-3"
+        >
+          <IconButton
+            label={i18n.t('common.navigation')}
+            title={i18n.t('common.navigation')}
+            onclick={() => ui.toggleNavDrawer(true)}><PanelLeft size={16} /></IconButton
+          >
+          <div class="w-full max-w-sm"><SearchButton /></div>
+        </div>
+      {/if}
+      <div class="flex min-h-0 min-w-0 flex-1">
+        {#if breakpoint === 'desktop'}
+          <div
+            style:width={`${ui.layout.navCollapsed ? 48 : ui.layout.navWidth}px`}
+            class="shrink-0 overflow-hidden transition-[width] duration-[var(--dur-slow)] ease-[var(--ease-out)]"
+          >
+            <Sidebar />
+          </div>
+          {#if !ui.layout.navCollapsed}<Resizer
+              label={i18n.t('shell.resize_navigation_panel')}
+              value={ui.layout.navWidth}
+              min={PANEL_WIDTHS.navigation.min}
+              max={PANEL_WIDTHS.navigation.max}
+              onChange={(navWidth) => ui.resize({ navWidth })}
+              onReset={() => ui.resize({ navWidth: PANEL_WIDTHS.navigation.min })}
+            />{/if}
+        {:else}
+          <Sidebar />
+        {/if}
+        {#if !ui.layout.listCollapsed}
+          <div style:width={`${ui.layout.listWidth}px`} class="anim-view-content shrink-0 overflow-hidden">
+            <NoteList />
+          </div>
+          <Resizer
+            label={i18n.t('shell.resize_note_list')}
+            value={ui.layout.listWidth}
+            min={PANEL_WIDTHS.noteList.min}
+            max={PANEL_WIDTHS.noteList.max}
+            onChange={(listWidth) => ui.resize({ listWidth })}
+            onReset={() => ui.resize({ listWidth: PANEL_WIDTHS.noteList.min })}
+          />
+        {/if}
+        <main class="flex min-w-0 flex-1"><div class="min-w-0 flex-1"><Workspace /></div></main>
+      </div>
+    </div>
+  {/if}
   {#if ui.panel === 'settings'}<SettingsPanel onClose={() => ui.closePanel()} />{/if}
   {#if ui.panel === 'command' || ui.panel === 'search'}
-    <CommandPalette {notes} {ui} {backend} {i18n} {settings} {organize} onOpenChange={(open) => { if (!open) ui.closePanel() }} />
+    <CommandPalette
+      {notes}
+      {ui}
+      {backend}
+      {i18n}
+      {settings}
+      {organize}
+      onOpenChange={(open) => {
+        if (!open) ui.closePanel()
+      }}
+    />
   {/if}
-  {#if ui.panel === 'shortcuts' && hotkeys}<ShortcutsPanel {hotkeys} {i18n} onOpenChange={(open) => { if (!open) ui.closePanel() }} />{/if}
+  {#if ui.panel === 'shortcuts' && hotkeys}<ShortcutsPanel
+      {hotkeys}
+      {i18n}
+      onOpenChange={(open) => {
+        if (!open) ui.closePanel()
+      }}
+    />{/if}
   {#if ui.panel === 'graph'}<GraphPanel {backend} {ui} {notes} {i18n} onClose={() => ui.closePanel()} />{/if}
 </div>
-
-<style>
-  @media (max-width: 1179px) {
-    .note-navigation { width: 0 !important; border-right: 0; }
-  }
-  @media (max-width: 767px) {
-    .mobile-hidden { display: none; }
-    .note-list-pane { width: 100% !important; border-right: 0; }
-  }
-</style>

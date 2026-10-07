@@ -192,4 +192,4 @@
   }
 </script>
 
-<div class="ink-editor" data-note-id={noteId} data-live={live} data-family={settings.fontFamily} data-focus-mode={settings.focusMode} data-typewriter={settings.typewriter} style:font-size={`${settings.fontSize}px`} bind:this={host}></div>
+<div class="ink-editor" data-note-id={noteId} data-live={live} data-family={settings.fontFamily} data-focus-mode={settings.focusMode} data-typewriter={settings.typewriter} style:--editor-size={`${settings.fontSize}px`} bind:this={host}></div>

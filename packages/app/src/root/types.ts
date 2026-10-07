@@ -36,6 +36,7 @@ export interface AppDeps {
   prefs: PrefsStore
   notifier: Notifier
   extensions: HostExtensions
+  authDefaults?: Readonly<{ username: string; password: string }>
 }
 
 export interface AppHandle {

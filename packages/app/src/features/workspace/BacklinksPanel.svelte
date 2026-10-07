@@ -1,5 +1,7 @@
 <script lang="ts">
   import type { Backlink } from '@shared/types'
+  import { ArrowUpRight, Link2 } from '@lucide/svelte'
+  import Button from '../../components/primitives/Button.svelte'
   import type { Backend } from '../../backend'
   import type { I18nState } from '../../i18n/runtime.svelte'
   import type { HostExtensions } from '../../root/types'
@@ -57,28 +59,31 @@
 </script>
 
 <section class="max-h-[36%] shrink-0 overflow-y-auto border-t border-[var(--border-subtle)] bg-[var(--bg-base)]" aria-label={i18n.t('common.backlinks')}>
-  <div class="sticky top-0 border-b border-[var(--border-subtle)] bg-[var(--bg-base)] px-3 py-2 text-xs font-semibold text-[var(--text-quaternary)]">
-    {i18n.t('common.backlinks')}{#if links?.length} · {links.length}{/if}
+  <div class="sticky top-0 z-10 flex items-center gap-1.5 border-b border-[var(--border-subtle)] bg-[var(--bg-base)] px-3 py-2 text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+    <Link2 size={11} />{i18n.t('common.backlinks')}{#if links?.length}<span class="tabular">· {links.length}</span>{/if}
   </div>
-  {#if navigationError}<p role="alert" class="px-3 py-2 text-xs">{i18n.t('common.action_failed')}</p>{/if}
+  {#if navigationError}<p role="alert" class="px-3 py-2 text-[12px] text-[var(--danger)]">{i18n.t('common.action_failed')}</p>{/if}
   {#if loadError}
-    <div class="flex items-center justify-between gap-3 px-3 py-4 text-xs text-[var(--text-quaternary)]">
+    <div class="flex items-center justify-between gap-3 px-3 py-4 text-[12px] text-[var(--text-quaternary)]">
       <span role="alert">{i18n.t('workspace.could_not_load_backlinks')}</span>
-      <button type="button" onclick={() => reload++}>{i18n.t('common.retry')}</button>
+      <Button size="sm" variant="ghost" onclick={() => reload++}>{i18n.t('common.retry')}</Button>
     </div>
   {:else if links === null}
-    <p role="status" class="px-3 py-4 text-xs text-[var(--text-quaternary)]">{i18n.t('common.loading')}</p>
+    <div role="status" class="px-3 py-4 text-[12px] text-[var(--text-quaternary)]">{i18n.t('common.loading')}</div>
   {:else if links.length === 0}
-    <p class="px-3 py-4 text-xs leading-relaxed text-[var(--text-quaternary)]">
-      {i18n.t('workspace.no_notes_link_here_yet_write')} <code>{i18n.t('workspace.title')}</code> {i18n.t('workspace.will_appear_here')}
-    </p>
+    <div class="px-3 py-4 text-[12px] leading-relaxed text-[var(--text-quaternary)]">
+      {i18n.t('workspace.no_notes_link_here_yet_write')} <code class="rounded bg-[var(--bg-inset)] px-1 py-0.5 font-mono text-[11px]">{i18n.t('workspace.title')}</code> {i18n.t('workspace.will_appear_here')}
+    </div>
   {:else}
     <ul class="p-2">
       {#each links as link (link.id)}
         <li>
-          <button type="button" onclick={() => void open(link.id)} class="w-full rounded px-2 py-2 text-left hover:bg-[var(--bg-hover)]">
-            <span class="block truncate text-sm font-medium text-[var(--text-primary)]">{link.title}</span>
-            <span class="mt-0.5 block text-xs text-[var(--text-tertiary)]">{link.context}</span>
+          <button type="button" onclick={() => void open(link.id)} class="group w-full rounded-[var(--r-md)] px-2 py-2 text-left transition-colors hover:bg-[var(--bg-hover)]">
+            <span class="flex items-center gap-1.5">
+              <span class="min-w-0 truncate text-[12.5px] font-medium text-[var(--text-primary)]">{link.title}</span>
+              <ArrowUpRight size={11} class="shrink-0 text-[var(--text-quaternary)] opacity-0 transition-opacity group-hover:opacity-100" />
+            </span>
+            <span class="truncate-2 mt-0.5 block text-[11.5px] leading-relaxed text-[var(--text-tertiary)]">{link.context}</span>
           </button>
         </li>
       {/each}

@@ -5,7 +5,7 @@ import type { Note, NoteVersion, NoteVersionMeta } from '@shared/types'
 import type { Backend } from '../../backend'
 import type { Logger } from '../../log/logger'
 import { NotesState } from '../../state/notes.svelte'
-import VersionsPanel from './VersionsPanel.svelte'
+import VersionsPanel from './VersionsPanelHarness.svelte'
 
 const i18n = {
   t(key: keyof typeof EN_US_MESSAGES, params?: Readonly<Record<string, boolean | number | string | null | undefined>>) {

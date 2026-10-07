@@ -7,9 +7,11 @@
   import type { SettingsState } from '@app/state/settings.svelte'
   import type { UiState } from '@app/state/ui.svelte'
   import { fuzzyFilter, splitByRanges, type FuzzyMatch } from '@app/lib/fuzzy'
-  import * as Dialog from '@app/components/ui/dialog'
-  import { Input } from '@app/components/ui/input'
-  import { Button } from '@app/components/ui/button'
+  import { Dialog as DialogPrimitive } from 'bits-ui'
+  import { Clock, Columns2, Eye, FileText, FolderPlus, Hash, Keyboard, Pencil, Plus, Search, Settings, Star, Trash2, Waypoints, X } from '@lucide/svelte'
+  import DialogPortal from '@app/components/ui/dialog/dialog-portal.svelte'
+  import IconButton from '@app/components/primitives/IconButton.svelte'
+  import Kbd from '@app/components/primitives/Kbd.svelte'
 
   interface I18n {
     t(key: MessageKey, params?: Readonly<Record<string, boolean | number | string | null | undefined>>): string
@@ -19,6 +21,7 @@
     readonly label: string
     readonly detail?: string
     readonly group: string
+    readonly icon: typeof Plus
     readonly combo?: string
     readonly match?: FuzzyMatch
     run: () => void | Promise<void>
@@ -48,6 +51,7 @@
         id: 'new-note',
         label: i18n.t('common.new_note'),
         group: i18n.t('command.commands'),
+        icon: Plus,
         combo: 'mod+n',
         run: () => void createNote(),
       },
@@ -55,12 +59,14 @@
         id: 'new-folder',
         label: i18n.t('common.new_folder'),
         group: i18n.t('command.commands'),
+        icon: FolderPlus,
         run: () => void organize?.createFolder(),
       },
       {
         id: 'shortcuts',
         label: i18n.t('command.keyboard_shortcuts'),
         group: i18n.t('command.commands'),
+        icon: Keyboard,
         combo: 'shift+?',
         run: () => ui.openPanel('shortcuts'),
       },
@@ -68,6 +74,7 @@
         id: 'settings',
         label: i18n.t('common.open_settings'),
         group: i18n.t('command.commands'),
+        icon: Settings,
         combo: 'mod+,',
         run: () => ui.openPanel('settings'),
       },
@@ -75,36 +82,42 @@
         id: 'graph',
         label: i18n.t('command.open_graph'),
         group: i18n.t('common.interface'),
+        icon: Waypoints,
         run: () => ui.openPanel('graph'),
       },
       {
         id: 'trash',
         label: i18n.t('command.open_trash'),
         group: i18n.t('common.navigation'),
+        icon: Trash2,
         run: () => ui.openView('trash'),
       },
       {
         id: 'starred',
         label: i18n.t('command.open_favorites'),
         group: i18n.t('common.navigation'),
+        icon: Star,
         run: () => ui.openView('starred'),
       },
       {
         id: 'live',
         label: i18n.t('command.layout_editor_only'),
         group: i18n.t('common.interface'),
+        icon: Pencil,
         run: () => settings?.update({ preview: { layout: 'live' } }),
       },
       {
         id: 'split',
         label: i18n.t('command.layout_split_view'),
         group: i18n.t('common.interface'),
+        icon: Columns2,
         run: () => settings?.update({ preview: { layout: 'split' } }),
       },
       {
         id: 'preview',
         label: i18n.t('command.layout_preview_only'),
         group: i18n.t('common.interface'),
+        icon: Eye,
         run: () => settings?.update({ preview: { layout: 'preview' } }),
       },
     ]
@@ -113,7 +126,7 @@
         .map((id) => notes.summaries[id])
         .filter((note): note is NoteSummary => Boolean(note && note.deletedAt === null))
         .slice(0, 6)
-      return [...recent.map((note) => noteItem(note, i18n.t('command.recently_opened'))), ...commands]
+      return [...recent.map((note) => noteItem(note, i18n.t('command.recently_opened'), Clock)), ...commands]
     }
     const result: Item[] = fuzzyFilter(commands, text, (item) => item.label, 10).map(({ item, match }) => ({
       ...item,
@@ -121,7 +134,7 @@
     }))
     result.push(
       ...fuzzyFilter(allNotes, text, (note) => note.title, 15).map(({ item, match }) =>
-        noteItem(item, i18n.t('common.note'), match),
+        noteItem(item, i18n.t('common.note'), FileText, match),
       ),
     )
     result.push(
@@ -130,6 +143,7 @@
         label: `#${item.name}`,
         detail: `${item.count}`,
         group: i18n.t('navigation.tag'),
+        icon: Hash,
         match,
         run: () => ui.openView('tag', { tag: item.name }),
       })),
@@ -139,6 +153,7 @@
         id: `folder-${item.id}`,
         label: item.name,
         group: i18n.t('navigation.folder'),
+        icon: FolderPlus,
         match,
         run: () => ui.openView('folder', { folderId: item.id }),
       })),
@@ -147,13 +162,14 @@
       result.push(
         ...remote.results
           .filter((note) => !result.some((item) => item.id === `note-${note.id}`))
-          .map((note) => noteItem(note, i18n.t('command.content_match'))),
+          .map((note) => noteItem(note, i18n.t('command.content_match'), Search)),
       )
     if (!result.length)
       result.push({
         id: 'create-title',
         label: i18n.t('command.create_note_value0', { value0: text }),
         group: i18n.t('command.commands'),
+        icon: Plus,
         run: () => void createNote(text),
       })
     return result.sort((a, b) => (b.match?.score ?? 0) - (a.match?.score ?? 0)).slice(0, 40)
@@ -190,12 +206,13 @@
     }
   })
 
-  function noteItem(note: NoteSummary, group: string, match?: FuzzyMatch): Item {
+  function noteItem(note: NoteSummary, group: string, icon: typeof Plus, match?: FuzzyMatch): Item {
     return {
       id: `note-${note.id}`,
       label: note.title || i18n.t('common.untitled_note'),
       detail: note.excerpt,
       group,
+      icon,
       ...(match ? { match } : {}),
       run: () => openNote(note.id),
     }
@@ -226,61 +243,105 @@
       onOpenChange(false)
     }
   }
+  const listId = $props.id()
 </script>
 
-<Dialog.Root bind:open {onOpenChange}>
-  <Dialog.Content class="max-w-2xl gap-0 p-0" showCloseButton={false}>
-    <Dialog.Header class="sr-only">
-      <Dialog.Title>{i18n.t('common.search_notes_or_run_a_command')}</Dialog.Title>
-      <Dialog.Description>{i18n.t('command.use_nearly_every_action_without_touching_the_mouse')}</Dialog.Description>
-    </Dialog.Header>
-    <div class="border-b p-3">
-      <Input
-        bind:value={query}
-        autofocus
-        onkeydown={onKeydown}
-        oninput={() => (cursor = 0)}
-        role="combobox"
-        aria-label={i18n.t('common.search_notes_or_run_a_command')}
-        aria-expanded="true"
-        placeholder={i18n.t('command.search_notes_or_type_a_command')}
-      />
-    </div>
-    <div class="max-h-[55vh] overflow-y-auto p-2" role="listbox">
-      {#if !groups.length}
-        <p class="p-8 text-center text-sm text-muted-foreground">{i18n.t('command.no_matching_results')}</p>
-      {:else}
-        {#each groups as [group, items] (group)}
-          <section aria-label={group}>
-            <h3 class="px-2 py-1 text-xs font-semibold text-muted-foreground">{group}</h3>
-            {#each items as item, index (item.id)}
-              {@const indexInList =
-                groups
-                  .slice(
-                    0,
-                    groups.findIndex(([name]) => name === group),
-                  )
-                  .reduce((count, [, values]) => count + values.length, 0) + index}
-              {@const active = indexInList === cursor}
-              <Button
-                variant={active ? 'secondary' : 'ghost'}
-                class="w-full justify-start"
-                role="option"
-                aria-selected={active}
-                onclick={() => void item.run()}
-                onmouseenter={() => (cursor = indexInList)}
-              >
-                <span class="min-w-0 flex-1 truncate text-left"
-                  >{#each item.match ? splitByRanges(item.label, item.match.ranges) : [{ text: item.label, hit: false }] as part, partIndex (partIndex)}{#if part.hit}<mark
-                        >{part.text}</mark
-                      >{:else}{part.text}{/if}{/each}</span
-                >
-                {#if item.combo}<kbd class="text-xs text-muted-foreground">{item.combo}</kbd>{/if}
-              </Button>
+<DialogPrimitive.Root bind:open {onOpenChange}>
+  <DialogPortal>
+    <div class="app-viewport-fixed fixed z-[240] flex items-end justify-center md:items-start md:px-4 md:pt-[13vh]">
+      <DialogPrimitive.Overlay class="anim-fade absolute inset-0 bg-[var(--scrim)] backdrop-blur-[3px]" />
+      <DialogPrimitive.Content
+        class="anim-pop relative flex h-[min(82dvh,var(--app-viewport-height,100dvh))] w-full max-w-[660px] flex-col overflow-hidden rounded-t-[var(--r-2xl)] border border-b-0 border-[var(--border-default)] bg-[var(--bg-overlay)] pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow-modal)] outline-none md:h-auto md:rounded-[var(--r-2xl)] md:border-b md:pb-0"
+      >
+        <DialogPrimitive.Title class="sr-only">{i18n.t('common.search_notes_or_run_a_command')}</DialogPrimitive.Title>
+        <DialogPrimitive.Description class="sr-only"
+          >{i18n.t('command.use_nearly_every_action_without_touching_the_mouse')}</DialogPrimitive.Description
+        >
+        <div class="flex items-center gap-2.5 border-b border-[var(--border-subtle)] px-4">
+          <Search size={16} class="shrink-0 text-[var(--text-quaternary)]" />
+          <input
+            bind:value={query}
+            onkeydown={onKeydown}
+            oninput={() => (cursor = 0)}
+            role="combobox"
+            aria-label={i18n.t('common.search_notes_or_run_a_command')}
+            aria-expanded="true"
+            aria-controls={listId}
+            aria-activedescendant={localItems[cursor] ? `${listId}-option-${cursor}` : undefined}
+            aria-autocomplete="list"
+            autocomplete="off"
+            placeholder={i18n.t('command.search_notes_or_type_a_command')}
+            class="h-[52px] flex-1 bg-transparent text-[15px] text-[var(--text-primary)] placeholder:text-[var(--text-quaternary)] focus:outline-none"
+          />
+          <span class="hidden md:inline-flex"><Kbd keys={['Esc']} /></span>
+          <span class="md:hidden">
+            <IconButton label={i18n.t('common.close')} title={i18n.t('common.close')} size="sm" onclick={() => onOpenChange(false)}>
+              <X size={16} />
+            </IconButton>
+          </span>
+        </div>
+        <div id={listId} role="listbox" class="min-h-0 flex-1 overflow-y-auto p-1.5 md:max-h-[54vh] md:flex-none">
+          {#if !groups.length}
+            <div class="px-3 py-10 text-center text-[12.5px] text-[var(--text-quaternary)]">
+              {i18n.t('command.no_matching_results')}
+            </div>
+          {:else}
+            {#each groups as [group, items] (group)}
+              <div role="group" aria-label={group} class="mb-1">
+                <div class="px-2.5 pt-2 pb-1 text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+                  {group}
+                </div>
+                {#each items as item, index (item.id)}
+                  {@const indexInList =
+                    groups
+                      .slice(
+                        0,
+                        groups.findIndex(([name]) => name === group),
+                      )
+                      .reduce((count, [, values]) => count + values.length, 0) + index}
+                  {@const active = indexInList === cursor}
+                  <button
+                    id={`${listId}-option-${indexInList}`}
+                    type="button"
+                    role="option"
+                    aria-selected={active}
+                    tabindex={-1}
+                    onmousemove={() => (cursor = indexInList)}
+                    onclick={() => void item.run()}
+                    class={[
+                      'flex w-full items-center gap-2.5 rounded-[var(--r-md)] px-2.5 py-2 text-left',
+                      'transition-colors duration-[80ms]',
+                      active ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--bg-hover)]',
+                    ]}
+                  >
+                    <span class={['shrink-0', active ? 'text-[var(--accent)]' : 'text-[var(--text-quaternary)]']}>
+                      <item.icon size={14} />
+                    </span>
+                    <span class="min-w-0 flex-1">
+                      <span class="block truncate text-[13px] text-[var(--text-primary)]"
+                        >{#each item.match ? splitByRanges(item.label, item.match.ranges) : [{ text: item.label, hit: false }] as part, partIndex (partIndex)}{#if part.hit}<mark
+                              class="ink-hit">{part.text}</mark
+                            >{:else}{part.text}{/if}{/each}</span
+                      >
+                      {#if item.detail}
+                        <span class="mt-0.5 block truncate text-[11px] text-[var(--text-quaternary)]">{item.detail}</span>
+                      {/if}
+                    </span>
+                    {#if item.combo}<Kbd combo={item.combo} />{/if}
+                  </button>
+                {/each}
+              </div>
             {/each}
-          </section>
-        {/each}
-      {/if}
+          {/if}
+        </div>
+        <div
+          class="hidden items-center gap-4 border-t border-[var(--border-subtle)] px-4 py-2 text-[10.5px] text-[var(--text-quaternary)] md:flex"
+        >
+          <span class="flex items-center gap-1.5"><Kbd keys={['↑', '↓']} />{i18n.t('command.select')}</span>
+          <span class="flex items-center gap-1.5"><Kbd keys={['↵']} />{i18n.t('common.open')}</span>
+          <span class="flex items-center gap-1.5"><Kbd keys={['Esc']} />{i18n.t('common.close')}</span>
+        </div>
+      </DialogPrimitive.Content>
     </div>
-  </Dialog.Content>
-</Dialog.Root>
+  </DialogPortal>
+</DialogPrimitive.Root>

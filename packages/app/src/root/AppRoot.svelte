@@ -166,7 +166,7 @@
   {#if session.status === 'loading'}
     <p role="status">{i18n.t('common.loading')}</p>
   {:else if session.status === 'anonymous' && deps.backend.capabilities.accounts}
-    <LoginPage {session} {i18n} />
+    <LoginPage {session} {i18n} defaults={deps.authDefaults} />
   {:else if session.status === 'authed'}
     <svelte:boundary>
       {#if ready}<AppShell />

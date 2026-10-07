@@ -292,12 +292,20 @@ markdown.core.ruler.after('github-task-lists', 'task_placeholders', (state) => {
     const paragraph = state.tokens[index - 1]
     const item = state.tokens[index - 2]
     if (inline?.type !== 'inline' || paragraph?.type !== 'paragraph_open' || item?.type !== 'list_item_open') continue
-    const checkbox = inline.children?.find(
-      (token) => token.type === 'html_inline' && token.content.includes('task-list-item-checkbox'),
-    )
-    if (!checkbox || item.map?.[0] === undefined) continue
+    const checkboxIndex =
+      inline.children?.findIndex(
+        (token) => token.type === 'html_inline' && token.content.includes('task-list-item-checkbox'),
+      ) ?? -1
+    const checkbox = inline.children?.[checkboxIndex]
+    if (!inline.children || !checkbox || item.map?.[0] === undefined) continue
     const checked = /\schecked(?:=|\s|>)/.test(checkbox.content)
     checkbox.content = `<span class="task-checkbox-placeholder" role="checkbox" tabindex="0" aria-checked="${checked}" data-task-line="${item.map[0] + environment(state.env).lineOffset}"></span>`
+    const labelOpen = new state.Token('html_inline', '', 0)
+    labelOpen.content = '<span class="task-label">'
+    const labelClose = new state.Token('html_inline', '', 0)
+    labelClose.content = '</span>'
+    inline.children.splice(checkboxIndex + 1, 0, labelOpen)
+    inline.children.push(labelClose)
     item.attrSet('data-task-line', String(item.map[0] + environment(state.env).lineOffset))
     if (checked) item.attrJoin('class', 'done')
   }

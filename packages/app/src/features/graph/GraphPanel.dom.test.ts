@@ -170,7 +170,7 @@ test('folder, tag and unresolved toggles reach SearchPort.graph without undefine
   }
   render(GraphPanel, { props: { backend: { search }, ui, notes, i18n, onClose: vi.fn() } })
   await screen.findByText(/Showing 3 of 430/)
-  await fireEvent.click(screen.getByText('Filters'))
+  await fireEvent.click(screen.getByRole('button', { name: 'Graph settings' }))
   await fireEvent.input(screen.getByLabelText('Filter notes…'), { target: { value: 'Alpha' } })
   await fireEvent.change(screen.getByLabelText('Folder'), { target: { value: a } })
   await fireEvent.change(screen.getByLabelText('Tag'), { target: { value: 'urgent' } })

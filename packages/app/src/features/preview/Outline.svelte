@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { ListTree } from '@lucide/svelte'
   import type { Heading } from '../../markdown/renderer'
   import { getI18n } from '../../root/context'
   interface Props { headings: readonly Heading[]; scroller: HTMLElement; onSelect(heading: Heading): void }
@@ -25,24 +26,20 @@
 </script>
 
 {#if headings.length}
-  <nav aria-label={i18n.t('common.outline')}>
-    <h2>{i18n.t('common.outline')}</h2>
-    <ul>
+  <nav class="sticky top-0 max-h-full w-[132px] shrink-0 self-start overflow-y-auto py-5 pr-3 md:w-[168px]" aria-label={i18n.t('common.outline')}>
+    <div class="mb-2 flex items-center gap-1.5 px-2 text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+      <ListTree size={11} />{i18n.t('common.outline')}
+    </div>
+    <ul class="space-y-px">
       {#each headings as heading, index (`${heading.slug}-${index}`)}
-        <li><button type="button" aria-current={active === heading.slug ? 'location' : undefined} title={heading.text} style:padding-left={`${8 + (heading.level - minimum) * 10}px`} onclick={() => onSelect(heading)}>{heading.text || i18n.t('preview.untitled')}</button></li>
+        {@const isActive = active === heading.slug}
+        <li>
+          <button type="button" aria-current={isActive ? 'location' : undefined} title={heading.text || i18n.t('preview.untitled')} style:padding-left={`${8 + (heading.level - minimum) * 10}px`} onclick={() => onSelect(heading)} class={['relative block w-full truncate rounded-[var(--r-sm)] py-1 pr-1.5 text-left text-[11.5px] leading-snug transition-colors duration-[var(--dur-fast)]', isActive ? 'font-medium text-[var(--accent)]' : 'text-[var(--text-quaternary)] hover:text-[var(--text-secondary)]']}>
+            {#if isActive}<span class="absolute top-1/2 left-0 h-[13px] w-[2px] -translate-y-1/2 rounded-full bg-[var(--accent)]"></span>{/if}
+            {heading.text || i18n.t('preview.untitled')}
+          </button>
+        </li>
       {/each}
     </ul>
   </nav>
 {/if}
-
-<style>
-  /* Hallmark · component: outline · genre: editorial · theme: inherited tokens */
-  nav { width: 168px; flex-shrink: 0; overflow-y: auto; padding: 20px 8px; border-left: 1px solid var(--border-subtle); }
-  h2 { color: var(--text-tertiary); font-size: 12px; font-weight: 600; margin-bottom: 8px; }
-  ul { list-style: none; margin: 0; padding: 0; }
-  button { width: 100%; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-tertiary); font-size: 12px; padding: 4px 6px; border-radius: var(--r-sm); cursor: pointer; }
-  button:hover { color: var(--text-primary); background: var(--bg-hover); }
-  button[aria-current] { color: var(--accent); font-weight: 600; }
-  button:focus-visible { outline: 2px solid var(--accent); }
-  @media (max-width: 767px) { nav { width: 132px; } }
-</style>

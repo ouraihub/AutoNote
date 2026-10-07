@@ -7,7 +7,25 @@
   import type { LivePreviewServices } from '../../editor/live-preview'
   import type { Heading as MarkdownHeading } from '../../markdown/renderer'
   import { LIMITS } from '@shared/constants'
-  import { Star, Link, History, ListTree, X, ArrowLeft, MoreHorizontal } from '@lucide/svelte'
+  import { readingMinutes } from '@shared/markdown-utils'
+  import { organizerColorOrNull } from '@shared/organizer-colors'
+  import { folderPath } from '../../state/selectors'
+  import {
+    ArrowLeft,
+    Columns2,
+    Eye,
+    FolderClosed,
+    Hash,
+    History,
+    Link,
+    ListTree,
+    MoreHorizontal,
+    PanelRightClose,
+    Pencil,
+    Share2,
+    Star,
+    X,
+  } from '@lucide/svelte'
   import {
     getBackend,
     getNotes,
@@ -20,10 +38,10 @@
     getLogger,
     getRegisterFlush,
   } from '../../root/context'
-  import { Button, buttonVariants } from '../../components/ui/button'
-  import { Input } from '../../components/ui/input'
-  import * as ToggleGroup from '../../components/ui/toggle-group'
+  import { Button } from '../../components/ui/button'
   import * as Menu from '../../components/ui/dropdown-menu'
+  import IconButton from '../../components/primitives/IconButton.svelte'
+  import Segmented from '../../components/primitives/Segmented.svelte'
   import CodeEditor from '../../editor/CodeEditor.svelte'
   import { insertAttachments } from '../../editor/paste'
   import { enhancePreview } from '../../markdown/enhance'
@@ -70,6 +88,15 @@
   const layout = $derived(narrow ? (ui.mobilePane === 'preview' ? 'preview' : 'live') : ui.panes[pane].layout)
   const active = $derived(ui.activePane === pane)
   const splitRatio = $derived(ui.layout.splitRatio ?? 0.5)
+  const folders = $derived(notes.readOrganizeSnapshot().folders)
+  const noteFolder = $derived(note?.folderId ? folders.find((folder) => folder.id === note.folderId) : undefined)
+  const folderLabel = $derived(
+    noteFolder
+      ? folderPath(folders, noteFolder.id)
+          .map((folder) => folder.name)
+          .join(' / ')
+      : '',
+  )
   const liveState = new SvelteMap<string, string>()
   const renderServices = createRenderServices({
     backend,
@@ -165,6 +192,12 @@
     ui.setPaneLayout(pane, value)
     if (narrow) ui.setMobilePane(value === 'preview' ? 'preview' : 'editor')
   }
+  function toggleStar(): void {
+    if (!note) return
+    void notes
+      .patch(noteId, { rev: note.rev, isStarred: !note.isStarred })
+      .catch(() => notifier.toast({ key: 'common.action_failed', tone: 'error' }))
+  }
   function report(error: unknown): void {
     logger.warn('workspace.reading_position.failed', { error: String(error) })
   }
@@ -218,77 +251,115 @@
   onpointerdowncapture={activate}
   onfocusin={activate}
 >
-  <header class="pane-header">
-    {#if narrow}<Button
-        variant="ghost"
-        size="icon-sm"
-        aria-label={i18n.t('workspace.back_to_notes')}
-        onclick={() => ui.mobileBack()}><ArrowLeft /></Button
+  <header class="flex h-11 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] px-3">
+    {#if narrow}<IconButton
+        label={i18n.t('workspace.back_to_notes')}
+        title={i18n.t('workspace.back_to_notes')}
+        size="sm"
+        onclick={() => ui.mobileBack()}><ArrowLeft size={16} /></IconButton
       >{/if}
-    <Input
-      class="min-w-20 flex-1 basis-0"
-      type="text"
-      value={note?.title ?? ''}
-      maxlength={LIMITS.titleMaxLength}
-      disabled={source === undefined}
-      readonly={narrow && layout === 'preview'}
-      aria-label={i18n.t('workspace.note_title')}
-      placeholder={i18n.t('common.untitled_note')}
-      oninput={(event) => notes.editTitle(noteId, event.currentTarget.value)}
-      onblur={(event) => notes.editTitle(noteId, event.currentTarget.value.trim())}
-      onkeydown={(event) => {
-        if (event.key === 'Enter') {
-          event.preventDefault()
-          view?.focus()
-        }
-      }}
-    />
-    <ToggleGroup.Root
-      type="single"
-      value={layout}
-      onValueChange={setLayout}
-      size="sm"
-      aria-label={i18n.t('workspace.layout')}
-    >
-      <ToggleGroup.Item value="live" aria-label={i18n.t('workspace.live_preview')}
-        >{i18n.t('workspace.live_label')}</ToggleGroup.Item
-      >
-      {#if !narrow}<ToggleGroup.Item value="split" aria-label={i18n.t('workspace.split_view')}
-          >{i18n.t('workspace.split_label')}</ToggleGroup.Item
+    <div class="flex min-w-0 flex-1 items-center gap-1">
+      <input
+        type="text"
+        value={note?.title ?? ''}
+        maxlength={LIMITS.titleMaxLength}
+        disabled={source === undefined}
+        readonly={narrow && layout === 'preview'}
+        aria-label={i18n.t('workspace.note_title')}
+        placeholder={i18n.t('common.untitled_note')}
+        class="h-8 min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-2 text-[14px] font-semibold tracking-[-0.01em] text-[var(--text-primary)] outline-none transition-colors placeholder:font-medium placeholder:text-[var(--text-quaternary)] hover:border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] focus:border-[var(--accent)] focus:bg-[var(--bg-surface)]"
+        oninput={(event) => notes.editTitle(noteId, event.currentTarget.value)}
+        onblur={(event) => notes.editTitle(noteId, event.currentTarget.value.trim())}
+        onkeydown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            view?.focus()
+          }
+        }}
+      />
+      {#if note?.isStarred}<Star size={11} class="shrink-0 fill-current text-[var(--warning)]" />{/if}
+    </div>
+    <div class="flex shrink-0 items-center gap-0.5">
+      {#if !narrow}<div class={ui.isSplit ? 'mr-1 hidden 2xl:block' : 'mr-1'}>
+          <Segmented
+            label={i18n.t('workspace.layout')}
+            size="sm"
+            value={layout}
+            onChange={setLayout}
+            options={[
+              { value: 'live', icon: Pencil, title: i18n.t('workspace.live_preview') },
+              { value: 'split', icon: Columns2, title: i18n.t('workspace.split_view') },
+              { value: 'preview', icon: Eye, title: i18n.t('workspace.reading_mode') },
+            ]}
+          />
+        </div>{/if}
+      {#if !narrow && !ui.isSplit}
+        <IconButton
+          label={i18n.t(note?.isStarred ? 'common.remove_from_favorites' : 'navigation.favorites')}
+          title={i18n.t(note?.isStarred ? 'common.remove_from_favorites' : 'navigation.favorites')}
+          size="sm"
+          active={note?.isStarred ?? false}
+          onclick={toggleStar}><Star size={14} class={note?.isStarred ? 'fill-current' : undefined} /></IconButton
+        >
+        <IconButton
+          label={i18n.t('common.backlinks')}
+          title={i18n.t('common.backlinks')}
+          size="sm"
+          active={ui.backlinksOpen && active}
+          onclick={() => ui.toggleBacklinks()}><Link size={14} /></IconButton
+        >
+        <IconButton
+          label={i18n.t('common.version_history')}
+          title={i18n.t('common.version_history')}
+          size="sm"
+          onclick={() => ui.openPanel('versions')}><History size={14} /></IconButton
+        >
+        <IconButton
+          label={i18n.t('common.outline')}
+          title={i18n.t('common.outline')}
+          size="sm"
+          active={ui.outlineOpen && active}
+          onclick={() => ui.toggleOutline()}
+          >{#if ui.outlineOpen && active}<PanelRightClose size={14} />{:else}<ListTree size={14} />{/if}</IconButton
+        >
+        {#if backend.capabilities.share}<IconButton
+            label={i18n.t('workspace.share')}
+            title={i18n.t('workspace.share')}
+            size="sm"
+            onclick={() => ui.openPanel('share')}><Share2 size={14} /></IconButton
+          >{/if}
+      {:else}
+        <Menu.Root
+          ><Menu.Trigger
+            title={i18n.t('common.more_actions')}
+            class="inline-flex size-8 shrink-0 items-center justify-center rounded-[var(--r-md)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] md:size-6"
+            aria-label={i18n.t('common.more_actions')}><MoreHorizontal size={16} /></Menu.Trigger
+          ><Menu.Content align="end"
+            ><Menu.Group>
+              <Menu.Item onSelect={toggleStar}
+                ><Star size={13} />{i18n.t(
+                  note?.isStarred ? 'common.remove_from_favorites' : 'navigation.favorites',
+                )}</Menu.Item
+              >
+              <Menu.Item onSelect={() => ui.toggleBacklinks()}><Link size={13} />{i18n.t('common.backlinks')}</Menu.Item>
+              <Menu.Item onSelect={() => ui.toggleOutline()}><ListTree size={13} />{i18n.t('common.outline')}</Menu.Item>
+              <Menu.Item onSelect={() => ui.openPanel('versions')}
+                ><History size={13} />{i18n.t('common.version_history')}</Menu.Item
+              >
+              {#if backend.capabilities.share}<Menu.Item onSelect={() => ui.openPanel('share')}
+                  ><Share2 size={13} />{i18n.t('workspace.share')}</Menu.Item
+                >{/if}
+            </Menu.Group></Menu.Content
+          ></Menu.Root
+        >
+      {/if}
+      {#if pane === 'secondary'}<IconButton
+          label={i18n.t('workspace.close_right_note')}
+          title={i18n.t('workspace.close_right_note')}
+          size="sm"
+          onclick={() => ui.closePane('secondary')}><X size={15} /></IconButton
         >{/if}
-      <ToggleGroup.Item value="preview" aria-label={i18n.t('workspace.reading_mode')}
-        >{i18n.t('workspace.preview_label')}</ToggleGroup.Item
-      >
-    </ToggleGroup.Root>
-    <Menu.Root
-      ><Menu.Trigger
-        class={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
-        aria-label={i18n.t('common.more_actions')}><MoreHorizontal /></Menu.Trigger
-      ><Menu.Content align="end"
-        ><Menu.Group>
-          <Menu.Item
-            onSelect={() => {
-              if (note)
-                void notes
-                  .patch(noteId, { rev: note.rev, isStarred: !note.isStarred })
-                  .catch(() => notifier.toast({ key: 'common.action_failed', tone: 'error' }))
-            }}><Star />{i18n.t(note?.isStarred ? 'common.remove_from_favorites' : 'navigation.favorites')}</Menu.Item
-          >
-          <Menu.Item onSelect={() => ui.toggleBacklinks()}><Link />{i18n.t('common.backlinks')}</Menu.Item>
-          <Menu.Item onSelect={() => ui.toggleOutline()}><ListTree />{i18n.t('common.outline')}</Menu.Item>
-          <Menu.Item onSelect={() => ui.openPanel('versions')}><History />{i18n.t('common.version_history')}</Menu.Item>
-          {#if backend.capabilities.share}<Menu.Item onSelect={() => ui.openPanel('share')}
-              >{i18n.t('workspace.share')}</Menu.Item
-            >{/if}
-        </Menu.Group></Menu.Content
-      ></Menu.Root
-    >
-    {#if pane === 'secondary'}<Button
-        variant="ghost"
-        size="icon-sm"
-        aria-label={i18n.t('workspace.close_right_note')}
-        onclick={() => ui.closePane('secondary')}><X /></Button
-      >{/if}
+    </div>
   </header>
   {#if source === undefined}
     <div role="status" aria-busy={!notes.loadErrors[noteId]} class="p-5">
@@ -348,11 +419,36 @@
       </div>
     </div>
     {#if ui.backlinksOpen && active}<BacklinksPanel {noteId} {backend} {notes} {ui} {i18n} {extensions} />{/if}
-    <footer class="pane-footer">
-      <span>{note?.wordCount ?? 0}{i18n.t('common.words')}</span><span
-        >{source.length}{i18n.t('workspace.characters')}</span
+    <footer
+      class="flex h-[var(--statusbar-h)] shrink-0 items-center gap-2 overflow-hidden border-t border-[var(--border-subtle)] px-3 text-[11px] text-[var(--text-quaternary)]"
+    >
+      <span class="tabular">{note?.wordCount ?? 0}{i18n.t('common.words')}</span>
+      <span class="tabular hidden sm:inline">{source.length}{i18n.t('workspace.characters')}</span>
+      <span class="tabular hidden md:inline"
+        >{i18n.t('common.about')}{readingMinutes(note?.wordCount ?? 0)}{i18n.t('common.min')}</span
       >
-      <span class="save-status" role="status" data-save-state={notes.saveState[noteId] ?? 'idle'}
+      {#if noteFolder}<button
+          type="button"
+          title={folderLabel}
+          onclick={() => ui.openView('folder', { folderId: noteFolder.id })}
+          class="inline-flex max-w-40 min-w-0 items-center gap-1 truncate rounded px-1 py-0.5 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--accent)] md:max-w-48"
+          ><FolderClosed size={11} class="shrink-0" style={`color: ${organizerColorOrNull(noteFolder.color) ?? 'inherit'}`} /><span
+            class="truncate">{folderLabel}</span
+          ></button
+        >{/if}
+      {#if note?.tags.length}<span class="flex min-w-0 items-center gap-0.5 overflow-hidden">
+          {#each note.tags.slice(0, narrow ? 2 : 4) as tag (tag)}<button
+              type="button"
+              onclick={() => ui.openView('tag', { tag })}
+              class="inline-flex min-w-0 items-center gap-0.5 rounded px-1 py-0.5 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--accent)]"
+              ><Hash size={9} class="shrink-0" /><span class="truncate">{tag}</span></button
+            >{/each}
+        </span>{/if}
+      <span class="flex-1"></span>
+      <span
+        role="status"
+        data-save-state={notes.saveState[noteId] ?? 'idle'}
+        class={notes.saveState[noteId] === 'failed' ? 'text-[var(--danger)]' : undefined}
         >{i18n.t(
           notes.saveState[noteId] === 'failed'
             ? 'common.save_failed'
@@ -365,8 +461,11 @@
                   : 'shell.synced',
         )}</span
       >
-      {#if notes.saveState[noteId] === 'failed'}<Button variant="ghost" size="sm" onclick={() => notes.flush(noteId)}
-          >{i18n.t('common.retry')}</Button
+      {#if notes.saveState[noteId] === 'failed'}<button
+          type="button"
+          onclick={() => notes.flush(noteId)}
+          class="rounded px-1 py-0.5 text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent)]"
+          >{i18n.t('common.retry')}</button
         >{/if}
     </footer>
   {/if}
@@ -397,16 +496,7 @@
   .active {
     box-shadow: inset 0 2px var(--accent);
   }
-  .pane-header {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 4px;
-    flex-shrink: 0;
-    min-height: 44px;
-    padding: 4px 8px;
-    border-bottom: 1px solid var(--border-subtle);
-  }
+
   .pane-content {
     display: flex;
     flex: 1;
@@ -430,17 +520,5 @@
   .preview-side[hidden] {
     display: none;
   }
-  .pane-footer {
-    display: flex;
-    flex-shrink: 0;
-    align-items: center;
-    gap: 8px;
-    padding: 4px 10px;
-    border-top: 1px solid var(--border-subtle);
-    color: var(--text-tertiary);
-    font-size: 11px;
-  }
-  .save-status {
-    margin-left: auto;
-  }
+
 </style>
