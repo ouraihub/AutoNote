@@ -40,4 +40,4 @@
 {:else if section === 'sync'}<SyncSettings />
 {:else if section === 'data'}<DataSettings />
 {:else if section === 'about'}<AboutSettings />
-{:else}<AttachmentManager />{/if}
+{:else}<AttachmentManager onClose={() => {}} />{/if}

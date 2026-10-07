@@ -87,7 +87,7 @@ describe('settings dialog', () => {
   })
   test('appearance selection saves dark theme through SettingsState', async () => {
     render(SettingsPanelHarness, { props })
-    await fireEvent.click(await screen.findByRole('button', { name: 'Dark' }))
+    await fireEvent.click(await screen.findByRole('radio', { name: 'Dark' }))
     expect(settings.update).toHaveBeenCalledWith({ appearance: { theme: 'dark' } })
   })
 
@@ -130,7 +130,7 @@ describe('settings dialog', () => {
       },
     } as Backend
     render(SettingsPanelHarness, { props: { ...props, backend: desktop } })
-    await screen.findByRole('button', { name: 'Dark' })
+    await screen.findByRole('radio', { name: 'Dark' })
     for (const name of ['Backup', 'MCP', 'Account', 'Shared notes']) {
       expect(screen.queryByRole('button', { name })).toBeNull()
     }

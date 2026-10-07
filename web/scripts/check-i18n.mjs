@@ -9,7 +9,7 @@ const REPOSITORY_ROOT = path.resolve(SCRIPT_DIR, '..', '..')
 const DEFAULT_SOURCE_DIRECTORIES = ['packages/app/src', 'web/src/client']
 const DEFAULT_LOCALE_FILES = ['packages/shared/src/locales/en-US.ts', 'packages/shared/src/locales/zh-CN.ts']
 const VISIBLE_ATTRIBUTE_NAMES = new Set(['aria-label', 'aria-description', 'placeholder', 'title'])
-const ALLOWED_TEMPLATE_TEXT = new Set(['AutoNote', ':', '[[ ]]', '#', 'Tab'])
+const ALLOWED_TEMPLATE_TEXT = new Set(['AutoNote', ':', '[[ ]]', '#', 'Tab', '000000'])
 
 export async function checkI18n(options = {}) {
   const root = options.root ?? REPOSITORY_ROOT

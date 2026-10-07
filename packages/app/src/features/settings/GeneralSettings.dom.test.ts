@@ -43,11 +43,11 @@ afterEach(() => { cleanup(); vi.clearAllMocks() })
 
 test('appearance and editor controls update shared settings immediately', async () => {
   renderSection('appearance')
-  await fireEvent.click(screen.getByRole('button', { name: 'Dark' }))
+  await fireEvent.click(screen.getByRole('radio', { name: 'Dark' }))
   expect(settings.update).toHaveBeenCalledWith({ appearance: { theme: 'dark' } })
   cleanup()
   renderSection('editor')
-  await fireEvent.click(screen.getByRole('checkbox', { name: 'Focus mode' }))
+  await fireEvent.click(screen.getByRole('switch', { name: 'Focus mode' }))
   expect(settings.update).toHaveBeenCalledWith({ editor: { focusMode: true } })
 })
 

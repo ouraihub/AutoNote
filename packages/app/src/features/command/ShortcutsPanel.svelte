@@ -84,7 +84,7 @@
       <ul class="space-y-0.5">
         {#each inputHints as [keys, key], index (index)}
           <li class={rowClass}>
-            <span class={textClass}>{i18n.t(key)}</span>
+            <span class={textClass}>{i18n.t(key as MessageKey)}</span>
             <Kbd {keys} />
           </li>
         {/each}

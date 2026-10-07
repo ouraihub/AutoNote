@@ -67,7 +67,7 @@ test('MCP key token appears only at creation and is removed on close', async () 
 })
 
 test('backup creates a target and never persists its secret to settings state', async () => {
-  const create = vi.fn(async () => ({ id: 'target-1', name: 'Home', type: 'webdav', enabled: true }))
+  const create = vi.fn(async () => ({ id: 'target-1', name: 'Home', type: 'webdav', enabled: true, config: { url: 'https://dav.example.com', username: 'alice', prefix: '', mode: 'full' }, hasSecret: true, lastRunAt: null, lastStatus: null }))
   const targets = vi.fn(async () => [])
   mount(BackupSettings, { ...backend, capabilities: { ...backend.capabilities, remoteBackup: true }, backup: { targets, runs: vi.fn(async () => []), create } } as unknown as Backend)
   await screen.findByRole('button', { name: 'Add target' })
