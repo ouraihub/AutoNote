@@ -152,9 +152,47 @@ export function isSyncResponse(value: unknown): value is SyncResponse {
     )
   )
 }
+const mcpStatus = (value: unknown): boolean =>
+  record(value) &&
+  typeof value.running === 'boolean' &&
+  nullableText(value.endpoint) &&
+  integer(value.port) &&
+  nullableText(value.error)
+const mcpKey = (value: unknown): boolean =>
+  record(value) &&
+  text(value.id) &&
+  text(value.name) &&
+  Array.isArray(value.scopes) &&
+  value.scopes.every(text) &&
+  integer(value.createdAt) &&
+  (value.lastUsedAt === null || integer(value.lastUsedAt))
+const mcpPreferences = (value: unknown): boolean =>
+  record(value) &&
+  typeof value.writeEnabled === 'boolean' &&
+  typeof value.trashEnabled === 'boolean' &&
+  integer(value.updatedAt)
 export function validateResponse(command: keyof CommandArgs, value: unknown): void {
   let valid: boolean
   switch (command) {
+    case 'mcp_status':
+    case 'mcp_start':
+    case 'mcp_stop':
+    case 'mcp_set_port':
+      valid = mcpStatus(value)
+      break
+    case 'mcp_list_keys':
+      valid = Array.isArray(value) && value.every(mcpKey)
+      break
+    case 'mcp_create_key':
+      valid = record(value) && mcpKey(value.key) && text(value.token)
+      break
+    case 'mcp_revoke_key':
+      valid = record(value) && value.ok === true
+      break
+    case 'mcp_get_preferences':
+    case 'mcp_save_preferences':
+      valid = mcpPreferences(value)
+      break
     case 'session_load':
       valid = isBackendSession(value)
       break

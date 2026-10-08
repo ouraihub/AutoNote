@@ -48,6 +48,13 @@ test('committed fixture summaries validate and malformed success envelopes fail 
   ).toBe(false)
   expect(() => validateResponse('notes_list', { notes: [{}], total: 1, nextCursor: null })).toThrow()
   expect(() => validateResponse('files_upload_finish', { id: fixture.upload.finish.id })).toThrow()
+  const key = { id: fixture.note.id, name: 'cli', scopes: ['notes:read'], createdAt: 1, lastUsedAt: null }
+  expect(() => validateResponse('mcp_list_keys', [key])).not.toThrow()
+  expect(() => validateResponse('mcp_list_keys', [])).not.toThrow()
+  expect(() => validateResponse('mcp_list_keys', [{ ...key, scopes: 'notes:read' }])).toThrow()
+  expect(() =>
+    validateResponse('mcp_status', { running: false, endpoint: null, port: 7714, error: null }),
+  ).not.toThrow()
   for (const [code, status] of [
     ['payload_too_large', 413],
     ['too_many_attempts', 429],
