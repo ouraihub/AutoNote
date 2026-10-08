@@ -137,7 +137,12 @@ impl McpServer {
         let config = self.config()?;
         let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, config.port))
             .await
-            .map_err(|_| AuthError::Listener)?;
+            .map_err(|error| match error.kind() {
+                std::io::ErrorKind::AddrInUse | std::io::ErrorKind::PermissionDenied => {
+                    AuthError::PortInUse
+                }
+                _ => AuthError::Listener,
+            })?;
         let cancellation = CancellationToken::new();
         let shutdown = cancellation.clone();
         let router = transport::router(self.clone(), &config, cancellation.clone());
@@ -311,5 +316,36 @@ pub fn request_limit(tool: &str) -> usize {
         UPLOAD_REQUEST_MAX_BYTES
     } else {
         REQUEST_MAX_BYTES
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn busy_port_is_reported_distinctly_and_leaves_service_stopped()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir = std::env::temp_dir().join(format!("note-mcp-port-{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        let library = Arc::new(Library::open(&dir.join("library.db"))?);
+        let holder = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;
+        let port = holder.local_addr()?.port();
+        let server = Arc::new(McpServer::new(
+            library,
+            McpConfig {
+                port,
+                ..McpConfig::default()
+            },
+        ));
+        assert!(matches!(server.start().await, Err(AuthError::PortInUse)));
+        assert!(!server.is_running().await);
+        drop(holder);
+        assert!(server.start().await.is_ok());
+        assert!(server.is_running().await);
+        assert!(server.stop().await.is_ok());
+        drop(server);
+        let _ = std::fs::remove_dir_all(&dir);
+        Ok(())
     }
 }

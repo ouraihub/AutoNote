@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Switch } from '@app/components/ui/switch'
-  import { Button } from '@app/components/ui/button'
+  import Switch from '@app/components/primitives/Switch.svelte'
+  import Button from '@app/components/primitives/Button.svelte'
   import { LogsState } from './logs.svelte'
   import { getI18n } from '@app/root'
   import { call } from '../ipc/transport'
@@ -25,10 +25,10 @@
     </div>
     <div class="actions">
       <div class="flex items-center gap-2">
-        <Switch id="only-log-problems" bind:checked={logs.onlyProblems} />
+        <Switch id="only-log-problems" checked={logs.onlyProblems} onChange={(next) => (logs.onlyProblems = next)} />
         <label for="only-log-problems">{i18n.t('desktop.logsOnlyProblems')}</label>
       </div>
-      <Button variant="outline" size="sm" disabled={logs.loading} onclick={() => void logs.refresh()}>
+      <Button size="sm" loading={logs.loading} onclick={() => void logs.refresh()}>
         {i18n.t(logs.loading ? 'common.loading' : 'desktop.logsRefresh')}
       </Button>
     </div>

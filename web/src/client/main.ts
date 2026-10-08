@@ -1,6 +1,6 @@
 import { mount } from 'svelte'
 import { ConsoleRingLogger } from './log'
-import './styles/app.css'
+import '@app/styles/shell.css'
 import App from './App.svelte'
 import { parseRoute } from './router'
 import { createWebServices } from './runtime'

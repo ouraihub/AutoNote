@@ -19,6 +19,7 @@ fn boundary(error: AuthError) -> AppError {
         AuthError::Unauthenticated => ErrorCode::Unauthenticated,
         AuthError::Forbidden => ErrorCode::Forbidden,
         AuthError::Listener => ErrorCode::StorageUnavailable,
+        AuthError::PortInUse => ErrorCode::Conflict,
     };
     AppError::new(code, "Local MCP operation failed")
 }
@@ -39,6 +40,22 @@ async fn publish(app: &tauri::AppHandle, service: &McpServer) -> Result<LocalSta
     }
     Ok(value)
 }
+/// Records the user's listener choice so the next launch restores it.
+async fn remember(app: &tauri::AppHandle, service: &McpServer) -> Result<LocalStatus, AppError> {
+    let value = publish(app, service).await?;
+    let path = autonote_shell::paths::mcp_settings_file(
+        &tauri::Manager::state::<crate::AppContext>(app).data_dir,
+    );
+    let settings = autonote_shell::desktop_prefs::McpHostSettings {
+        enabled: value.running,
+        port: value.port,
+    };
+    // The live listener already changed; a failed write only affects the next launch.
+    if autonote_shell::desktop_prefs::save(&path, &settings).is_err() {
+        tracing::warn!(code = "storage_unavailable", "mcp.settings.persist_failed");
+    }
+    Ok(value)
+}
 #[tauri::command]
 #[tracing::instrument(skip_all, err)]
 pub async fn mcp_status(
@@ -53,7 +70,7 @@ pub async fn mcp_start(
     service: tauri::State<'_, Arc<McpServer>>,
 ) -> Result<LocalStatus, AppError> {
     service.inner().start().await.map_err(boundary)?;
-    publish(&app, &service).await
+    remember(&app, &service).await
 }
 #[tauri::command]
 #[tracing::instrument(skip_all, err)]
@@ -62,7 +79,7 @@ pub async fn mcp_stop(
     service: tauri::State<'_, Arc<McpServer>>,
 ) -> Result<LocalStatus, AppError> {
     service.stop().await.map_err(boundary)?;
-    publish(&app, &service).await
+    remember(&app, &service).await
 }
 #[tauri::command]
 #[tracing::instrument(skip_all, err)]
@@ -72,7 +89,7 @@ pub async fn mcp_set_port(
     port: u16,
 ) -> Result<LocalStatus, AppError> {
     service.set_port(port).map_err(boundary)?;
-    publish(&app, &service).await
+    remember(&app, &service).await
 }
 
 #[derive(Serialize)]

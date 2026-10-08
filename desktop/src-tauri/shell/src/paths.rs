@@ -78,6 +78,10 @@ pub fn desktop_prefs_file(data_dir: &Path) -> PathBuf {
 pub fn window_state_file(data_dir: &Path) -> PathBuf {
     data_dir.join("window-state.json")
 }
+/// Portable local MCP listener state.
+pub fn mcp_settings_file(data_dir: &Path) -> PathBuf {
+    data_dir.join("mcp.json")
+}
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, reason = "a failed unwrap is a failed test")]

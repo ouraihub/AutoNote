@@ -21,13 +21,28 @@ impl Default for DesktopPrefs {
         }
     }
 }
+/// Local MCP listener state restored on launch; keys and guards live in the library.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct McpHostSettings {
+    pub enabled: bool,
+    pub port: u16,
+}
+impl Default for McpHostSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            port: 7714,
+        }
+    }
+}
 /// Reads host settings; only a missing file selects defaults.
 /// # Errors
 /// Returns unreadable or malformed settings rather than silently replacing them.
-pub fn load(path: &Path) -> io::Result<DesktopPrefs> {
+pub fn load<T: serde::de::DeserializeOwned + Default>(path: &Path) -> io::Result<T> {
     match std::fs::read(path) {
         Ok(bytes) => serde_json::from_slice(&bytes).map_err(io::Error::other),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(DesktopPrefs::default()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(T::default()),
         Err(error) => Err(error),
     }
 }
@@ -91,9 +106,26 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(load(&path).unwrap().close_to_tray);
+        assert!(load::<DesktopPrefs>(&path).unwrap().close_to_tray);
         assert_eq!(std::fs::read(unrelated).unwrap(), b"other writer");
         assert!(save(dir.path(), &DesktopPrefs::default()).is_err());
-        assert!(load(&path).unwrap().close_to_tray);
+        assert!(load::<DesktopPrefs>(&path).unwrap().close_to_tray);
+    }
+    #[test]
+    fn mcp_settings_default_when_missing_and_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mcp.json");
+        assert_eq!(
+            load::<McpHostSettings>(&path).unwrap(),
+            McpHostSettings::default()
+        );
+        let running = McpHostSettings {
+            enabled: true,
+            port: 9100,
+        };
+        save(&path, &running).unwrap();
+        assert_eq!(load::<McpHostSettings>(&path).unwrap(), running);
+        std::fs::write(&path, br#"{"enabled":true}"#).unwrap();
+        assert!(load::<McpHostSettings>(&path).is_err());
     }
 }

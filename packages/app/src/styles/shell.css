@@ -1,7 +1,6 @@
-@import 'tailwindcss';
-@import '@app/styles/tokens.css';
-@import '@app/styles/ui.css';
-@import '@app/styles/prose.css';
+@import './tokens.css';
+@import './ui.css';
+@import './prose.css';
 
 @theme inline {
   --color-sunken: var(--bg-sunken);

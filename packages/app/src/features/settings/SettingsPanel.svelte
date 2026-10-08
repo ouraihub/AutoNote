@@ -137,7 +137,7 @@
           <div class="flex gap-1 overflow-x-auto pb-1 md:block md:space-y-px md:overflow-visible md:pb-0">
             {#each sections as section (section.id)}
               {@const current = active?.id === section.id}
-              {@const Icon = icons[section.id as SettingsSectionId]}
+              {@const Icon = 'icon' in section ? section.icon : icons[section.id as SettingsSectionId]}
               <button
                 type="button"
                 aria-current={current ? 'page' : undefined}

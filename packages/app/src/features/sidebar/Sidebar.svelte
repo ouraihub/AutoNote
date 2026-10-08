@@ -32,6 +32,7 @@
   import type { ViewKind } from '@shared/types'
   import { buildFolderTree, folderPath, selectNavigation } from '@app/state/selectors'
   import {
+    getBackend,
     getExtensions,
     getI18n,
     getNotes,
@@ -64,7 +65,8 @@
     extensions = getExtensions(),
     notifier = getNotifier(),
     session = getSession(),
-    settings = getSettings()
+    settings = getSettings(),
+    showBrand = getBackend().kind !== 'desktop'
   const instanceId = $props.id()
   const snapshot = $derived(notes.readOrganizeSnapshot())
   const navigation = $derived(selectNavigation(notes.summaries))
@@ -617,13 +619,19 @@
 
 {#snippet content()}
   <aside class="flex h-full min-h-0 flex-col bg-[var(--bg-sunken)]" data-testid="sidebar">
-    <header class="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border-subtle)] px-3">
-      <div class="flex min-w-0 items-center gap-[9px] select-none">
-        <Logo size={24} />
-        <span class="min-w-0 truncate font-serif text-[15.5px] font-semibold tracking-[0.02em] text-[var(--text-primary)]"
-          >{i18n.t('common.product_name')}</span
-        >
-      </div>
+    <header
+      class={[
+        'flex h-11 shrink-0 items-center border-b border-[var(--border-subtle)] px-3',
+        showBrand ? 'justify-between' : 'justify-end',
+      ]}
+    >
+      {#if showBrand}<div class="flex min-w-0 items-center gap-[9px] select-none">
+          <Logo size={24} />
+          <span
+            class="min-w-0 truncate font-serif text-[15.5px] font-semibold tracking-[0.02em] text-[var(--text-primary)]"
+            >{i18n.t('common.product_name')}</span
+          >
+        </div>{/if}
       <IconButton
         label={i18n.t(narrow ? 'common.close' : 'sidebar.collapse_navigation')}
         title={i18n.t(narrow ? 'common.close' : 'sidebar.collapse_navigation')}

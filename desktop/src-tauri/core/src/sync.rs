@@ -185,6 +185,7 @@ pub struct SyncStatus {
 pub struct ConflictSummary {
     pub id: String,
     pub binding_id: String,
+    #[serde(rename = "epoch")]
     pub binding_epoch: i64,
     pub entity: String,
     pub local_id: Option<String>,
@@ -196,7 +197,10 @@ pub struct ConflictSummary {
 #[serde(rename_all = "camelCase")]
 pub struct QuarantinedSummary {
     pub binding_id: String,
+    #[serde(rename = "epoch")]
     pub binding_epoch: i64,
+    pub site_origin: String,
+    pub account_hint: String,
     pub pending: u64,
 }
 /// Initial remote data used to confirm a binding.
@@ -1139,13 +1143,15 @@ impl crate::db::Library {
     /// Propagates database locking, query and row decoding failures.
     pub fn sync_quarantined(&self) -> Result<Vec<QuarantinedSummary>, Error> {
         let c = self.conn.lock()?;
-        let mut s=c.prepare("SELECT binding_id,binding_epoch,COUNT(*) FROM sync_outbox WHERE state='quarantined' GROUP BY binding_id,binding_epoch")?;
+        let mut s=c.prepare("SELECT o.binding_id,o.binding_epoch,COALESCE(st.site_origin,''),COALESCE(st.account_hint,''),COUNT(*) FROM sync_outbox o LEFT JOIN sync_state st ON st.binding_id=o.binding_id WHERE o.state='quarantined' GROUP BY o.binding_id,o.binding_epoch")?;
         let mut out = Vec::new();
         for row in s.query_map([], |r| {
             Ok(QuarantinedSummary {
                 binding_id: r.get(0)?,
                 binding_epoch: r.get(1)?,
-                pending: r.get::<_, i64>(2)?.max(0) as u64,
+                site_origin: r.get(2)?,
+                account_hint: r.get(3)?,
+                pending: r.get::<_, i64>(4)?.max(0) as u64,
             })
         })? {
             out.push(row?)
@@ -1535,6 +1541,12 @@ mod tests {
                 |r| r.get::<_, String>(0)
             )?,
             "quarantined"
+        );
+        let parked = serde_json::to_value(lib.sync_quarantined()?)
+            .map_err(|_| Error::invalid("test", "cannot encode quarantined"))?;
+        assert_eq!(
+            parked,
+            json!([{"bindingId":"binding","epoch":1,"siteOrigin":"https://example.test","accountHint":"test","pending":1}])
         );
         assert_eq!(
             lib.conn.lock()?.query_row(

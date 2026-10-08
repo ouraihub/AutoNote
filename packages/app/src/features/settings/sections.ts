@@ -35,18 +35,20 @@ export function settingsSections(
   backend: Backend,
   extensions: readonly HostSettingsSection[],
 ): VisibleSettingsSection[] {
-  const sections: VisibleSettingsSection[] = BUILTINS.filter(
+  const builtins: VisibleSettingsSection[] = BUILTINS.filter(
     (section) =>
       section.canShow(backend.capabilities) &&
-      (backend.kind === 'web' || !['backup', 'mcp', 'account', 'shares'].includes(section.id)),
+      (backend.kind === 'web' || !['backup', 'sync', 'mcp', 'account', 'shares'].includes(section.id)),
   ).map(({ id, titleKey, resources }) => ({ id, titleKey, resources }))
-  const ids = new Set(sections.map((section) => section.id))
+  const ids = new Set(builtins.map((section) => section.id))
+  const hosted: HostSettingsSection[] = []
   for (const section of [...extensions].sort((a, b) => a.order - b.order)) {
     if (ids.has(section.id) || !section.canShow()) continue
-    sections.push(section)
+    hosted.push(section)
     ids.add(section.id)
   }
-  return sections
+  const about = builtins.findIndex((section) => section.id === 'about')
+  return about < 0 ? [...builtins, ...hosted] : [...builtins.slice(0, about), ...hosted, ...builtins.slice(about)]
 }
 
 export function sectionResources(

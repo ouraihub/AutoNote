@@ -67,7 +67,7 @@ function setCodeExpanded(block: HTMLElement, expanded: boolean, i18n: Pick<I18nS
   const button = block.querySelector<HTMLButtonElement>('[data-code-collapse]')
   if (button) {
     button.setAttribute('aria-expanded', String(expanded))
-    button.textContent = i18n.t(expanded ? 'common.collapse' : 'workspace.preview.expand_code')
+    button.textContent = expanded ? i18n.t('common.collapse') : i18n.t('workspace.preview.expand_code')
   }
 }
 

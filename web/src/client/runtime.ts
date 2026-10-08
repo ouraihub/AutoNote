@@ -2,7 +2,6 @@
 import type { AppDeps } from '@app/root'
 import { I18nState } from '@app/i18n/runtime.svelte'
 import { OverlayNotifier } from '@app/components/ui/overlay-notifier.svelte'
-import type { MessageKey } from '@shared/locales/en-US'
 import { createWebBackend, browserSocketFactory } from './backend'
 import type { FetchLike } from './backend/transport'
 import { MemoryTabBus } from './backend/tab-bus'
@@ -44,7 +43,7 @@ export async function createWebServices(): Promise<WebServices> {
     },
     remove: (key) => storage.remove(key),
   }
-  const notifier = new OverlayNotifier((key, params) => language.t(key as MessageKey, params))
+  const notifier = new OverlayNotifier((key, params) => language.t(key as Parameters<I18nState['t']>[0], params))
   const kv = new IdbKvStore({ databaseName: CLIENT_DATABASE_NAME })
   if (IS_DEMO_MODE) {
     // Demo handlers and credentials must not enter the production dependency graph.

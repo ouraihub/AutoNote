@@ -26,7 +26,7 @@ describe('settings resources and sections', () => {
       { id: 'desktop', order: 1, titleKey: 'settings.sync', canShow: () => true, component: (() => {}) as never },
       { id: 'hidden', order: 0, titleKey: 'settings.sync', canShow: () => false, component: (() => {}) as never },
     ])
-    expect(sections.map((section) => section.id)).toEqual(['appearance', 'editor', 'data', 'about', 'desktop'])
+    expect(sections.map((section) => section.id)).toEqual(['appearance', 'editor', 'data', 'desktop', 'about'])
     const enabled = settingsSections(
       { kind: 'web', capabilities: { ...capabilities, accounts: true, totp: false, mcp: 'remote', remoteBackup: true, share: true, remoteSync: true } } as Backend,
       [],
@@ -42,7 +42,7 @@ describe('settings resources and sections', () => {
       'shares',
       'about',
     ])
-    expect(settingsSections({ kind: 'desktop', capabilities: { ...capabilities, mcp: 'local', accounts: true, share: true, remoteBackup: true, realtime: true } } as Backend, []).map((section) => section.id)).toEqual(['appearance', 'editor', 'sync', 'data', 'about'])
+    expect(settingsSections({ kind: 'desktop', capabilities: { ...capabilities, mcp: 'local', accounts: true, share: true, remoteBackup: true, realtime: true, remoteSync: true } } as Backend, []).map((section) => section.id)).toEqual(['appearance', 'editor', 'data', 'about'])
     expect(
       sectionResources(
         enabled.find((section) => section.id === 'account')!,

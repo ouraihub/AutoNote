@@ -760,7 +760,7 @@
         })}
       </p>
       {#each results.filter((result) => result.error !== null) as result (result.id)}<p class="text-destructive">
-          {resultTitles[result.id]} ({result.id}): {errorText(result.error)}
+          {i18n.t('notes.batch_failure', { title: resultTitles[result.id] ?? '', id: result.id, error: errorText(result.error) })}
         </p>{/each}
     </div>{/if}
 </section>

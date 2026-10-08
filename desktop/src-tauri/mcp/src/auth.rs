@@ -163,6 +163,7 @@ impl TokenStore {
     }
 }
 
+#[derive(Debug)]
 pub enum AuthError {
     /// Input is malformed.
     InvalidInput,
@@ -174,6 +175,8 @@ pub enum AuthError {
     Forbidden,
     /// The loopback listener could not be started.
     Listener,
+    /// The configured loopback port is already taken by another process.
+    PortInUse,
 }
 
 /// Checks a scope plus local feature preferences.

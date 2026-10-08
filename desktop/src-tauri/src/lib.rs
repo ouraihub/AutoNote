@@ -91,10 +91,28 @@ fn open_context(sink: Arc<events::TauriChangeSink>) -> Result<AppContext, Error>
         sink.clone(),
     )
     .map_err(|_| Error::invalid("startup", "Sync service unavailable"))?;
+    // A corrupt mcp.json only disables autostart; it must not block opening notes.
+    let mcp_settings: autonote_shell::desktop_prefs::McpHostSettings =
+        autonote_shell::desktop_prefs::load(&autonote_shell::paths::mcp_settings_file(&data_dir))
+            .unwrap_or_else(|_| {
+                tracing::warn!(code = "bad_request", "mcp.settings.unreadable");
+                autonote_shell::desktop_prefs::McpHostSettings::default()
+            });
     let mcp = Arc::new(note_mcp::McpServer::new(
         library.clone(),
-        note_mcp::McpConfig::default(),
+        note_mcp::McpConfig {
+            port: mcp_settings.port,
+            ..note_mcp::McpConfig::default()
+        },
     ));
+    if mcp_settings.enabled {
+        let server = mcp.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = server.start().await {
+                tracing::warn!(code = ?error, "mcp.autostart.failed");
+            }
+        });
+    }
     Ok(AppContext {
         data_dir,
         library,

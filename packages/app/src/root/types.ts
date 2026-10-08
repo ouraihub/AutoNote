@@ -12,6 +12,7 @@ export interface HostSettingsSection {
   titleKey: string
   canShow(): boolean
   component: Component
+  icon?: Component<{ size?: number }>
 }
 
 export interface HostPanel {

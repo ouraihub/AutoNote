@@ -1,15 +1,1 @@
-@import '../../packages/app/src/styles/tokens.css';
-@import '../../packages/app/src/styles/ui.css';
-@import '../../packages/app/src/styles/prose.css';
-@theme inline {
-  --color-base: var(--bg-base);
-  --color-ink: var(--text-primary);
-  --color-ink-2: var(--text-secondary);
-}
-
-html,
-body {
-  margin: 0;
-  background: var(--bg-base);
-  color: var(--text-primary);
-}
+@import '../../packages/app/src/styles/shell.css';

@@ -169,6 +169,20 @@ test('rejects inconsistent optional capability before mounting', () => {
   expect(element.childNodes).toHaveLength(0)
 })
 
+test('sidebar gear opens the settings dialog', async () => {
+  const element = target()
+  const { deps } = fixture('Gear')
+  const handle = mountApp(element, deps)
+  try {
+    const sidebar = await waitFor(() => within(element).getByTestId('sidebar'))
+    expect(sidebar.querySelector('header img')).toBeNull()
+    await fireEvent.click(within(sidebar).getByRole('button', { name: /^(Settings|设置)$/ }))
+    await waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeTruthy())
+  } finally {
+    await handle.destroy()
+  }
+})
+
 test('same-account settings refresh preserves the open document and language can switch back', async () => {
   const element = target()
   const { deps, feed, backend } = fixture('Persistent editor')

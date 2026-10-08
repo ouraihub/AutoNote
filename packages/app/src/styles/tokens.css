@@ -48,7 +48,6 @@
   --success: oklch(70% 0.14 155);
   --warning: oklch(76% 0.145 80);
   --danger: oklch(64% 0.19 22);
-  --brand-accent: #bb4430;
 }
 
 :is(:root, [data-app-root])[data-theme='dark'] {
@@ -85,7 +84,6 @@
   --success: oklch(72% 0.145 155);
   --warning: oklch(80% 0.15 82);
   --danger: oklch(68% 0.185 22);
-  --brand-accent: #e0664a;
 
   --code-fg: #adbac7;
   --code-inline-fg: #6cb6ff;
@@ -137,7 +135,6 @@
 
   --scrim: oklch(35% 0.01 265 / 32%);
   --selection: color-mix(in oklab, var(--accent) 22%, transparent);
-  --brand-accent: #bb4430;
 
   --code-fg: #24292e;
   --code-inline-fg: #005cc5;

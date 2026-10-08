@@ -10,6 +10,7 @@
   import { SharePage } from './share'
   import OverlayProvider from '@app/components/ui/OverlayProvider.svelte'
   import { setI18n, setNotifier } from '@app/root'
+  import type { MessageKey } from '@shared/locales/en-US'
 
   let { services }: { services: WebServices } = $props()
   // svelte-ignore state_referenced_locally
@@ -171,7 +172,7 @@
   {/key}
   <OverlayProvider
     notifier={services.notifier}
-    resolveMessage={(key, params) => services.language.t(key as Parameters<typeof services.language.t>[0], params)}
+    resolveMessage={(key, params) => services.language.t(key as MessageKey, params)}
   />
 {:else}
   <p role="alert" class="p-4">{services.language.t('api.error.not_found')}</p>

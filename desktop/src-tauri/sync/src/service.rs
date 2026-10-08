@@ -490,6 +490,8 @@ impl SyncService {
             .await?
             .cursor
             .get();
+        let conflict_items = blocking(&self.library, Library::sync_conflicts).await?;
+        let quarantined = blocking(&self.library, Library::sync_quarantined).await?;
         Ok(SyncStatus {
             binding_id: status
                 .state
@@ -525,9 +527,12 @@ impl SyncService {
                 .state
                 .as_ref()
                 .map(|state| state.binding.account_hint.clone()),
-            metadata_risk: false,
-            conflict_items: Vec::new(),
-            quarantined: Vec::new(),
+            // metadata has no server CAS; any parked metadata conflict means remote may still race.
+            metadata_risk: conflict_items
+                .iter()
+                .any(|item| item.reason == "metadata_conflict"),
+            conflict_items,
+            quarantined,
         })
     }
     async fn publish(&self) -> Result<SyncStatus, AppError> {

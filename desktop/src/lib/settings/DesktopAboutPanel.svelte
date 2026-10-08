@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Button } from '@app/components/ui/button'
+  import Button from '@app/components/primitives/Button.svelte'
+  import SettingRow from '@app/components/primitives/SettingRow.svelte'
   import { getI18n } from '@app/root'
   import { call } from '../ipc/transport'
   import type { AppInfo } from '../host/desktop-types'
@@ -22,21 +23,23 @@
   })
 </script>
 
-<div class="flex flex-col gap-3">
-  {#if info}<dl class="grid grid-cols-[auto_1fr] gap-2 text-sm">
-      <dt>{i18n.t('settings.current_version')}</dt>
-      <dd>{info.version}</dd>
-      <dt>{i18n.t('desktop.schemaVersion')}</dt>
-      <dd>{info.schemaVersion}</dd>
-      <dt>{i18n.t('settings.data')}</dt>
-      <dd class="break-all">{info.dataDir}</dd>
-    </dl>{/if}
-  <Button
-    variant="outline"
-    onclick={() =>
-      void call('app_open_log_dir', undefined).catch(() => {
-        error = true
-      })}>{i18n.t('desktop.openLogFolder')}</Button
-  >
-  {#if error}<p role="alert">{i18n.t('common.action_failed')}</p>{/if}
-</div>
+<section>
+  {#if info}
+    <SettingRow title={i18n.t('settings.current_version')}
+      ><span class="text-[12.5px] text-[var(--text-secondary)] tabular">{info.version}</span></SettingRow
+    >
+    <SettingRow title={i18n.t('desktop.schemaVersion')}
+      ><span class="text-[12.5px] text-[var(--text-secondary)] tabular">{info.schemaVersion}</span></SettingRow
+    >
+    <SettingRow title={i18n.t('settings.data')} description={info.dataDir}>
+      <Button
+        size="sm"
+        onclick={() =>
+          void call('app_open_log_dir', undefined).catch(() => {
+            error = true
+          })}>{i18n.t('desktop.openLogFolder')}</Button
+      >
+    </SettingRow>
+  {/if}
+  {#if error}<p role="alert" class="mt-2 text-[11.5px] text-[var(--danger)]">{i18n.t('common.action_failed')}</p>{/if}
+</section>
