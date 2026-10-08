@@ -120,6 +120,13 @@ pub fn safe_field(key: &str, value: &serde_json::Value) -> bool {
 fn safe_text(key: &str, value: &str) -> bool {
     match key {
         "event" | "message" => valid_event(value),
+        "command" => {
+            (1..=64).contains(&value.len())
+                && value.as_bytes()[0].is_ascii_lowercase()
+                && value
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        }
         "code" => matches!(
             value,
             "bad_request"

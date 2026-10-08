@@ -39,6 +39,15 @@ export interface IpcTransport {
   dispose(): Promise<void>
 }
 
+type IpcFailureObserver = (command: string, code: string) => void
+let failureObserver: IpcFailureObserver | undefined
+export function observeIpcFailures(observer: IpcFailureObserver | undefined): void {
+  failureObserver = observer
+}
+function reportFailure(command: string, error: unknown): void {
+  const code = ipcError(error).code
+  if (command !== 'app_log' && code !== 'cancelled') failureObserver?.(command, code)
+}
 export class TauriTransport implements IpcTransport {
   #disposed = false
   #pending = new Set<Promise<unknown>>()
@@ -86,9 +95,14 @@ export class TauriTransport implements IpcTransport {
     args: CommandArgs[K],
     options?: CallOptions,
   ): Promise<CommandResults[K]> {
-    const result = await this.#call<CommandResults[K]>(command, args, options)
-    validateResponse(command, result)
-    return result
+    try {
+      const result = await this.#call<CommandResults[K]>(command, args, options)
+      validateResponse(command, result)
+      return result
+    } catch (error) {
+      reportFailure(command, error)
+      throw error
+    }
   }
   async #listen<T>(event: string, listener: (payload: T) => void): Promise<() => void> {
     if (this.#disposed) throw cancelled()

@@ -11,6 +11,8 @@ function safeField(key: string, value: string | number | boolean | null): boolea
   if (typeof value === 'boolean') return key === 'online' || key === 'available'
   if (typeof value !== 'string') return false
   switch (key) {
+    case 'command':
+      return /^[a-z][a-z0-9_]{0,63}$/.test(value)
     case 'code':
       return codes.test(value)
     case 'phase':

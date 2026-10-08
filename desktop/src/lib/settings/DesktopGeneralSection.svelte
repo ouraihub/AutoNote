@@ -7,7 +7,6 @@
   import { getI18n } from '@app/root'
   import { call } from '../ipc/transport'
   import type { DesktopStatus } from '../ipc/commands'
-  import LogSettings from '../log/LogSettings.svelte'
   import { isBackendError } from '@app/backend/errors'
   const i18n = getI18n()
   let prefs = $state<DesktopStatus>()
@@ -90,5 +89,4 @@
     </section>
   {/if}
   {#if error}<p role="alert" class="text-[11.5px] text-[var(--danger)]">{i18n.t(error)}</p>{/if}
-  <LogSettings />
 </div>
