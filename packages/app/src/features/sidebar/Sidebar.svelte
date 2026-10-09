@@ -3,6 +3,7 @@
   import { SvelteMap } from 'svelte/reactivity'
   import {
     Archive,
+    Check,
     ChevronRight,
     Clock,
     FilePlus2,
@@ -26,7 +27,7 @@
   } from '@lucide/svelte'
   import type { Component } from 'svelte'
   import { LIMITS } from '@shared/constants'
-  import { ORGANIZER_COLORS, organizerColorOrNull } from '@shared/organizer-colors'
+  import { ORGANIZER_COLORS, ORGANIZER_COLOR_NAMES, organizerColorOrNull } from '@shared/organizer-colors'
   import type { MessageKey } from '@shared/locales/en-US'
   import type { FolderNode } from '@app/state/selectors'
   import type { ViewKind } from '@shared/types'
@@ -100,6 +101,7 @@
   let name = $state('')
   let color = $state('')
   let icon = $state('')
+  const FOLDER_ICONS = ['📁', '📂', '📝', '📚', '💼', '💡', '🎯', '⭐', '🔖', '🗂️', '🧪', '🏠', '✈️', '🎨', '💰', '❤️']
   let editorOpen = $state(false)
   let nameInput = $state<HTMLInputElement | null>(null)
   let draggingFolder = $state<string | null>(null)
@@ -362,9 +364,9 @@
 {#snippet folders(nodes: readonly FolderNode[])}
   {#each nodes as node, index (node.id)}
     {@const previous = nodes[index - 1]}
-      {@const active = ui.filter.view === 'folder' && ui.filter.folderId === node.id}
-      {@const expanded = ui.expandedFolders.includes(node.id)}
-      {@const folderColor = organizerColorOrNull(node.color)}
+    {@const active = ui.filter.view === 'folder' && ui.filter.folderId === node.id}
+    {@const expanded = ui.expandedFolders.includes(node.id)}
+    {@const folderColor = organizerColorOrNull(node.color)}
     <li
       role="treeitem"
       aria-level={node.depth + 1}
@@ -469,7 +471,8 @@
             }
           }}>{node.name || i18n.t('common.new_folder')}</button
         >
-        <span class="tabular shrink-0 text-[11px] text-[var(--text-quaternary)] transition-opacity group-hover:opacity-0"
+        <span
+          class="tabular shrink-0 text-[11px] text-[var(--text-quaternary)] transition-opacity group-hover:opacity-0"
           >{node.totalNotes > 0 ? node.totalNotes : ''}</span
         >
         <DropdownMenu.Root>
@@ -477,7 +480,8 @@
             data-folder-menu
             title={i18n.t('common.more_actions')}
             class="absolute right-1 inline-flex size-8 shrink-0 items-center justify-center rounded-[var(--r-md)] text-[var(--text-secondary)] opacity-100 transition-opacity hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] md:size-6 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
-            aria-label={`${i18n.t('common.more_actions')}: ${node.name}`}><MoreHorizontal size={13} /></DropdownMenu.Trigger
+            aria-label={`${i18n.t('common.more_actions')}: ${node.name}`}
+            ><MoreHorizontal size={13} /></DropdownMenu.Trigger
           >
           <DropdownMenu.Content
             ><DropdownMenu.Group>
@@ -565,7 +569,9 @@
           ><Avatar src={user.avatarUrl} name={displayName} size={28} /></DropdownMenu.Trigger
         >
       {:else}
-        <div class="group flex h-11 w-full items-center rounded-[var(--r-md)] transition-colors hover:bg-[var(--bg-hover)]">
+        <div
+          class="group flex h-11 w-full items-center rounded-[var(--r-md)] transition-colors hover:bg-[var(--bg-hover)]"
+        >
           <DropdownMenu.Trigger
             aria-label={i18n.t('sidebar.account_and_settings')}
             class="flex h-full min-w-0 flex-1 items-center gap-2.5 rounded-l-[var(--r-md)] pl-2 text-left"
@@ -738,7 +744,8 @@
                 }}
                 class="min-w-0 flex-1 truncate py-1 text-left text-[12.5px] font-medium">{tag.name}</button
               >
-              <span class="tabular shrink-0 text-[11px] text-[var(--text-quaternary)] transition-opacity group-hover:opacity-0"
+              <span
+                class="tabular shrink-0 text-[11px] text-[var(--text-quaternary)] transition-opacity group-hover:opacity-0"
                 >{tagCounts.get(tag.name) || ''}</span
               >
               <IconButton
@@ -752,7 +759,10 @@
           {/each}
         </div>
       </section>
-      {#if feedback && !editorOpen}<p role="alert" class="mt-3 px-2 text-[12px] whitespace-pre-line text-[var(--danger)]">
+      {#if feedback && !editorOpen}<p
+          role="alert"
+          class="mt-3 px-2 text-[12px] whitespace-pre-line text-[var(--danger)]"
+        >
           {feedback}
         </p>{/if}
     </nav>
@@ -792,7 +802,9 @@
     <div class="flex w-full flex-col items-center gap-1 py-2">
       <SearchButton variant="icon" />
       {@render railButton(i18n.t('navigation.all_notes'), FileText, ui.filter.view === 'all', () => navigate('all'))}
-      {@render railButton(i18n.t('navigation.favorites'), Star, ui.filter.view === 'starred', () => navigate('starred'))}
+      {@render railButton(i18n.t('navigation.favorites'), Star, ui.filter.view === 'starred', () =>
+        navigate('starred'),
+      )}
       {@render railButton(i18n.t('navigation.trash'), Trash2, ui.filter.view === 'trash', () => navigate('trash'))}
       <div class="my-1 h-px w-6 bg-[var(--border-subtle)]"></div>
       {@render railButton(
@@ -830,7 +842,7 @@
       <Field.Group>
         <Field.Field
           ><Field.Label for={`${instanceId}-organizer-name`}
-            >{i18n.t(dialog === 'folder' ? 'sidebar.rename' : 'tags.new_placeholder')}</Field.Label
+            >{i18n.t(dialog === 'folder' ? (editId ? 'sidebar.rename' : 'folders.name') : 'tags.new_placeholder')}</Field.Label
           ><Input
             id={`${instanceId}-organizer-name`}
             bind:ref={nameInput}
@@ -840,22 +852,88 @@
           /></Field.Field
         >
         <Field.Field
-          ><Field.Label for={`${instanceId}-organizer-color`}>{i18n.t('folders.color')}</Field.Label><select
-            id={`${instanceId}-organizer-color`}
-            class="rounded-md border border-input bg-background p-2"
-            bind:value={color}
-            ><option value="">{i18n.t('folders.no_color')}</option>{#each ORGANIZER_COLORS as value (value)}<option
-                {value}>{value}</option
-              >{/each}</select
-          ></Field.Field
+          ><Field.Label id={`${instanceId}-organizer-color`}>{i18n.t('folders.color')}</Field.Label>
+          <div role="radiogroup" aria-labelledby={`${instanceId}-organizer-color`} class="grid w-fit grid-cols-6 gap-2">
+            <label class="cursor-pointer" title={i18n.t('folders.no_color')}>
+              <input
+                class="peer sr-only"
+                type="radio"
+                name={`${instanceId}-folder-color`}
+                value=""
+                bind:group={color}
+                aria-label={i18n.t('folders.no_color')}
+              />
+              <span
+                class="flex size-7 items-center justify-center rounded-full border border-dashed border-[var(--border-strong)] text-[var(--text-quaternary)] transition-transform hover:scale-110 peer-checked:ring-2 peer-checked:ring-[var(--accent)] peer-checked:ring-offset-2 peer-checked:ring-offset-[var(--bg-overlay)] peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-[var(--accent)]"
+                ><X size={12} /></span
+              >
+            </label>
+            {#each ORGANIZER_COLORS as value (value)}
+              {@const label = i18n.t(`folders.color_${ORGANIZER_COLOR_NAMES[value]}` as MessageKey)}
+              <label class="cursor-pointer" title={label}>
+                <input
+                  class="peer sr-only"
+                  type="radio"
+                  name={`${instanceId}-folder-color`}
+                  {value}
+                  bind:group={color}
+                  aria-label={label}
+                />
+                <span
+                  class="flex size-7 items-center justify-center rounded-full text-white transition-transform hover:scale-110 peer-checked:ring-2 peer-checked:ring-[var(--accent)] peer-checked:ring-offset-2 peer-checked:ring-offset-[var(--bg-overlay)] peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-[var(--accent)]"
+                  style:background={value}
+                >
+                  {#if color === value}<Check size={13} strokeWidth={3} />{/if}
+                </span>
+              </label>
+            {/each}
+          </div></Field.Field
         >
         {#if dialog === 'folder'}
           <Field.Field
-            ><Field.Label for={`${instanceId}-organizer-icon`}>{i18n.t('folders.icon')}</Field.Label><Input
+            ><Field.Label id={`${instanceId}-organizer-icon-label`}>{i18n.t('folders.icon')}</Field.Label>
+            <div
+              role="radiogroup"
+              aria-labelledby={`${instanceId}-organizer-icon-label`}
+              class="grid grid-cols-[repeat(auto-fill,minmax(2rem,1fr))] gap-1"
+            >
+              <label class="cursor-pointer" title={i18n.t('folders.no_icon')}>
+                <input
+                  class="peer sr-only"
+                  type="radio"
+                  name={`${instanceId}-folder-icon`}
+                  value=""
+                  bind:group={icon}
+                  aria-label={i18n.t('folders.no_icon')}
+                />
+                <span
+                  class="flex h-8 items-center justify-center rounded-[var(--r-md)] text-[var(--text-tertiary)] hover:bg-[var(--bg-hover)] peer-checked:bg-[var(--accent-soft)] peer-checked:ring-1 peer-checked:ring-[var(--accent)] peer-focus-visible:outline-2 peer-focus-visible:outline-[var(--accent)]"
+                  style:color={organizerColorOrNull(color) ?? undefined}><FolderClosed size={15} /></span
+                >
+              </label>
+              {#each FOLDER_ICONS as value (value)}
+                <label class="cursor-pointer" title={value}>
+                  <input
+                    class="peer sr-only"
+                    type="radio"
+                    name={`${instanceId}-folder-icon`}
+                    {value}
+                    bind:group={icon}
+                    aria-label={value}
+                  />
+                  <span
+                    class="flex h-8 items-center justify-center rounded-[var(--r-md)] text-[15px] leading-none hover:bg-[var(--bg-hover)] peer-checked:bg-[var(--accent-soft)] peer-checked:ring-1 peer-checked:ring-[var(--accent)] peer-focus-visible:outline-2 peer-focus-visible:outline-[var(--accent)]"
+                    >{value}</span
+                  >
+                </label>
+              {/each}
+            </div>
+            <Input
               id={`${instanceId}-organizer-icon`}
+              aria-labelledby={`${instanceId}-organizer-icon-label`}
               bind:value={icon}
               maxlength={16}
-              placeholder={i18n.t('folders.no_icon')}
+              placeholder={i18n.t('folders.custom_icon')}
             /></Field.Field
           >
           <Field.Field

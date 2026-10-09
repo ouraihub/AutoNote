@@ -41,7 +41,7 @@ export class NotesState {
   readonly #writeIds: Record<string, string> = {}
   #unsubscribe: (() => void) | null = null
   #tombstones: Record<string, number | null> = {}
-  #shell: SyncShell = EMPTY_SYNC_SHELL
+  #shell = $state.raw<SyncShell>(EMPTY_SYNC_SHELL)
   #disposed = false
 
   constructor(options: NotesStateOptions) {

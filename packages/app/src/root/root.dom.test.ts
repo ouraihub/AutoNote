@@ -2,7 +2,7 @@ import { cleanup, fireEvent, waitFor, within } from '@testing-library/svelte'
 import { afterEach, expect, test, vi } from 'vitest'
 import { DEFAULT_SETTINGS } from '@shared/constants'
 import type { BackendSession } from '@shared/backend-types'
-import type { Note, SyncResponse } from '@shared/types'
+import type { Folder, Note, SyncResponse } from '@shared/types'
 import { ChangeFeedEmitter, type Backend } from '../backend'
 import type { Logger } from '../log/logger'
 import type { PrefsStore } from '../platform/prefs'
@@ -65,6 +65,7 @@ function snapshot(note: Note): SyncResponse {
 }
 function fixture(title: string) {
   const feed = new ChangeFeedEmitter()
+  let folders: Folder[] = []
   const note = makeNote(title)
   const notifier: Notifier = { toast() {}, confirm: async () => false }
   const prefs: PrefsStore = {
@@ -94,6 +95,28 @@ function fixture(title: string) {
       flush: async () => ({ pending: 0, failed: 0 }),
       patch: async () => ({ queued: false, note, writeId: 'saved' }),
       create: async () => note,
+    },
+    folders: {
+      list: async () => folders,
+      create: async (body: {
+        id?: string
+        name?: string
+        color?: string | null
+        icon?: string | null
+      }): Promise<Folder> => {
+        const folder: Folder = {
+          id: body.id!,
+          name: body.name ?? '',
+          color: body.color ?? null,
+          icon: body.icon ?? null,
+          parentId: null,
+          position: 1000,
+          createdAt: 1,
+          updatedAt: 1,
+        }
+        folders = [...folders, folder]
+        return folder
+      },
     },
     changes: feed,
     dispose: vi.fn(async () => {}),
@@ -178,6 +201,27 @@ test('sidebar gear opens the settings dialog', async () => {
     expect(sidebar.querySelector('header img')).toBeNull()
     await fireEvent.click(within(sidebar).getByRole('button', { name: /^(Settings|设置)$/ }))
     await waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeTruthy())
+  } finally {
+    await handle.destroy()
+  }
+})
+
+test('a created folder appears in the sidebar tree with its color and icon', async () => {
+  const element = target()
+  const { deps } = fixture('Folders')
+  const handle = mountApp(element, deps)
+  try {
+    const sidebar = await waitFor(() => within(element).getByTestId('sidebar'))
+    await fireEvent.click(within(sidebar).getAllByRole('button', { name: /^(New folder|新建文件夹)$/ })[0]!)
+    const dialog = await waitFor(() => within(document.body).getByRole('dialog'))
+    await fireEvent.input(dialog.querySelector('input[required]')!, { target: { value: 'Live' } })
+    const [colors, icons] = within(dialog).getAllByRole('radiogroup')
+    await fireEvent.click(within(colors!).getByRole('radio', { name: /^(Indigo|靛蓝)$/ }))
+    await fireEvent.click(within(icons!).getByRole('radio', { name: '📚' }))
+    await fireEvent.submit(dialog.querySelector('form')!)
+    const item = await waitFor(() => within(sidebar).getByRole('treeitem', { name: /Live/ }))
+    expect(item.textContent).toContain('📚')
+    expect(item.querySelector<HTMLElement>('span')!.style.color).toBe('rgb(79, 70, 229)')
   } finally {
     await handle.destroy()
   }
