@@ -8,7 +8,7 @@
     "node": ">=24.15.0"
   },
   "scripts": {
-    "lint": "eslint packages/app/src web/src/client desktop/src",
+    "lint": "pnpm --filter autonote-desktop exec svelte-kit sync && eslint packages/app/src web/src/client desktop/src",
   "format:check": "prettier --check packages/app/src/backend packages/app/src/foundation packages/app/src/i18n packages/app/src/log packages/app/src/platform packages/app/src/root packages/app/src/theme packages/app/src/styles/{tokens,ui}.css packages/app/src/state/{merge,selectors,layout-prefs,prefs-writer,ui,notes,note-writes}*.ts packages/app/src/features/auth/*.svelte packages/app/src/features/auth/*.test.ts web/src/client/App.svelte web/src/client/main.ts web/src/client/backend web/src/client/local desktop/src/routes/+page.svelte desktop/src/lib/ipc/*.ts desktop/src/lib/log/*.svelte desktop/src/lib/log/*.ts desktop/src/lib/prefs/*.ts desktop/src/lib/settings/*.svelte eslint.config.js",
     "app:check": "pnpm run lint && pnpm run format:check && pnpm --filter @autonote/app typecheck",
     "web:dev": "pnpm --filter autonote-web dev",

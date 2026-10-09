@@ -16,7 +16,7 @@ rem Exit code 0 when cl.exe is ready, 1 otherwise.
 if /i "%GITHUB_ACTIONS%"=="true" (
   if not defined RUNNER_TOOL_CACHE exit /b 1
   if not defined VCToolsInstallDir exit /b 1
-  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0compiler-paths.ps1" -Root "%VCToolsInstallDir%"
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0compiler-paths.ps1" -Root "%VCToolsInstallDir%."
   if errorlevel 1 exit /b 1
   exit /b 0
 )
@@ -36,5 +36,5 @@ rem link.exe win over any Build Tools or Git coreutils copies further down.
 call "%MSVC_ROOT%\setup_x64.bat" >nul
 if errorlevel 1 exit /b 1
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0compiler-paths.ps1" -Root "%MSVC_ROOT%"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0compiler-paths.ps1" -Root "%MSVC_ROOT%."
 exit /b %ERRORLEVEL%
