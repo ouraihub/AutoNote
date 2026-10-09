@@ -7,6 +7,7 @@
 //! contract types are re-exported below. No connection, transaction or row
 //! type is exported.
 
+pub mod ai;
 #[path = "db/mod.rs"]
 mod db;
 mod dto;

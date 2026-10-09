@@ -9,6 +9,7 @@ import type { SyncStatus } from './ports/remote-sync'
 import type { CommandArgs, CommandResults, TransferArgs } from './commands'
 import { cancelled, invalidResponse, ipcError } from './errors'
 import { isSyncResponse, record, validateResponse } from './validation'
+import type { AiChatEvent, AiChatRequest, AiModelRef, AiWriteEvent, AiWriteRequest } from './ports/ai'
 
 export interface IpcTransport {
   invoke<K extends keyof CommandArgs>(
@@ -31,6 +32,16 @@ export interface IpcTransport {
     options?: TransferOptions,
   ): Promise<T | null>
   reindex(options?: CallOptions): Promise<{ ok: true; indexed: number }>
+  aiChat(
+    request: AiChatRequest,
+    onEvent: (event: AiChatEvent) => void,
+    options?: CallOptions,
+  ): Promise<{ conversationId: string }>
+  aiWrite(
+    request: AiWriteRequest,
+    onEvent: (event: AiWriteEvent) => void,
+    options?: CallOptions,
+  ): Promise<{ model: AiModelRef; isFallback: boolean }>
   flushNotes(noteId?: string, options?: CallOptions): Promise<FlushResult>
   onPrepareClose(flush: () => Promise<FlushResult>, closing: (active: boolean) => void): Promise<() => void>
   listenIntents(listener: (intent: 'new-note') => void): Promise<() => void>
@@ -232,6 +243,88 @@ export class TauriTransport implements IpcTransport {
       if (!record(result) || result.ok !== true || !Number.isSafeInteger(result.indexed)) throw invalidResponse()
       return result
     } finally {
+      options?.signal?.removeEventListener('abort', abort)
+      this.#jobs.delete(jobId)
+    }
+  }
+  /** Streams one model reply; aborting the signal cancels the job on the host. */
+  async aiChat(
+    request: AiChatRequest,
+    onEvent: (event: AiChatEvent) => void,
+    options?: CallOptions,
+  ): Promise<{ conversationId: string }> {
+    if (options?.signal?.aborted) throw cancelled()
+    const jobId = crypto.randomUUID()
+    const channel = new Channel<unknown>()
+    let open = true
+    channel.onmessage = (event) => {
+      if (!open || this.#disposed || options?.signal?.aborted || !record(event)) return
+      if (event.kind === 'delta' && typeof event.text === 'string') onEvent({ kind: 'delta', text: event.text })
+      else if (event.kind === 'done')
+        onEvent({
+          kind: 'done',
+          inputTokens: Number.isSafeInteger(event.inputTokens) ? (event.inputTokens as number) : null,
+          outputTokens: Number.isSafeInteger(event.outputTokens) ? (event.outputTokens as number) : null,
+        })
+    }
+    const cancel = () => this.invoke('jobs_cancel', { jobId })
+    const abort = () => {
+      void cancel().catch(() => {
+        this.cancellationFailed = true
+      })
+    }
+    this.#jobs.set(jobId, cancel)
+    options?.signal?.addEventListener('abort', abort, { once: true })
+    try {
+      const result = await this.#call<unknown>('ai_chat', { jobId, request, onEvent: channel })
+      if (!record(result) || result.ok !== true || typeof result.conversationId !== 'string') throw invalidResponse()
+      return { conversationId: result.conversationId }
+    } catch (error) {
+      reportFailure('ai_chat', error)
+      throw error
+    } finally {
+      open = false
+      options?.signal?.removeEventListener('abort', abort)
+      this.#jobs.delete(jobId)
+    }
+  }
+  async aiWrite(
+    request: AiWriteRequest,
+    onEvent: (event: AiWriteEvent) => void,
+    options?: CallOptions,
+  ): Promise<{ model: AiModelRef; isFallback: boolean }> {
+    if (options?.signal?.aborted) throw cancelled()
+    const jobId = crypto.randomUUID()
+    const channel = new Channel<unknown>()
+    let open = true
+    channel.onmessage = (event) => {
+      if (!open || this.#disposed || options?.signal?.aborted || !record(event)) return
+      if (event.kind === 'delta' && typeof event.text === 'string') onEvent({ kind: 'delta', text: event.text })
+      else if (event.kind === 'done')
+        onEvent({
+          kind: 'done',
+          inputTokens: Number.isSafeInteger(event.inputTokens) ? (event.inputTokens as number) : null,
+          outputTokens: Number.isSafeInteger(event.outputTokens) ? (event.outputTokens as number) : null,
+        })
+    }
+    const cancel = () => this.invoke('jobs_cancel', { jobId })
+    const abort = () => {
+      void cancel().catch(() => {
+        this.cancellationFailed = true
+      })
+    }
+    this.#jobs.set(jobId, cancel)
+    options?.signal?.addEventListener('abort', abort, { once: true })
+    try {
+      const result = await this.#call<unknown>('ai_write', { jobId, request, onEvent: channel })
+      validateResponse('ai_write', result)
+      const { model, isFallback } = result as CommandResults['ai_write']
+      return { model, isFallback }
+    } catch (error) {
+      reportFailure('ai_write', error)
+      throw error
+    } finally {
+      open = false
       options?.signal?.removeEventListener('abort', abort)
       this.#jobs.delete(jobId)
     }

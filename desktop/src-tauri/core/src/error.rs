@@ -25,6 +25,10 @@ pub enum Entity {
     Tag,
     Attachment,
     Version,
+    AiProvider,
+    AiEndpoint,
+    AiModel,
+    AiConversation,
 }
 
 impl Entity {
@@ -35,6 +39,10 @@ impl Entity {
             Self::Tag => "Tag",
             Self::Attachment => "Attachment",
             Self::Version => "Version",
+            Self::AiProvider => "Model provider",
+            Self::AiEndpoint => "Model endpoint",
+            Self::AiModel => "Model",
+            Self::AiConversation => "Conversation",
         }
     }
 }

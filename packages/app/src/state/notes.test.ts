@@ -1,6 +1,6 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import type { NoteWriteResult } from '@shared/backend-types'
-import type { Note, SyncResponse } from '@shared/types'
+import type { Note, PatchNoteBody, SyncResponse } from '@shared/types'
 import { ChangeFeedEmitter, type Backend } from '@app/backend'
 import type { Logger } from '@app/log/logger'
 import { BackendError } from '@app/backend'
@@ -185,6 +185,37 @@ describe('NotesState', () => {
     expect(state.dirtyById.note).toBe(true)
     state.dispose()
   })
+
+  test('an edit typed while an earlier save is in flight saves on the new revision', async () => {
+    let stored = makeNote('note', 'base')
+    const firstSave = deferred<NoteWriteResult>()
+    const bodies: PatchNoteBody[] = []
+    const backend = backendWithNotes({
+      get: async () => ({ ...stored }),
+      patch: async (_id, body, options) => {
+        bodies.push(body)
+        if (body.rev !== stored.rev) throw new BackendError('conflict', 409, 'stale revision')
+        const save = (): NoteWriteResult => {
+          stored = { ...stored, content: body.content ?? stored.content, rev: stored.rev + 1 }
+          return { queued: false, writeId: options.writeId, note: { ...stored } }
+        }
+        if (bodies.length === 1) return firstSave.promise.then(save)
+        return save()
+      },
+    })
+    const state = new NotesState({ backend, logger, debounceMs: 0 })
+    await state.open('note')
+    state.editContent('note', 'first')
+    await vi.waitFor(() => expect(bodies).toHaveLength(1))
+    state.editContent('note', 'first and second')
+    firstSave.resolve({ queued: false, writeId: '', note: stored })
+    await state.flush('note')
+    expect(bodies.map((body) => body.rev)).toEqual([1, 2])
+    expect(stored).toMatchObject({ content: 'first and second', rev: 3 })
+    expect(state.saveState.note).not.toBe('failed')
+    state.dispose()
+  })
+
   test('reset discards the previous account and ignores a late open response', async () => {
     const oldOpen = deferred<Note>()
     const backend = backendWithNotes({

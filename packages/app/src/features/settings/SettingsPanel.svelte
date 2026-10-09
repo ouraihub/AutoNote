@@ -50,7 +50,8 @@
   const resources = createSettingsResources(backend)
   setSettingsResources(resources)
 
-  let selected = $state('appearance')
+  let selected = $state(ui.settingsSection ?? 'appearance')
+  ui.settingsSection = null
   let loading = $state(false)
   let failed = $state(false)
   let retry = $state(0)

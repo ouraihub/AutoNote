@@ -1,10 +1,13 @@
-import { BrainCircuit, Monitor, RefreshCw, ScrollText } from '@lucide/svelte'
+import { BrainCircuit, Monitor, RefreshCw, ScrollText, Sparkles } from '@lucide/svelte'
+import ChatPanel from '../chat/ChatPanel.svelte'
+import WritingToolbar from '../writing/WritingToolbar.svelte'
 import type { HostExtensions } from '@app/root'
 import type { BackendCapabilities } from '@app/backend'
 import DesktopGeneralSection from './DesktopGeneralSection.svelte'
 import DesktopAboutPanel from './DesktopAboutPanel.svelte'
 import DesktopSyncSection from './DesktopSyncSection.svelte'
 import McpSection from './McpSection.svelte'
+import AiSection from './ai/AiSection.svelte'
 import LogSettings from '../log/LogSettings.svelte'
 export function desktopSettingsSections(capabilities: BackendCapabilities): HostExtensions {
   return {
@@ -34,6 +37,14 @@ export function desktopSettingsSections(capabilities: BackendCapabilities): Host
         component: McpSection,
       },
       {
+        id: 'desktop-ai',
+        order: 28,
+        titleKey: 'ai.settings_title',
+        icon: Sparkles,
+        canShow: () => true,
+        component: AiSection,
+      },
+      {
         id: 'desktop-logs',
         order: 35,
         titleKey: 'desktop.logsTitle',
@@ -43,5 +54,7 @@ export function desktopSettingsSections(capabilities: BackendCapabilities): Host
       },
     ],
     aboutPanels: [{ id: 'desktop', order: 1, titleKey: 'settings.about', component: DesktopAboutPanel }],
+    workspacePanel: { titleKey: 'chat.title', icon: Sparkles, component: ChatPanel },
+    writingToolbar: { component: WritingToolbar },
   }
 }

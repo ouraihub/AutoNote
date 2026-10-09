@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte'
-  import { Compartment, EditorState, type Extension } from '@codemirror/state'
+  import { Compartment, EditorState, type Extension, type Text } from '@codemirror/state'
   import { acceptCompletion, autocompletion } from '@codemirror/autocomplete'
   import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
   import { indentUnit } from '@codemirror/language'
@@ -25,9 +25,10 @@
     liveServices?: LivePreviewServices
     onChange(value: string): void
     onViewReady?(view: EditorView | null): void
+    onSelectionChange?(selection: { from: number; to: number; docLength: number; text: string; doc: Text }): void
   }
 
-  let { noteId, value, settings, services, placeholder = '', live = false, liveServices: liveRenderer, onChange, onViewReady }: Props = $props()
+  let { noteId, value, settings, services, placeholder = '', live = false, liveServices: liveRenderer, onChange, onViewReady, onSelectionChange }: Props = $props()
   let host = $state<HTMLDivElement>()
   let view = $state.raw<EditorView | null>(null)
   const current: {
@@ -39,6 +40,7 @@
     placeholder: string
     onChange: (value: string) => void
     onViewReady: ((view: EditorView | null) => void) | undefined
+    onSelectionChange: ((selection: { from: number; to: number; docLength: number; text: string; doc: Text }) => void) | undefined
   } = {
     noteId: '',
     generation: 0,
@@ -58,6 +60,7 @@
     placeholder: '',
     onChange: () => {},
     onViewReady: undefined,
+    onSelectionChange: undefined,
   }
   const lineNumberCompartment = new Compartment()
   const tabSizeCompartment = new Compartment()
@@ -76,6 +79,7 @@
     current.placeholder = placeholder
     current.onChange = onChange
     current.onViewReady = onViewReady
+    current.onSelectionChange = onSelectionChange
   })
 
   $effect(() => {
@@ -181,12 +185,19 @@
         ...historyKeymap, ...defaultKeymap,
       ]),
       EditorView.updateListener.of((update) => {
-        if (
-          !update.docChanged ||
-          update.transactions.some((transaction) => transaction.annotation(externalValueAnnotation))
-        )
-          return
-        current.onChange(update.state.doc.toString())
+        if (update.docChanged && !update.transactions.some((transaction) => transaction.annotation(externalValueAnnotation))) {
+          current.onChange(update.state.doc.toString())
+        }
+        if (update.selectionSet || update.docChanged) {
+          const range = update.state.selection.main
+          current.onSelectionChange?.({
+            from: range.from,
+            to: range.to,
+            docLength: update.state.doc.length,
+            text: update.state.sliceDoc(range.from, range.to),
+            doc: update.state.doc,
+          })
+        }
       }),
     ]
   }

@@ -171,9 +171,104 @@ const mcpPreferences = (value: unknown): boolean =>
   typeof value.writeEnabled === 'boolean' &&
   typeof value.trashEnabled === 'boolean' &&
   integer(value.updatedAt)
+const aiModelTypes = ['chat', 'image', 'video', 'tts', 'stt', 'embedding', 'rerank', 'unknown']
+const aiProtocols = ['anthropic-messages', 'openai-chat', 'openai-responses']
+const aiModel = (value: unknown): boolean =>
+  record(value) &&
+  text(value.id) &&
+  aiModelTypes.includes(value.modelType as string) &&
+  (value.typeSource === 'inferred' || value.typeSource === 'user') &&
+  (value.contextWindow === null || integer(value.contextWindow)) &&
+  typeof value.canVision === 'boolean'
+const aiProvider = (value: unknown): boolean =>
+  record(value) &&
+  text(value.id) &&
+  text(value.name) &&
+  Array.isArray(value.endpoints) &&
+  value.endpoints.every(
+    (endpoint: unknown) =>
+      record(endpoint) &&
+      text(endpoint.id) &&
+      text(endpoint.slug) &&
+      text(endpoint.baseUrl) &&
+      aiProtocols.includes(endpoint.protocol as string) &&
+      (endpoint.keyMasked === undefined || nullableText(endpoint.keyMasked)) &&
+      text(endpoint.probeUrl) &&
+      Array.isArray(endpoint.models) &&
+      endpoint.models.every(aiModel),
+  )
+const aiRoleBinding = (value: unknown): boolean =>
+  record(value) &&
+  (value.role === 'chat' || value.role === 'writing') &&
+  typeof value.isFallback === 'boolean' &&
+  (value.binding === null ||
+    (record(value.binding) &&
+      text(value.binding.endpointId) &&
+      text(value.binding.modelId) &&
+      text(value.binding.label)))
+const aiProbe = (value: unknown): boolean =>
+  record(value) &&
+  text(value.probeUrl) &&
+  Array.isArray(value.models) &&
+  value.models.every((model: unknown) => aiModel(model) && record(model) && nullableText(model.group)) &&
+  (value.error === null ||
+    (record(value.error) &&
+      text(value.error.kind) &&
+      (value.error.status === null || integer(value.error.status)) &&
+      nullableText(value.error.message)))
+const aiConversationSummary = (value: unknown): boolean =>
+  record(value) && text(value.id) && text(value.title) && integer(value.updatedAt)
+const aiStoredMessage = (value: unknown): boolean =>
+  record(value) &&
+  text(value.id) &&
+  (value.role === 'user' || value.role === 'assistant') &&
+  text(value.content) &&
+  (value.status === 'done' || value.status === 'failed' || value.status === 'interrupted') &&
+  nullableText(value.modelId) &&
+  integer(value.createdAt)
 export function validateResponse(command: keyof CommandArgs, value: unknown): void {
   let valid: boolean
   switch (command) {
+    case 'ai_providers_list':
+    case 'ai_provider_save':
+      valid = Array.isArray(value) && value.every(aiProvider)
+      break
+    case 'ai_provider_delete':
+      valid = record(value) && value.ok === true
+      break
+    case 'ai_endpoint_key_reveal':
+      valid = record(value) && text(value.key)
+      break
+    case 'ai_endpoint_probe':
+      valid = aiProbe(value)
+      break
+    case 'ai_roles_get':
+    case 'ai_roles_set':
+      valid = Array.isArray(value) && value.every(aiRoleBinding)
+      break
+    case 'ai_conversations_list':
+      valid = Array.isArray(value) && value.every(aiConversationSummary)
+      break
+    case 'ai_conversation_get':
+      valid =
+        record(value) &&
+        text(value.id) &&
+        text(value.title) &&
+        Array.isArray(value.messages) &&
+        value.messages.every(aiStoredMessage)
+      break
+    case 'ai_conversation_delete':
+      valid = record(value) && value.ok === true
+      break
+    case 'ai_write':
+      valid =
+        record(value) &&
+        value.ok === true &&
+        record(value.model) &&
+        text(value.model.endpointId) &&
+        text(value.model.modelId) &&
+        typeof value.isFallback === 'boolean'
+      break
     case 'mcp_status':
     case 'mcp_start':
     case 'mcp_stop':

@@ -116,4 +116,42 @@ CREATE TABLE mcp_operations (
 CREATE INDEX idx_mcp_operations_created ON mcp_operations(created_at);
 "#,
     },
+    Migration {
+        version: 5,
+        sql: r#"
+CREATE TABLE ai_providers (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, position INTEGER NOT NULL,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);
+CREATE TABLE ai_endpoints (
+  id TEXT PRIMARY KEY, provider_id TEXT NOT NULL REFERENCES ai_providers(id) ON DELETE CASCADE,
+  slug TEXT NOT NULL, base_url TEXT NOT NULL,
+  protocol TEXT NOT NULL CHECK (protocol IN ('anthropic-messages','openai-chat','openai-responses')),
+  key_ciphertext BLOB, position INTEGER NOT NULL,
+  UNIQUE (provider_id, slug)
+);
+CREATE TABLE ai_models (
+  endpoint_id TEXT NOT NULL REFERENCES ai_endpoints(id) ON DELETE CASCADE,
+  model_id TEXT NOT NULL, model_type TEXT NOT NULL, type_source TEXT NOT NULL,
+  context_window INTEGER, can_vision INTEGER NOT NULL DEFAULT 0, position INTEGER NOT NULL,
+  PRIMARY KEY (endpoint_id, model_id)
+);
+CREATE TABLE ai_roles (
+  role TEXT PRIMARY KEY CHECK (role IN ('chat','writing')),
+  endpoint_id TEXT NOT NULL, model_id TEXT NOT NULL,
+  FOREIGN KEY (endpoint_id, model_id) REFERENCES ai_models(endpoint_id, model_id) ON DELETE CASCADE
+);
+"#,
+    },
+    Migration {
+        version: 6,
+        sql: r"
+CREATE TABLE ai_conversations(id TEXT PRIMARY KEY, title TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE TABLE ai_messages(id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES ai_conversations(id) ON DELETE CASCADE,
+  seq INTEGER NOT NULL, role TEXT NOT NULL CHECK(role IN('user','assistant')), content TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN('done','failed','interrupted')), model_id TEXT, created_at INTEGER NOT NULL,
+  UNIQUE(conversation_id, seq));
+CREATE INDEX idx_ai_conversations_updated ON ai_conversations(updated_at DESC);
+",
+    },
 ];

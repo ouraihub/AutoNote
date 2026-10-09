@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import type { NoteWriteResult } from '@shared/backend-types'
 import type { Note } from '@shared/types'
 import type { NotesPort } from '@app/backend'
@@ -42,8 +42,8 @@ function note(content: string): Note {
   }
 }
 
-function queuedResult(writeId: string, content: string): NoteWriteResult {
-  return { queued: false, writeId, note: note(content) }
+function savedResult(writeId: string, content: string, rev: number): NoteWriteResult {
+  return { queued: false, writeId, note: { ...note(content), rev } }
 }
 
 function createPort(
@@ -54,7 +54,7 @@ function createPort(
 }
 
 describe('NoteWriteState', () => {
-  test('does not let an older response clear a later dirty write', async () => {
+  test('keeps one save in flight; an older reply does not clear the later edit, which follows on the new revision', async () => {
     const calls: { body: { content?: string; rev: number }; writeId: string; reply: Deferred<NoteWriteResult> }[] = []
     const port = createPort((_, body, options) => {
       const reply = deferred<NoteWriteResult>()
@@ -69,23 +69,25 @@ describe('NoteWriteState', () => {
         let id = 0
         return () => `write-${++id}`
       })(),
-      onResult: (_result, write) => submitted.push(write),
+      onResult: (result, write) => {
+        submitted.push(write)
+        if (!result.queued) state.rebase('note-1', state.get('note-1')!.writeId, result.note.rev)
+      },
     })
 
     state.edit('note-1', { rev: 1, content: 'first' })
     await Promise.resolve()
     state.edit('note-1', { rev: 1, content: 'second' })
-    expect(calls).toHaveLength(2)
-    calls[0]!.reply.resolve(queuedResult(calls[0]!.writeId, 'first'))
-    await Promise.resolve()
-    await Promise.resolve()
+    expect(calls).toHaveLength(1)
+    expect(state.get('note-1')?.body.content).toBe('second')
+    calls[0]!.reply.resolve(savedResult(calls[0]!.writeId, 'first', 2))
+    await vi.waitFor(() => expect(calls).toHaveLength(2))
 
-    expect(calls[1]!.body.content).toBe('second')
+    expect(calls[1]!.body).toMatchObject({ content: 'second', rev: 2 })
     expect(state.get('note-1')?.writeId).toBe(calls[1]!.writeId)
     expect(submitted.map((write) => write.body.content)).toEqual(['first'])
-    calls[1]!.reply.resolve(queuedResult(calls[1]!.writeId, 'second'))
-    await Promise.resolve()
-    await Promise.resolve()
+    calls[1]!.reply.resolve(savedResult(calls[1]!.writeId, 'second', 3))
+    await vi.waitFor(() => expect(submitted).toHaveLength(2))
   })
 
   test('retains failed text and flushes desktop debounce before port flush', async () => {
@@ -114,5 +116,41 @@ describe('NoteWriteState', () => {
     expect(result.failed).toBe(1)
     expect(state.get('note-1')?.body.content).toBe('retained')
     expect(states).toContain('failed')
+  })
+
+  test('a follow-up save does not repeat when the edit debounce timer fires later', async () => {
+    vi.useFakeTimers()
+    try {
+      let rev = 1
+      const sent: number[] = []
+      const first = deferred<NoteWriteResult>()
+      const port = createPort(async (_, body, options) => {
+        sent.push(body.rev)
+        if (body.rev !== rev) throw new BackendError('conflict', 409, 'stale revision')
+        if (sent.length === 1) await first.promise
+        rev++
+        return savedResult(options.writeId, body.content ?? '', rev)
+      })
+      const state = new NoteWriteState({
+        port,
+        kind: 'desktop',
+        debounceMs: 40,
+        onResult: (result) => {
+          const latest = state.get('note-1')
+          if (!result.queued && latest) state.rebase('note-1', latest.writeId, result.note.rev)
+        },
+      })
+      state.edit('note-1', { rev: 1, content: 'a' })
+      await vi.advanceTimersByTimeAsync(40)
+      state.edit('note-1', { rev: 1, content: 'ab' })
+      first.resolve(savedResult('', 'a', 2))
+      await vi.advanceTimersByTimeAsync(0)
+      await vi.advanceTimersByTimeAsync(100)
+
+      expect(sent).toEqual([1, 2])
+      expect(state.stateById.get('note-1')).toBe('synced')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

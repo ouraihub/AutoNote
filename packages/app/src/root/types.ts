@@ -1,3 +1,5 @@
+import type { Text } from '@codemirror/state'
+import type { EditorView } from '@codemirror/view'
 import type { Component } from 'svelte'
 import type { FlushResult } from '@shared/backend-types'
 import type { Backend } from '@app/backend'
@@ -23,9 +25,47 @@ export interface HostPanel {
   props?: Readonly<Record<string, unknown>>
 }
 
+/** Props the shell passes to the host's right-side workspace panel (desktop AI chat). */
+export interface WorkspacePanelProps {
+  /** Active note with live, possibly unsaved content; `null` when none is open. */
+  note: { id: string; title: string; content: string } | null
+  /** Inserts text at the active editor's cursor (appends when it has no view). */
+  insert(text: string): void
+  openSettings(sectionId: string): void
+  onClose(): void
+}
+
+export interface WorkspacePanel {
+  titleKey: string
+  icon: Component<{ size?: number }>
+  component: Component<WorkspacePanelProps>
+}
+
+export interface WritingSelection {
+  from: number
+  to: number
+  docLength: number
+  text: string
+  doc: Text
+}
+
+export interface WritingToolbarProps {
+  view: EditorView | null
+  selection: WritingSelection
+  noteTitle: string
+  onReplace(text: string, selection: WritingSelection): boolean
+  onInsert(text: string): void
+}
+
+export interface WritingToolbarExtension {
+  component: Component<WritingToolbarProps>
+}
+
 export interface HostExtensions {
   readonly settingsSections: readonly HostSettingsSection[]
   readonly aboutPanels: readonly HostPanel[]
+  readonly workspacePanel?: WorkspacePanel
+  readonly writingToolbar?: WritingToolbarExtension
   onNoteOpened?(id: string): void
   subscribeIntents?(listener: (intent: 'new-note') => void): () => void
 }

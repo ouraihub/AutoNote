@@ -73,6 +73,10 @@ export class UiState {
   #outlineOpen = $state(false)
   #backlinksOpen = $state(false)
   #lightbox = $state.raw<LightboxImage | null>(null)
+  /** Section the next settings open lands on; consumed by SettingsPanel. */
+  settingsSection: string | null = null
+  /** Inserts at the active editor's cursor; set by the active NotePane. */
+  insertAtCursor: ((text: string) => void) | null = null
   #scope = $state<string | null>(null)
   #layoutLoad: Promise<void> | null = null
   #isLayoutTouched = false
@@ -250,6 +254,10 @@ export class UiState {
     this.#persistLayout({ ...this.#layout, listCollapsed: !this.#layout.listCollapsed })
   }
 
+  toggleAssist(open = !this.#layout.assistOpen): void {
+    if (open !== this.#layout.assistOpen) this.#persistLayout({ ...this.#layout, assistOpen: open })
+  }
+
   setDensity(density: UiDensity): void {
     if (density === this.#layout.density) return
     this.#persistLayout({ ...this.#layout, density })
@@ -396,6 +404,11 @@ export class UiState {
 
   openPanel(panel: PanelName): void {
     this.#panel = panel
+  }
+
+  openSettings(sectionId: string): void {
+    this.settingsSection = sectionId
+    this.#panel = 'settings'
   }
 
   closePanel(): void {

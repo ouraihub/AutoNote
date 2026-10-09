@@ -314,7 +314,17 @@ export class NotesState {
     if (event.kind === 'sync' || event.kind === 'library') this.applySync(event.payload)
   }
   #settleWrite(result: NoteWriteResult, submitted: PendingContentWrite): void {
-    if (this.#writeIds[submitted.noteId] !== submitted.writeId) return
+    const pending = this.#writeIds[submitted.noteId]
+    if (pending !== submitted.writeId) {
+      // A newer edit was made on the old revision while this save was in flight: move it onto the saved one,
+      // or it is rejected as a conflict and every retry repeats the stale revision.
+      const summary = this.#summaries[submitted.noteId]
+      if (!result.queued && pending && summary) {
+        this.#write.rebase(submitted.noteId, pending, result.note.rev)
+        this.#summaries = { ...this.#summaries, [submitted.noteId]: { ...summary, rev: result.note.rev } }
+      }
+      return
+    }
     if (result.queued) {
       this.#setSaveState(submitted.noteId, 'saved-local')
       return

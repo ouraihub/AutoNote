@@ -17,6 +17,7 @@ export interface LayoutPrefs {
   readonly listWidth: number
   readonly navCollapsed: boolean
   readonly listCollapsed: boolean
+  readonly assistOpen: boolean
   readonly splitRatio: number | null
   readonly workspaceSplitRatio: number | null
   readonly density: UiDensity
@@ -64,6 +65,7 @@ export const DEFAULT_LAYOUT_PREFS: LayoutPrefs = Object.freeze({
   listWidth: PANEL_WIDTHS.noteList.min,
   navCollapsed: false,
   listCollapsed: false,
+  assistOpen: false,
   splitRatio: null,
   workspaceSplitRatio: null,
   density: DEFAULT_SETTINGS.appearance.density,
@@ -110,6 +112,7 @@ export function parseLayoutPrefs(value: unknown): LayoutPrefs {
     listWidth: clampNumber(source.listWidth, PANEL_WIDTHS.noteList, fallback.listWidth),
     navCollapsed: typeof source.navCollapsed === 'boolean' ? source.navCollapsed : fallback.navCollapsed,
     listCollapsed: typeof source.listCollapsed === 'boolean' ? source.listCollapsed : fallback.listCollapsed,
+    assistOpen: typeof source.assistOpen === 'boolean' ? source.assistOpen : fallback.assistOpen,
     splitRatio: clampNumber(source.splitRatio, SPLIT_RATIO_RANGE, null),
     workspaceSplitRatio: clampNumber(source.workspaceSplitRatio, SPLIT_RATIO_RANGE, null),
     density: choiceOr(source.density, DENSITIES, fallback.density),
@@ -152,6 +155,7 @@ export function layoutPrefsValue(prefs: LayoutPrefs): PrefValue {
     listWidth: prefs.listWidth,
     navCollapsed: prefs.navCollapsed,
     listCollapsed: prefs.listCollapsed,
+    assistOpen: prefs.assistOpen,
     splitRatio: prefs.splitRatio,
     workspaceSplitRatio: prefs.workspaceSplitRatio,
     density: prefs.density,

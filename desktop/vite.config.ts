@@ -20,6 +20,8 @@ export default defineConfig({
   },
   test: {
     include: ['src/**/*.test.ts'],
+    // Compile .svelte deps (lucide, bits-ui and its runed/svelte-toolbelt) so they share one Svelte runtime.
+    server: { deps: { inline: [/@lucide\/svelte/, /bits-ui/, /runed/, /svelte-toolbelt/] } },
   },
   server: {
     port: 1430,

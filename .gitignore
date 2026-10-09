@@ -59,3 +59,6 @@ Thumbs.db
 
 # Reference-project analysis stays local only
 docs/01-*.md
+
+# local test credentials
+key.txt

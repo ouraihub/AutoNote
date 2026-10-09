@@ -67,17 +67,57 @@ pub fn request_close(app: &tauri::AppHandle, exit: bool) {
         {
             return;
         }
-        crate::tray::show(&app);
-        let other = app.clone();
-        let chinese = state.chinese.load(Ordering::Relaxed);
-        app.dialog().message(if chinese { "AutoNote 无法确认本地编辑已保存。取消可继续编辑，或明确丢弃未确认编辑后退出。" } else { "AutoNote cannot confirm that local edits are saved. Cancel to keep editing, or explicitly discard unconfirmed edits and quit." })
-            .title("AutoNote").buttons(MessageDialogButtons::OkCancelCustom(if chinese { "丢弃并退出" } else { "Discard and quit" }.into(), if chinese { "取消" } else { "Cancel" }.into()))
-            .show(move |discard| {
-                let state = other.state::<DesktopState>();
-                if state.request_id.load(Ordering::Acquire) != id || state.shutting_down.load(Ordering::Acquire) { return; }
-                if discard { finish_exit(&other); } else { state.closing.store(false, Ordering::Release); state.exit_requested.store(false, Ordering::Release); let _ = other.emit_to("main", "autonote://close-cancelled", ()); }
-            });
+        ask_discard(&app, id, false);
     });
+}
+/// Lets the user keep editing or explicitly discard unconfirmed edits and quit; an OK-only notice here
+/// would leave no way out when a save keeps failing.
+fn ask_discard(app: &tauri::AppHandle, id: u64, failed: bool) {
+    let state = app.state::<DesktopState>();
+    crate::tray::show(app);
+    let other = app.clone();
+    let chinese = state.chinese.load(Ordering::Relaxed);
+    let text = match (chinese, failed) {
+        (true, true) => {
+            "本地编辑未能保存（冲突或磁盘错误）。取消可继续编辑并重试，或丢弃未保存的编辑后退出。"
+        }
+        (false, true) => {
+            "Local edits could not be saved (conflict or storage error). Cancel to keep editing and retry, or discard unsaved edits and quit."
+        }
+        (true, false) => {
+            "AutoNote 无法确认本地编辑已保存。取消可继续编辑，或明确丢弃未确认编辑后退出。"
+        }
+        (false, false) => {
+            "AutoNote cannot confirm that local edits are saved. Cancel to keep editing, or explicitly discard unconfirmed edits and quit."
+        }
+    };
+    app.dialog()
+        .message(text)
+        .title("AutoNote")
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            if chinese {
+                "丢弃并退出"
+            } else {
+                "Discard and quit"
+            }
+            .into(),
+            if chinese { "取消" } else { "Cancel" }.into(),
+        ))
+        .show(move |discard| {
+            let state = other.state::<DesktopState>();
+            if state.request_id.load(Ordering::Acquire) != id
+                || state.shutting_down.load(Ordering::Acquire)
+            {
+                return;
+            }
+            if discard {
+                finish_exit(&other);
+            } else {
+                state.closing.store(false, Ordering::Release);
+                state.exit_requested.store(false, Ordering::Release);
+                let _ = other.emit_to("main", "autonote://close-cancelled", ());
+            }
+        });
 }
 /// Completes the matching close handshake after local edits settle.
 /// # Errors
@@ -99,11 +139,12 @@ pub fn acknowledge(
         ));
     }
     if pending != 0 || failed != 0 {
+        // Release the handshake first: the editor resumes (retry stays possible) and the 15 s timeout
+        // cannot raise a second prompt. "Discard and quit" below still exits directly.
         state.closing.store(false, Ordering::Release);
         state.exit_requested.store(false, Ordering::Release);
         let _ = app.emit_to("main", "autonote://close-cancelled", ());
-        crate::tray::show(app);
-        app.dialog().message(if state.chinese.load(Ordering::Relaxed) { "本地编辑未能保存，请先处理冲突或磁盘错误再退出。" } else { "Local edits could not be saved. Resolve the conflict or storage error before quitting." }).title("AutoNote").show(|_| {});
+        ask_discard(app, id, true);
         return Ok(());
     }
     let hide = !state.exit_requested.load(Ordering::Acquire)

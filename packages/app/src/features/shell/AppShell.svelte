@@ -7,6 +7,7 @@
   import { PANEL_WIDTHS } from '../../state/layout-prefs'
   import type { MobilePane } from '../../state/ui.svelte'
   import Workspace from '../workspace/Workspace.svelte'
+  import AssistDock from './AssistDock.svelte'
   import SettingsPanel from '../settings/SettingsPanel.svelte'
   import CommandPalette from '../command/CommandPalette.svelte'
   import ShortcutsPanel from '../command/ShortcutsPanel.svelte'
@@ -58,6 +59,9 @@
       { id: 'settings', combo: 'mod+,', description: () => i18n.t('common.open_settings'), group: () => i18n.t('common.interface'), allowInInput: true, handler: () => ui.togglePanel('settings') },
       { id: 'new', combo: 'mod+n', description: () => i18n.t('common.new_note'), group: () => i18n.t('common.navigation'), handler: () => void createNote() },
       { id: 'shortcuts', combo: 'shift+?', description: () => i18n.t('command.keyboard_shortcuts'), group: () => i18n.t('common.interface'), handler: () => ui.togglePanel('shortcuts') },
+      ...(extensions.workspacePanel
+        ? [{ id: 'assist', combo: 'mod+shift+l', description: () => i18n.t('chat.toggle'), group: () => i18n.t('common.interface'), allowInInput: true, handler: () => ui.toggleAssist() }]
+        : []),
     ])
     const unsubscribeIntent = extensions.subscribeIntents?.((intent) => {
       if (intent === 'new-note') void createNote()
@@ -130,6 +134,7 @@
         {/each}
       </nav>
       <Sidebar />
+      <AssistDock narrow />
     </div>
   {:else}
     <div class="relative flex h-full min-h-0 flex-col overflow-hidden bg-[var(--bg-base)]">
@@ -177,7 +182,7 @@
             onReset={() => ui.resize({ listWidth: PANEL_WIDTHS.noteList.min })}
           />
         {/if}
-        <main class="flex min-w-0 flex-1"><div class="min-w-0 flex-1"><Workspace /></div></main>
+        <main class="flex min-w-0 flex-1"><div class="min-w-0 flex-1"><Workspace /></div><AssistDock narrow={false} /></main>
       </div>
     </div>
   {/if}

@@ -6,8 +6,11 @@ import { IpcChangeFeed } from './change-feed'
 import { filesPort } from './ports/files'
 import { transferPort } from './ports/transfer'
 import { IpcMcpPort } from './ports/mcp'
+import { aiPort, type AiPort } from './ports/ai'
 
-export function createIpcBackend(transport: IpcTransport): Backend & { changes: IpcChangeFeed; mcp: IpcMcpPort } {
+export function createIpcBackend(
+  transport: IpcTransport,
+): Backend & { changes: IpcChangeFeed; mcp: IpcMcpPort; ai: AiPort } {
   const changes = new IpcChangeFeed(transport)
   const mcp = new IpcMcpPort(transport)
   const session: Backend['session'] = {
@@ -94,6 +97,7 @@ export function createIpcBackend(transport: IpcTransport): Backend & { changes: 
     transfer: transferPort(transport),
     changes,
     mcp,
+    ai: aiPort(transport),
     async dispose() {
       changes.dispose()
       mcp.dispose()

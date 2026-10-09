@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onDestroy, untrack } from 'svelte'
   import { SvelteMap } from 'svelte/reactivity'
+  import { Text } from '@codemirror/state'
   import type { EditorView } from '@codemirror/view'
+  import type { WritingSelection } from '../../root/types'
   import type { WorkspacePane } from '../../state/layout-prefs'
   import type { EditorServices } from '../../editor/services'
   import type { LivePreviewServices } from '../../editor/live-preview'
@@ -26,6 +28,7 @@
     Star,
     X,
   } from '@lucide/svelte'
+  import type { MessageKey } from '@shared/locales/en-US'
   import {
     getBackend,
     getNotes,
@@ -80,6 +83,7 @@
     logger = getLogger()
   const registerFlush = getRegisterFlush()
   let view = $state.raw<EditorView | null>(null)
+  let selection = $state<WritingSelection>({ from: 0, to: 0, docLength: 0, text: '', doc: Text.empty })
   let headings = $state.raw<readonly MarkdownHeading[]>([])
   let preview = $state.raw<HTMLElement | null>(null)
   let fileInput = $state<HTMLInputElement>()
@@ -88,6 +92,27 @@
   const layout = $derived(narrow ? (ui.mobilePane === 'preview' ? 'preview' : 'live') : ui.panes[pane].layout)
   const active = $derived(ui.activePane === pane)
   const splitRatio = $derived(ui.layout.splitRatio ?? 0.5)
+  const assist = extensions.workspacePanel
+  // The active pane owns cursor inserts from the workspace panel (AI chat "insert into note").
+  $effect(() => {
+    if (!active || !view) return
+    const target = view
+    const insert = (text: string): void => {
+      const { from, to } = target.state.selection.main
+      // A reply pasted mid-line reads as one run-on sentence; give it its own paragraph.
+      const block = from === target.state.doc.lineAt(from).from ? text : `\n\n${text}`
+      target.dispatch({
+        changes: { from, to, insert: block },
+        selection: { anchor: from + block.length },
+        scrollIntoView: true,
+      })
+      target.focus()
+    }
+    ui.insertAtCursor = insert
+    return () => {
+      if (ui.insertAtCursor === insert) ui.insertAtCursor = null
+    }
+  })
   const folders = $derived(notes.readOrganizeSnapshot().folders)
   const noteFolder = $derived(note?.folderId ? folders.find((folder) => folder.id === note.folderId) : undefined)
   const folderLabel = $derived(
@@ -328,6 +353,13 @@
             size="sm"
             onclick={() => ui.openPanel('share')}><Share2 size={14} /></IconButton
           >{/if}
+        {#if assist}<IconButton
+            label={i18n.t(assist.titleKey as MessageKey)}
+            title={i18n.t(assist.titleKey as MessageKey)}
+            size="sm"
+            active={ui.layout.assistOpen}
+            onclick={() => ui.toggleAssist()}><assist.icon size={14} /></IconButton
+          >{/if}
       {:else}
         <Menu.Root
           ><Menu.Trigger
@@ -341,13 +373,18 @@
                   note?.isStarred ? 'common.remove_from_favorites' : 'navigation.favorites',
                 )}</Menu.Item
               >
-              <Menu.Item onSelect={() => ui.toggleBacklinks()}><Link size={13} />{i18n.t('common.backlinks')}</Menu.Item>
-              <Menu.Item onSelect={() => ui.toggleOutline()}><ListTree size={13} />{i18n.t('common.outline')}</Menu.Item>
+              <Menu.Item onSelect={() => ui.toggleBacklinks()}><Link size={13} />{i18n.t('common.backlinks')}</Menu.Item
+              >
+              <Menu.Item onSelect={() => ui.toggleOutline()}><ListTree size={13} />{i18n.t('common.outline')}</Menu.Item
+              >
               <Menu.Item onSelect={() => ui.openPanel('versions')}
                 ><History size={13} />{i18n.t('common.version_history')}</Menu.Item
               >
               {#if backend.capabilities.share}<Menu.Item onSelect={() => ui.openPanel('share')}
                   ><Share2 size={13} />{i18n.t('workspace.share')}</Menu.Item
+                >{/if}
+              {#if assist}<Menu.Item onSelect={() => ui.toggleAssist()}
+                  ><assist.icon size={13} />{i18n.t(assist.titleKey as MessageKey)}</Menu.Item
                 >{/if}
             </Menu.Group></Menu.Content
           ></Menu.Root
@@ -394,7 +431,23 @@
           placeholder={i18n.t('editor.start_writing')}
           onChange={(value) => notes.editContent(noteId, value)}
           onViewReady={(next) => (view = next)}
+          onSelectionChange={(next) => (selection = next)}
         />
+        {#if extensions.writingToolbar && view}
+          {@const WritingToolbar = extensions.writingToolbar.component}
+          <WritingToolbar
+            {view}
+            {selection}
+            noteTitle={note?.title ?? ''}
+            onReplace={(text, snapshot) => {
+              if (snapshot.docLength !== view!.state.doc.length || snapshot.text !== view!.state.sliceDoc(snapshot.from, snapshot.to)) return false
+              view!.dispatch({ changes: { from: snapshot.from, to: snapshot.to, insert: text }, selection: { anchor: snapshot.from + text.length }, scrollIntoView: true })
+              view!.focus()
+              return true
+            }}
+            onInsert={(text) => ui.insertAtCursor?.(text)}
+          />
+        {/if}
       </div>
       {#if layout === 'live' && ui.outlineOpen && active && view}<Outline
           {headings}
@@ -432,9 +485,11 @@
           title={folderLabel}
           onclick={() => ui.openView('folder', { folderId: noteFolder.id })}
           class="inline-flex max-w-40 min-w-0 items-center gap-1 truncate rounded px-1 py-0.5 text-[var(--text-tertiary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--accent)] md:max-w-48"
-          ><FolderClosed size={11} class="shrink-0" style={`color: ${organizerColorOrNull(noteFolder.color) ?? 'inherit'}`} /><span
-            class="truncate">{folderLabel}</span
-          ></button
+          ><FolderClosed
+            size={11}
+            class="shrink-0"
+            style={`color: ${organizerColorOrNull(noteFolder.color) ?? 'inherit'}`}
+          /><span class="truncate">{folderLabel}</span></button
         >{/if}
       {#if note?.tags.length}<span class="flex min-w-0 items-center gap-0.5 overflow-hidden">
           {#each note.tags.slice(0, narrow ? 2 : 4) as tag (tag)}<button
@@ -520,5 +575,4 @@
   .preview-side[hidden] {
     display: none;
   }
-
 </style>

@@ -6,6 +6,7 @@
 //! the kernel returns, never a transport-level decode error. Kernel failures
 //! become `AppError` through `From<note_core::Error>`.
 
+pub(crate) mod ai;
 pub(crate) mod app;
 pub(crate) mod files;
 pub(crate) mod library;

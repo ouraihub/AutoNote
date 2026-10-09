@@ -4,7 +4,6 @@
 
 @theme inline {
   --color-sunken: var(--bg-sunken);
-  --color-base: var(--bg-base);
   --color-surface: var(--bg-surface);
   --color-raised: var(--bg-raised);
   --color-overlay: var(--bg-overlay);
