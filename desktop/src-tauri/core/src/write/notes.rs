@@ -98,7 +98,7 @@ pub fn patch_note(
     })
 }
 
-/// AutoNote `DELETE /notes/:id`: already-trashed is not_found; returns the full note.
+/// Mirrors Web `DELETE /notes/:id`: already-trashed is not_found; returns the full note.
 pub fn trash_note(
     lib: &crate::db::Library,
     id: &NoteId,
@@ -143,7 +143,7 @@ pub fn trash_note(
         })
     })
 }
-/// AutoNote `POST /notes/:id/restore`: a live note is bad_request.
+/// Mirrors Web `POST /notes/:id/restore`: a live note is bad_request.
 pub fn restore_note(
     lib: &crate::db::Library,
     id: &NoteId,
@@ -185,7 +185,7 @@ pub fn restore_note(
         })
     })
 }
-/// AutoNote `DELETE /notes/:id/purge`: only trashed notes; returns the deletion cursor.
+/// Mirrors Web `DELETE /notes/:id/purge`: only trashed notes; returns the deletion cursor.
 pub fn purge_note(
     lib: &crate::db::Library,
     id: &NoteId,
@@ -231,7 +231,7 @@ pub fn restore_version(
     })
 }
 
-/// AutoNote `POST /notes/:id/duplicate`: an existing `copy_id` is returned as-is.
+/// Mirrors Web `POST /notes/:id/duplicate`: an existing `copy_id` is returned as-is.
 pub fn duplicate_note(
     lib: &crate::db::Library,
     id: &NoteId,

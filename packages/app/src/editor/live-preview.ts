@@ -66,7 +66,7 @@ function decorate(state: EditorState, live: LiveState, services: LivePreviewServ
   return Decoration.set(ranges, true)
 }
 
-/** AutoNote's block replacement model; source, selection and undo remain CodeMirror's. */
+/** Block replacement model; source, selection and undo remain CodeMirror's. */
 export function livePreview(services: LivePreviewServices): Extension {
   const field = StateField.define<LiveState>({
     create(state) {

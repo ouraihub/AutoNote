@@ -1,4 +1,4 @@
-//! `NotesPort` commands; envelopes follow AutoNote `routes/notes.ts`.
+//! `NotesPort` commands; envelopes follow the Web worker `routes/notes.ts`.
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

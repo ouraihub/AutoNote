@@ -285,7 +285,7 @@ impl crate::db::Library {
                 .collect::<rusqlite::Result<Vec<_>>>()?)
         })
     }
-    /// AutoNote `POST /tags`: an existing `id` is returned as-is.
+    /// Mirrors Web `POST /tags`: an existing `id` is returned as-is.
     /// # Errors
     /// Rejects invalid or duplicate names and database failures.
     pub fn create_tag(

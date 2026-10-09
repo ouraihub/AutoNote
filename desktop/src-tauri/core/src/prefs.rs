@@ -175,7 +175,7 @@ impl Library {
         })
     }
 
-    /// AutoNote `GET /settings/stats`, same ten keys.
+    /// Mirrors Web `GET /settings/stats`, same ten keys.
     /// # Errors
     /// Returns SQLite failures.
     pub fn settings_stats(&self) -> Result<std::collections::BTreeMap<&'static str, i64>, Error> {

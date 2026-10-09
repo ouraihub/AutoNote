@@ -27,7 +27,7 @@ pub(crate) fn name(raw: &str) -> Result<&str, Error> {
     }
     Ok(name)
 }
-/// AutoNote `truncateText(icon, 8) || null`.
+/// Web `truncateText(icon, 8) || null`.
 fn icon(value: Option<&str>) -> Option<String> {
     value
         .map(|v| truncate_utf16(v, 8))
@@ -135,7 +135,7 @@ pub(crate) fn check_name(
         Ok(())
     }
 }
-/// AutoNote `availableFolderName`: `base`, then `base 2`, `base 3`...
+/// Web `availableFolderName`: `base`, then `base 2`, `base 3`...
 fn available_name(
     tx: &Transaction<'_>,
     parent: Option<&FolderId>,
@@ -164,7 +164,7 @@ fn siblings(
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
-/// AutoNote `insertionPosition`.
+/// Web `insertionPosition`.
 fn between(previous: Option<f64>, next: Option<f64>) -> Option<f64> {
     match (previous, next) {
         (None, None) => Some(1000.0),
@@ -176,7 +176,7 @@ fn between(previous: Option<f64>, next: Option<f64>) -> Option<f64> {
         }
     }
 }
-/// AutoNote `resolveFolderPosition`: `None` = order unchanged. Renumbers
+/// Web `resolveFolderPosition`: `None` = order unchanged. Renumbers
 /// siblings to 1000 steps when floating-point gaps run out.
 fn place(
     w: &mut super::WriteTx<'_>,
@@ -251,7 +251,7 @@ impl crate::db::Library {
             Ok(stmt.query_map([include_deleted], folder)?.collect::<rusqlite::Result<Vec<_>>>()?)
         })
     }
-    /// AutoNote `POST /folders`: an existing `id` is returned as-is; empty name
+    /// Mirrors Web `POST /folders`: an existing `id` is returned as-is; empty name
     /// becomes `New folder`/`New folder 2`; appended after the last sibling.
     /// # Errors
     /// Rejects invalid inputs, missing parents, duplicate sibling names or database errors.
@@ -280,7 +280,7 @@ impl crate::db::Library {
             load(&w.tx,&id)
         })
     }
-    /// AutoNote `PATCH /folders/:id`: absent fields stay; `beforeId` needs `parentId`.
+    /// Mirrors Web `PATCH /folders/:id`: absent fields stay; `beforeId` needs `parentId`.
     /// # Errors
     /// Rejects invalid inputs, cycles, duplicate sibling names and database errors.
     pub fn patch_folder(

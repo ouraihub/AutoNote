@@ -41,7 +41,6 @@
     "packages/app/src/editor/CodeEditor.svelte:4105:line:d3696e8087bcfc87",
     "packages/app/src/editor/actions.ts:207:block:5d3083d593613cd3",
     "packages/app/src/editor/actions.ts:389:block:4f6cf4309bae1762",
-    "packages/app/src/editor/completion.ts:514:block:e7641492d132f330",
     "packages/app/src/editor/paste.ts:1064:block:ccdfad0b134e044c",
     "packages/app/src/editor/paste.ts:260:block:3a8802ad06467aac",
     "packages/app/src/editor/paste.ts:546:block:e839bc1f96bda732",
@@ -119,7 +118,6 @@
     "packages/app/src/editor/CodeEditor.svelte:2671:line:864fbf8a91eae2fe",
     "packages/app/src/editor/CodeEditor.svelte:5267:line:d3696e8087bcfc87",
     "packages/app/src/editor/editor.css:8956:css:0713db4a412f6fa9",
-    "packages/app/src/editor/live-preview.ts:3474:block:6ce4a964240fea48",
     "packages/app/src/features/graph/GraphPanel.svelte:3516:html:d732b30a1972cab4",
     "packages/app/src/features/graph/GraphPanel.svelte:3516:line:d732b30a1972cab4",
     "packages/app/src/features/list/actions.ts:598:block:eb41a3061efd0a6e",
@@ -145,6 +143,8 @@
     "web/src/client/runtime.ts:1984:line:c64381d71291032d",
     "web/src/client/share/SharePage.svelte:1467:html:6184ee2eacb3fdc1",
     "web/src/client/share/SharePage.svelte:1467:line:6184ee2eacb3fdc1",
-    "web/src/client/sync/engine.ts:11193:line:a133104facfccd60"
+    "web/src/client/sync/engine.ts:11193:line:a133104facfccd60",
+    "packages/app/src/editor/completion.ts:514:block:e7641492d132f330",
+    "packages/app/src/editor/live-preview.ts:3474:block:a928a3210b7e67d6"
   ]
 }

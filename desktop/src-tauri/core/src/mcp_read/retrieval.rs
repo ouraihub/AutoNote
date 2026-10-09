@@ -69,7 +69,7 @@ pub(super) fn read_note(lib: &Library, args: &Value) -> Result<Value, crate::App
         }
         _ => return Err(bad("cursor")),
     };
-    // Cursors count UTF-16 units like AutoNote, but must land on a scalar boundary.
+    // Cursors count UTF-16 units like the Web MCP server, but must land on a scalar boundary.
     let mut start = note.content.len();
     let mut units = 0;
     for (index, ch) in note.content.char_indices() {

@@ -191,7 +191,7 @@ function sortByScore(ranked: RankedOption[]): Completion[] {
 }
 
 /**
- * AutoNote's fuzzy title score: contiguous substring hits rank above scattered
+ * Fuzzy title score: contiguous substring hits rank above scattered
  * subsequence hits; prefixes and word boundaries rank higher; long titles rank lower.
  */
 function matchScore(text: string, query: string): number | null {

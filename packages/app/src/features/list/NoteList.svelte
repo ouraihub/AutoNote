@@ -591,7 +591,7 @@
           {group(note)}
         </div>{/if}
       <DropdownMenu.Root>
-        <!-- Keyboard input is owned by the parent listbox (aria-activedescendant), like AutoNote. -->
+        <!-- Keyboard input is owned by the parent listbox (aria-activedescendant). -->
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <div
           id={optionId(note.id)}

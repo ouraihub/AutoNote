@@ -607,7 +607,7 @@ impl Library {
         Ok((bytes, metadata, hash))
     }
 
-    /// AutoNote `GET /files`: 500 per page, newest first, cursor `<createdAt>.<id>`.
+    /// Mirrors Web `GET /files`: 500 per page, newest first, cursor `<createdAt>.<id>`.
     ///
     /// # Errors
     /// `bad_request` for a malformed cursor; SQLite errors on read failure.
