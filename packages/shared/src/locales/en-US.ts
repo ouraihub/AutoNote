@@ -95,8 +95,8 @@ export const EN_US_MESSAGES = {
   'app.reload': 'Reload',
   'app.section_unavailable': 'This section is temporarily unavailable',
   'auth.already_have_an_account_sign_in': 'Already have an account? Sign in',
-  'auth.between_the_paper_and_ink_the_pen_comes_to_life_an_autonote_is_used_to_p':
-    'Between the paper and ink, the pen comes to life. An autonote is used to place all thoughts.',
+  'auth.tagline':
+    'Capture every thought. Connect every idea.',
   'auth.confirm_password': 'Confirm Password',
   'auth.create_owner_account': 'Create owner account',
   'auth.create_the_owner_account_this_step_appears_only_once': 'Create the owner account. This step appears only once.',

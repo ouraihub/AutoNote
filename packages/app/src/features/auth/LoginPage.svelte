@@ -197,7 +197,7 @@
           {:else if firstRun}
             {i18n.t('auth.create_the_owner_account_this_step_appears_only_once')}
           {:else}
-            {i18n.t('auth.between_the_paper_and_ink_the_pen_comes_to_life_an_autonote_is_used_to_p')}
+            {i18n.t('auth.tagline')}
           {/if}
         </p>
       </div>

@@ -93,7 +93,7 @@ export const ZH_CN_MESSAGES = {
   'app.reload': '刷新',
   'app.section_unavailable': '该区域暂时不可用',
   'auth.already_have_an_account_sign_in': '已有账号？去登录',
-  'auth.between_the_paper_and_ink_the_pen_comes_to_life_an_autonote_is_used_to_p': '纸墨之间，落笔生辉，安放所有想法。',
+  'auth.tagline': '记下每个念头，连起每段思考。',
   'auth.confirm_password': '确认密码',
   'auth.create_owner_account': '创建所有者账号',
   'auth.create_the_owner_account_this_step_appears_only_once': '创建你的所有者账号，这一步只会出现一次',
