@@ -2,15 +2,15 @@
 
 > 状态：全阶段设计基线；W4–W6 本轮代码交付见 §14，真实运行判据仍待统一验收，未据代码落地宣称通过。任务组 W1–W6，实施任务见 §13。
 > 契约以 `02-概要设计.md` 为准，写法以 `04-工程规范.md` 为准。端口的完整 TS 签名见 `10-详细设计-共享应用层.md` §2，本文只引用，不重新定义。
-> 源码对照：AutoNote `src/client/lib/{api,db,sync}.ts`、`store/{notes,session,pwa}.ts`、分享页、demo 与 PWA 配置；本轮另核对 AutoPad 当前 worker 的 `app.ts`、`routes/{sync,mcp-settings}.ts`。本文保留可用的源码定位，不以旧行号替代契约；依赖兼容性和运行判据在实施时验证。
+> 源码对照：参考项目 `src/client/lib/{api,db,sync}.ts`、`store/{notes,session,pwa}.ts`、分享页、demo 与 PWA 配置；本轮另核对 AutoPad 当前 worker 的 `app.ts`、`routes/{sync,mcp-settings}.ts`。本文保留可用的源码定位，不以旧行号替代契约；依赖兼容性和运行判据在实施时验证。
 
 ## 1. 范围与结论
 
 - `web/src/client` 是组合根：装配 `HttpBackend`、`SyncEngine`、`ConsoleRingLogger`、`WebPrefsStore`，然后调用 `@app/root` 的 `mountApp`。它不写业务界面，只有两处例外：公开分享页 `/s/:slug`（匿名访问，不经过端口，02 §2 表格已划给 Web 宿主）和「设置 → 关于」里的 PWA 面板（经 `HostExtensions.aboutPanels` 注入）。
 - **worker 零 API 改动**。worker 侧只调整部署配置；`/s/:slug` 由现有 `routes/share.ts` `renderShareShell` 从 ASSETS 取 index.html 注入 OG 元信息，对新的 Svelte 外壳原样可用。演示静态部署单独使用 `web/wrangler.demo.toml`。
-- 离线写入保留 AutoNote `store/notes.ts` 与 `lib/db.ts` 的日志字段和恢复语义，兼容既有 IndexedDB 数据，不要求序列化字节相同。纠正旧逻辑中损坏日志静默丢弃、注销清空未上传数据等不安全路径（§3、§10、§12）。
+- 离线写入保留 参考项目 `store/notes.ts` 与 `lib/db.ts` 的日志字段和恢复语义，兼容既有 IndexedDB 数据，不要求序列化字节相同。纠正旧逻辑中损坏日志静默丢弃、注销清空未上传数据等不安全路径（§3、§10、§12）。
 - 同步引擎沿用 `lib/sync.ts` 的 `SyncEngine`（广播选主、WS、心跳、轮询、退避），只把"直接调 zustand"改成"注入端口 + 发 `ChangeEvent`"（§5）。
-- 协议标识保持不变：`X-AutoNote-Client`、`X-AutoNote-Origin`、cookie 名、IndexedDB 库名 `autonote`、BroadcastChannel 名 `autonote`、outbox 回放锁名 `autonote-outbox-replay:<userId>`。
+- 协议标识保持不变：`X-参考项目-Client`、`X-参考项目-Origin`、cookie 名、IndexedDB 库名 `autonote`、BroadcastChannel 名 `autonote`、outbox 回放锁名 `autonote-outbox-replay:<userId>`。
 
 依赖的共享层任务（任务号见 `10`）：S0-1（包与别名）、S0-2（eslint/prettier）、S0-3（vitest 双环境）、S1-1（shared DTO）、S1-2（端口、错误、统一 ChangeFeed）、S1-3（平台接缝）、S1-4（行为契约）、S2-1（i18n）、S2-2（主题）、S3-1/S3-2/S3-3（基础件、覆盖层、图库）、S4-1/S4-2（Markdown）、S5-1/S5-2（编辑器）、S6-1 至 S6-5（状态）、S7-1 至 S7-5（组合根与导航）、S8-1 至 S8-3（工作区）、S9-1 至 S9-4（设置与图谱）。§13 每个任务列出自身直接依赖，不用范围或通配符充当依赖。
 
@@ -67,7 +67,7 @@ web/
     ├── pwa/
     │   ├── pwa.svelte.ts      # PwaState
     │   └── PwaPanel.svelte    # aboutPanels 注入
-    └── demo/{backend,state,runtime}.ts   # 自 AutoNote src/client/demo 移植
+    └── demo/{backend,state,runtime}.ts   # 自 参考项目 src/client/demo 移植
 ```
 
 模块规则：
@@ -138,7 +138,7 @@ export interface OutboxPayload {
   title?: string
   preserveVersion?: true   // rebase 后置位
   recoveryId?: string      // 404 恢复时预先持久化的副本 ID
-  readonly [key: string]: unknown   // 保留 AutoNote 写入的未知字段，原样回写
+  readonly [key: string]: unknown   // 保留 参考项目 写入的未知字段，原样回写
 }
 ```
 
@@ -167,7 +167,7 @@ interface PendingWrite {
 
 1. `writeId = options.writeId`，由 app 为此次编辑生成；宿主原样贯穿返回值和 write 事件。`queueId = pending?.queueId ?? outboxId(noteId)`，独立于 mutation 身份。
 2. `contentDirty = pending?.contentDirty === true || body.content !== undefined`。`content` 取 `body.content ?? pending?.content ?? 正文缓存 ?? ''`；标题单独更新且无缓存时允许 `contentDirty:false`、`content:''`，回放不发 content，不把空串覆盖到服务器正文。
-3. `dependsOnWriteId = pending?.dependsOnWriteId ?? inherited(noteId)`：outbox 里若已有**其他 clientId** 对同一笔记、同一基线 rev 的条目，记下它的 `writeId`（AutoNote `inheritedOutboxWrites`）。这样回放时先发它，它成功后 `advanceDependents` 把本条的 rev 推进到它保存后的 rev，避免自己和自己冲突。
+3. `dependsOnWriteId = pending?.dependsOnWriteId ?? inherited(noteId)`：outbox 里若已有**其他 clientId** 对同一笔记、同一基线 rev 的条目，记下它的 `writeId`（参考项目 `inheritedOutboxWrites`）。这样回放时先发它，它成功后 `advanceDependents` 把本条的 rev 推进到它保存后的 rev，避免自己和自己冲突。
 4. **立即** `await outbox.enqueue(item)`，不等待编辑器自动保存防抖；再更新带 writeId 的正文缓存。outbox 是权威日志，缓存失败不撤销成功日志；下一次读由日志恢复。入队期间后续输入继续产生新 writeId，IDB 更新必须保持每标签页的输入顺序。
 5. 入队提交即返回 `{ queued:true, noteId, rev:item.payload.rev, writeId }`；在线也不等网络。通过 `changes` 发 pending 数，并以 `max(100, settings.editor.autoSaveDelay)` 防抖网络回放。立即 flush、online、同步回放可以提前发送已持久日志，不改变落盘时机。异步确认/恢复/失败只走 `changes.kind='write'`。
    - 入队失败时不得返回 queued 或标记已本地保存；可以在线直接 PATCH 成功后返回 `{queued:false,writeId,note}`。若请求也失败，抛出结构化错误，app 保留编辑缓冲并展示未保存，不回滚随后输入。离线且不能落盘必须明确失败。
@@ -303,9 +303,9 @@ export class HttpTransport {
 
 行为逐条对照 `api.ts:79-170`：
 
-- 请求头固定 `X-AutoNote-Client: 1`（`CLIENT_HEADER`，worker `requireClientHeader` 要求所有 `/api/*` 带它）、`X-AutoNote-Origin: <clientId>`、`Accept-Language: <locale>`；`credentials: 'same-origin'`。JSON body 加 `Content-Type: application/json`；`FormData` 不设 Content-Type。
+- 请求头固定 `X-参考项目-Client: 1`（`CLIENT_HEADER`，worker `requireClientHeader` 要求所有 `/api/*` 带它）、`X-参考项目-Origin: <clientId>`、`Accept-Language: <locale>`；`credentials: 'same-origin'`。JSON body 加 `Content-Type: application/json`；`FormData` 不设 Content-Type。
 - `query` 按 `toQuery` 规则拼接：丢弃 `undefined` 与空串，布尔值写成 `1`/`0`（`api.ts:390-401,510-514`）。
-- 超时：`timeoutMs > 0` 时另建 `AbortController`，调用方 signal 取消时联动取消；定时器走注入的 `Timers`。默认值沿用 AutoNote：`notes.create/patch`、`account.updateProfile` 30 s，`sync` 30 s，`update.check` 10 s，其余不设。
+- 超时：`timeoutMs > 0` 时另建 `AbortController`，调用方 signal 取消时联动取消；定时器走注入的 `Timers`。默认值沿用 参考项目：`notes.create/patch`、`account.updateProfile` 30 s，`sync` 30 s，`update.check` 10 s，其余不设。
 - 204 返回 `undefined`；JSON 响应按 `content-type` 判断（`application/json` 或 `+json`，`api.ts:172-175`）。
 - 成功的非 GET 写请求命中 `shouldNotifyOtherTabs` 时广播 `local-write`（§3.7）。
 
@@ -330,9 +330,9 @@ export class HttpTransport {
 
 ### 4.4 端口 → 路由映射
 
-路由以当前 worker 挂载点及 AutoNote `lib/api.ts` 调用形状为依据。列表解包必须遵守 `10` §2：`notes.list` 保留 `ListNotesResponse`，`files.list` 保留 `{files,nextCursor}`，不能为了方便丢掉游标；只有无分页的 folders/tags 等数组才可解包。
+路由以当前 worker 挂载点及 参考项目 `lib/api.ts` 调用形状为依据。列表解包必须遵守 `10` §2：`notes.list` 保留 `ListNotesResponse`，`files.list` 保留 `{files,nextCursor}`，不能为了方便丢掉游标；只有无分页的 folders/tags 等数组才可解包。
 
-| 端口方法 | 请求 | worker 位置 | AutoNote | 说明 |
+| 端口方法 | 请求 | worker 位置 | 参考项目 | 说明 |
 | --- | --- | --- | --- | --- |
 | `session.load` | `GET /api/auth/session` | `auth.ts:96` | `api.session` | 成功且 `user` 非空时 `LocalDb.saveSession`；`offline` 时读缓存会话，缓存的 `userId` 必须与 `userId` 键一致才用（`session.ts:54-77`，`db.ts:152-163`） |
 | `session.logout` | `POST /api/auth/logout` | `auth.ts:361` | `api.logout` | 先本地持久、尝试回放并检查所有用户 outbox/未保存设置；仍有待上传即拒绝注销，不发 POST，不清库（§10.2） |
@@ -417,7 +417,7 @@ notes.list 的 nextCursor、files.list 的 nextCursor 与 sync cursor/nextKey �
 
 ### 5.3 选主、实时和回退
 
-沿用 AutoNote `lib/sync.ts`：BroadcastChannel 内 claim 以 `at` 降序、同值按 clientId 比较，260 ms 后决定领导者；focus 重新争主。只有 leader 建立 `/api/sync/ws`，URL 按页面协议选 ws/wss，使用同源 cookie，浏览器 WebSocket 不伪造 HTTP 自定义头。worker 验证 Origin 与 Upgrade。
+沿用 参考项目 `lib/sync.ts`：BroadcastChannel 内 claim 以 `at` 降序、同值按 clientId 比较，260 ms 后决定领导者；focus 重新争主。只有 leader 建立 `/api/sync/ws`，URL 按页面协议选 ws/wss，使用同源 cookie，浏览器 WebSocket 不伪造 HTTP 自定义头。worker 验证 Origin 与 Upgrade。
 
 - 收到 changed 只当拉取提示，过滤 `origin===clientId`；其 cursor 大于本地 cursor 时 180 ms 后 pull，不直接推进游标。非法消息记录汇总 debug 后丢弃，不进入业务状态。
 - 心跳 25 s 发 ping；75 s 无 pong 关闭重连。退避 `min(30000,800*2^(failures-1))`，连通或 online 后清失败计数。失去领导权、关闭实时设置、stop 时清 socket/heartbeat/reconnect。
@@ -436,7 +436,7 @@ notes.list 的 nextCursor、files.list 的 nextCursor 与 sync cursor/nextKey �
 
 ### 6.2 公开分享状态与安全
 
-`SharePageState` 只依赖专用 public transport、Logger、Markdown 服务和 AbortSignal。加载 `POST /api/public/:slug`，JSON `{password?}`，保留 `X-AutoNote-Client` 和同源 cookie。这个 HTTP 适配允许 password_required/password_invalid 两个公开页错误码，不污染已登录 Backend 的身份状态。
+`SharePageState` 只依赖专用 public transport、Logger、Markdown 服务和 AbortSignal。加载 `POST /api/public/:slug`，JSON `{password?}`，保留 `X-参考项目-Client` 和同源 cookie。这个 HTTP 适配允许 password_required/password_invalid 两个公开页错误码，不污染已登录 Backend 的身份状态。
 
 状态为 loading、passwordRequired、ready、unavailable、failed。无密码401显示密码输入；错误密码401保留重试但清敏感字段；429使用 retryAfter 提示，不自动暴力重试；404统一内容不可用；网络错误提供重试。每次加载取消上一请求并验证 generation，切 slug 后旧正文绝不能闪回。密码只存在当前内存和单次请求体，不写 prefs/URL/日志。卸载恢复自己设置的 document.title，不能覆盖后来页面设置的新标题。
 
@@ -473,7 +473,7 @@ worker `renderShareShell` 原样从新 index.html 注入 OG/Twitter。公开无�
 
 ### 7.2 资源清单与离线边界
 
-从 AutoNote `pwa.config.ts` 移植生成器，插件名 `autonote:pwa`，保留缓存命名以便升级清理。删除 React 特定 CORE_LAZY_MODULES，改为实际共享 AppRoot/Workspace、语言包的构建模块，递归收集 imports、CSS 与 index 引用。核心资源保证应用外壳、登录、编辑器和语言能离线打开；可选 Mermaid/Prism/图谱等动态 chunks 由空闲 warmup 加载。buildId 对产物内容及 public 素材哈希，不靠部署时间缓存 bust。
+从 参考项目 `pwa.config.ts` 移植生成器，插件名 `autonote:pwa`，保留缓存命名以便升级清理。删除 React 特定 CORE_LAZY_MODULES，改为实际共享 AppRoot/Workspace、语言包的构建模块，递归收集 imports、CSS 与 index 引用。核心资源保证应用外壳、登录、编辑器和语言能离线打开；可选 Mermaid/Prism/图谱等动态 chunks 由空闲 warmup 加载。buildId 对产物内容及 public 素材哈希，不靠部署时间缓存 bust。
 
 核心安装并发4；可选资源预热复用现有单飞、进度消息 `GET_OFFLINE_CACHE_STATUS/WARM_OFFLINE_CACHE/OFFLINE_CACHE_STATUS`，完成才写当前 build manifest。失败显示 error，可 online/visible 重试；ready 只承诺静态界面资源，不承诺所有笔记正文/附件已下载。生产就绪后请求预热，requestIdleCallback timeout3s、不支持则1.2s；取消 idle/timer 是 dispose 的一部分。
 
@@ -573,7 +573,7 @@ Web Vite保留Svelte/Tailwind、Cloudflare插件和 `AUTONOTE_EPHEMERAL_DEV`，�
 | PWA实现选择 | 迁移现有生成器，不另引整套workbox；重写Svelte核心chunk识别 | 保留已有离线与升级语义，无多余抽象；§7 |
 | 公开分享复用业务壳 | 不挂载登录态Backend，只复用Markdown基础能力 | 不拉用户私有数据；§6.2 |
 | 旧广播conflict恢复取值 | 仅接受旧消息作为补拉提示，不扩新WriteQueueEvent联合 | 当前共享契约只有deleted；§3.6 |
-| 是否改变worker路由 | 不改；完整端口映射现有API，MCP keys从GET /api/mcp解包 | 减少迁移风险、维持AutoNote和桌面同步兼容 |
+| 是否改变worker路由 | 不改；完整端口映射现有API，MCP keys从GET /api/mcp解包 | 减少迁移风险、维持参考项目和桌面同步兼容 |
 
 ## 13. 实施计划
 
@@ -593,7 +593,7 @@ Web Vite保留Svelte/Tailwind、Cloudflare插件和 `AUTONOTE_EPHEMERAL_DEV`，�
 - **依赖**：W1-1、S2-1。
 - **改动范围**：`web/scripts/check-i18n.mjs`、检测器行为测试、根和Web package检查脚本。
 - **不做**：复制语言包、正则剥Svelte标签、将设计文档改英文。
-- **步骤**：1. 从AutoNote迁移TS检测与语言键/插值校验。2. 用Svelte parser覆盖模板、script、snippet、可见属性并保留位置。3. 扫描app/web共享语言根，重映射精确OAuth白名单与动态键规则。
+- **步骤**：1. 从参考项目迁移TS检测与语言键/插值校验。2. 用Svelte parser覆盖模板、script、snippet、可见属性并保留位置。3. 扫描app/web共享语言根，重映射精确OAuth白名单与动态键规则。
 - **判据**：实施时从根/Web两个cwd运行同一命令得到同样结果；嵌套Svelte未知键、遗漏aria翻译、插值不一致都能失败并定位真实行；合法动态集合/代码样例不误报；实际中英切换不冻结首屏文字。
 - **陷阱**：只扫.ts漏模板；把模板表达式的偏移当原文件行；共享语言包被两份词典覆盖。
 
@@ -728,7 +728,7 @@ Web Vite保留Svelte/Tailwind、Cloudflare插件和 `AUTONOTE_EPHEMERAL_DEV`，�
 - **依赖**：W6-1、W4-2、W4-3、W5-1、W5-2、W5-3、S1-4。
 - **改动范围**：`web/scripts/e2e.mjs`、Web行为/契约场景、既有验收与部署说明。
 - **不做**：源码匹配式测试、伪Backend冒充HTTP证据、修改生产账号/数据。
-- **步骤**：1. 保留原worker有效e2e，追加真实端口/分页/队列/账号切换回归。2. 在旧AutoNote同源浏览器数据上升级新构建，含未回放日志/损坏条目/旧PWA。3. 按§6.3完整矩阵和三档宽度做浏览器键盘/鼠标与视觉验收，记录实际结果。
+- **步骤**：1. 保留原worker有效e2e，追加真实端口/分页/队列/账号切换回归。2. 在旧参考项目同源浏览器数据上升级新构建，含未回放日志/损坏条目/旧PWA。3. 按§6.3完整矩阵和三档宽度做浏览器键盘/鼠标与视觉验收，记录实际结果。
 - **判据**：所有原功能入口有可执行结果；离线刷新/409历史/404副本/分页补拉/注销阻止/再登录续传均通过；真实HTTP与shared行为契约一致；发布资源和旧日志安全兼容；仅已实际运行项记为完成。
 - **陷阱**：把全套API通过当UI完成；只验新安装忽略升级；为了条数保留失效文案断言。
 

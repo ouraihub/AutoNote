@@ -56,3 +56,6 @@ tmp/
 .DS_Store
 Thumbs.db
 [Dd]esktop.ini
+
+# Reference-project analysis stays local only
+docs/01-*.md
