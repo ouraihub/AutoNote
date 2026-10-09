@@ -37,7 +37,7 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -53,7 +53,7 @@ jobs:
 
   e2e:
     needs: check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -82,7 +82,7 @@ jobs:
   deploy:
     needs: [check, e2e]
     if: github.event_name == 'workflow_dispatch' && inputs.deploy && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: production
     steps:
