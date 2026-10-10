@@ -334,6 +334,40 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_fts_index_queue_due
      ON fts_index_queue(user_id, created_at, note_id)`,
+  `CREATE TABLE IF NOT EXISTS ai_providers (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, name TEXT NOT NULL,
+    position INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_providers_user ON ai_providers(user_id, position, id)`,
+  `CREATE TABLE IF NOT EXISTS ai_endpoints (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, provider_id TEXT NOT NULL,
+    slug TEXT NOT NULL, base_url TEXT NOT NULL, protocol TEXT NOT NULL,
+    key_ciphertext TEXT, position INTEGER NOT NULL,
+    UNIQUE(user_id, provider_id, slug)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_endpoints_user ON ai_endpoints(user_id, provider_id, position, id)`,
+  `CREATE TABLE IF NOT EXISTS ai_models (
+    user_id TEXT NOT NULL, endpoint_id TEXT NOT NULL, model_id TEXT NOT NULL,
+    model_type TEXT NOT NULL, type_source TEXT NOT NULL, context_window INTEGER,
+    can_vision INTEGER NOT NULL DEFAULT 0, position INTEGER NOT NULL,
+    PRIMARY KEY(user_id, endpoint_id, model_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS ai_roles (
+    user_id TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('chat','writing')),
+    endpoint_id TEXT, model_id TEXT, PRIMARY KEY(user_id, role)
+  )`,
+  `CREATE TABLE IF NOT EXISTS ai_conversations (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_conversations_user ON ai_conversations(user_id, updated_at DESC, id DESC)`,
+  `CREATE TABLE IF NOT EXISTS ai_messages (
+    id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, user_id TEXT NOT NULL,
+    role TEXT NOT NULL CHECK(role IN ('user','assistant')), content TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('done','failed','interrupted')),
+    model_id TEXT, created_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_messages_conversation ON ai_messages(user_id, conversation_id, created_at, id)`,
 ]
 
 interface SchemaMigration {
@@ -344,8 +378,6 @@ interface SchemaMigration {
 
 const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
   {
-    // Explicit whitelist (not a regex over SCHEMA_STATEMENTS) so later
-    // additions like mcp_api_keys can never be picked up accidentally.
     version: 1,
     statements: [
       `CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -372,10 +404,6 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     ],
   },
   {
-    // Only CREATE TABLE / INDEX statements: D1 does not reliably support
-    // ALTER TABLE ADD COLUMN with constraints, so the AI search preference
-    // lives in app_meta (key `ai-search-enabled:<userId>`) instead of a
-    // new column on the pre-existing mcp_preferences table.
     version: 2,
     statements: [
       `CREATE TABLE IF NOT EXISTS mcp_api_keys (
@@ -569,6 +597,12 @@ const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ai_note_embeddings: ['user_id', 'note_id', 'model', 'vector', 'indexed_at'],
   ai_index_queue: ['user_id', 'note_id', 'kind', 'created_at'],
   fts_index_queue: ['user_id', 'note_id', 'kind', 'created_at'],
+  ai_providers: ['id', 'user_id', 'name', 'position', 'created_at', 'updated_at'],
+  ai_endpoints: ['id', 'user_id', 'provider_id', 'slug', 'base_url', 'protocol', 'key_ciphertext', 'position'],
+  ai_models: ['user_id', 'endpoint_id', 'model_id', 'model_type', 'type_source', 'context_window', 'can_vision', 'position'],
+  ai_roles: ['user_id', 'role', 'endpoint_id', 'model_id'],
+  ai_conversations: ['id', 'user_id', 'title', 'created_at', 'updated_at'],
+  ai_messages: ['id', 'conversation_id', 'user_id', 'role', 'content', 'status', 'model_id', 'created_at'],
 } as const
 
 const REQUIRED_TABLES = [
@@ -600,6 +634,12 @@ const REQUIRED_TABLES = [
   'ai_note_embeddings',
   'ai_index_queue',
   'fts_index_queue',
+  'ai_providers',
+  'ai_endpoints',
+  'ai_models',
+  'ai_roles',
+  'ai_conversations',
+  'ai_messages',
 ] as const
 
 const REQUIRED_INDEXES = [
@@ -643,6 +683,10 @@ const REQUIRED_INDEXES = [
   'idx_ai_embeddings_indexed',
   'idx_ai_index_queue_due',
   'idx_fts_index_queue_due',
+  'idx_ai_providers_user',
+  'idx_ai_endpoints_user',
+  'idx_ai_conversations_user',
+  'idx_ai_messages_conversation',
 ] as const
 
 
@@ -670,9 +714,6 @@ async function createSchema(db: D1Database): Promise<DatabaseState> {
   if (!initialized) {
     await db.batch(SCHEMA_STATEMENTS.map((statement) => db.prepare(statement)))
   } else {
-    // Existing installations must converge additively. CREATE IF NOT EXISTS
-    // never rewrites user data; running table creation before indexes also
-    // lets a partially initialized database recover missing feature tables.
     await db.batch(TABLE_SCHEMA_STATEMENTS.map((statement) => db.prepare(statement)))
   }
   await applyMigrations(db)
@@ -707,8 +748,6 @@ async function upgradeFtsIdentifiers(db: D1Database): Promise<void> {
     `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'notes_fts'`,
   ).first<{ sql: string }>()
   if (!table || !/note_id\s+UNINDEXED/i.test(table.sql)) return
-  // Keep the existing indexed text and rowids. The batch either replaces the
-  // complete index or rolls back, including when an old installation retries.
   await db.batch([
     db.prepare(FTS_STATEMENT.replace('notes_fts', 'notes_fts_identifiers')),
     db.prepare(`INSERT INTO notes_fts_identifiers (rowid, note_id, user_id, title, body)

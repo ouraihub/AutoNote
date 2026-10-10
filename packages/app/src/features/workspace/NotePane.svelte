@@ -93,13 +93,11 @@
   const active = $derived(ui.activePane === pane)
   const splitRatio = $derived(ui.layout.splitRatio ?? 0.5)
   const assist = extensions.workspacePanel
-  // The active pane owns cursor inserts from the workspace panel (AI chat "insert into note").
   $effect(() => {
     if (!active || !view) return
     const target = view
     const insert = (text: string): void => {
       const { from, to } = target.state.selection.main
-      // A reply pasted mid-line reads as one run-on sentence; give it its own paragraph.
       const block = from === target.state.doc.lineAt(from).from ? text : `\n\n${text}`
       target.dispatch({
         changes: { from, to, insert: block },

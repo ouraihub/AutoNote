@@ -1367,6 +1367,8 @@ export const EN_US_MESSAGES = {
   'writing.copy': 'Copy',
   'writing.insert': 'Insert at cursor',
   'writing.replace': 'Replace original',
+  'ai.base_url_placeholder': 'https://api.example.com',
+  'ai.probe_get': '→ GET',
   'folders.no_match': 'No matching folders',
   'folders.search': 'Search folders',
   'folders.top_level': 'Top level',

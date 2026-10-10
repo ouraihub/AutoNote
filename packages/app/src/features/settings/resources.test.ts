@@ -9,6 +9,7 @@ function deferred<T>() {
 }
 
 const capabilities: BackendCapabilities = {
+  ai: false,
   accounts: false,
   totp: false,
   share: false,

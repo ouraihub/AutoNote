@@ -68,7 +68,6 @@
   const liveCompartment = new Compartment()
 
   $effect(() => {
-    // A new noteId starts a new upload generation so late results never land in the next note.
     if (current.noteId !== noteId) {
       current.noteId = noteId
       current.generation += 1
@@ -150,7 +149,6 @@
       focusModePlugin,
       typewriterPlugin,
       liveCompartment.of([]),
-      // pasteExtension owns URL-over-selection pastes so labels and destinations are escaped consistently.
       markdown({ base: markdownLanguage, addKeymap: false, pasteURLAsLink: false }),
       EditorView.lineWrapping,
       lineNumberCompartment.of(current.settings.lineNumbers ? lineNumbers() : []),

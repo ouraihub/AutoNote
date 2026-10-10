@@ -3,7 +3,6 @@
   import { getExtensions, getI18n, getNotes, getUi } from '@app/root/context'
   import type { WorkspacePanelProps } from '@app/root/types'
 
-  // Right-side dock for the host's workspace panel; full-screen overlay when narrow.
   let { narrow }: { narrow: boolean } = $props()
   const extensions = getExtensions()
   const ui = getUi()

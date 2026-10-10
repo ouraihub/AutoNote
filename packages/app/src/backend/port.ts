@@ -49,6 +49,7 @@ import type {
   TagPatch,
   TagPatchResult,
 } from '@shared/backend-types'
+import type { AiPort } from '@shared/ai-types'
 import type { ChangeFeed, Unsubscribe } from './change-feed'
 
 export interface CallOptions {
@@ -65,6 +66,7 @@ export interface TransferOptions extends CallOptions {
 
 export interface BackendCapabilities {
   accounts: boolean
+  ai: boolean
   totp: boolean
   share: boolean
   remoteBackup: boolean
@@ -246,6 +248,7 @@ export interface Backend {
   readonly settings: SettingsPort
   readonly transfer: TransferPort
   readonly changes: ChangeFeed
+  readonly ai?: AiPort
   readonly share?: SharePort
   readonly backup?: BackupPort
   readonly mcp?: RemoteMcpPort | LocalMcpPort

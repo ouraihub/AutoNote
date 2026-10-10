@@ -87,8 +87,6 @@ export class NoteWriteState {
     record.timer = null
     this.#records.set(noteId, record)
     this.#notify(noteId, 'dirty')
-    // One save in flight per note: a parallel save would reuse the old revision and be rejected as a conflict.
-    // When the in-flight save settles, #send follows up with the latest edit on the new revision.
     if (this.#kind === 'web') {
       if (record.sending.size === 0) void this.#send(noteId, submitted)
     } else
@@ -158,8 +156,6 @@ export class NoteWriteState {
   async #send(noteId: string, submitted: PendingContentWrite): Promise<void> {
     const record = this.#records.get(noteId)
     if (!record || record.latest.writeId !== submitted.writeId) return
-    // Sending the latest edit makes its debounce timer redundant; left armed, it re-sends the same edit
-    // on the revision this save is about to replace, and that copy is rejected as a conflict.
     if (record.timer !== null) {
       clearTimeout(record.timer)
       record.timer = null

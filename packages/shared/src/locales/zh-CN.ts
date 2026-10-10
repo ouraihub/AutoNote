@@ -1315,6 +1315,8 @@ export const ZH_CN_MESSAGES = {
   'writing.copy': '复制',
   'writing.insert': '插入到光标',
   'writing.replace': '替换原文',
+  'ai.base_url_placeholder': 'https://api.example.com',
+  'ai.probe_get': '→ GET',
   'folders.no_match': '没有匹配的文件夹',
   'folders.search': '搜索文件夹',
   'folders.top_level': '最外层',

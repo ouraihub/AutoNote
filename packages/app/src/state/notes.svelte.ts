@@ -316,8 +316,6 @@ export class NotesState {
   #settleWrite(result: NoteWriteResult, submitted: PendingContentWrite): void {
     const pending = this.#writeIds[submitted.noteId]
     if (pending !== submitted.writeId) {
-      // A newer edit was made on the old revision while this save was in flight: move it onto the saved one,
-      // or it is rejected as a conflict and every retry repeats the stale revision.
       const summary = this.#summaries[submitted.noteId]
       if (!result.queued && pending && summary) {
         this.#write.rebase(submitted.noteId, pending, result.note.rev)

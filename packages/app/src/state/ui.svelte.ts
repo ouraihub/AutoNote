@@ -73,9 +73,7 @@ export class UiState {
   #outlineOpen = $state(false)
   #backlinksOpen = $state(false)
   #lightbox = $state.raw<LightboxImage | null>(null)
-  /** Section the next settings open lands on; consumed by SettingsPanel. */
   settingsSection: string | null = null
-  /** Inserts at the active editor's cursor; set by the active NotePane. */
   insertAtCursor: ((text: string) => void) | null = null
   #scope = $state<string | null>(null)
   #layoutLoad: Promise<void> | null = null

@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import type { AppDeps } from '@app/root'
+import { aiHostExtensions } from '@app/features/ai'
 import { I18nState } from '@app/i18n/runtime.svelte'
 import { OverlayNotifier } from '@app/components/ui/overlay-notifier.svelte'
 import { createWebBackend, browserSocketFactory } from './backend'
@@ -46,7 +47,6 @@ export async function createWebServices(): Promise<WebServices> {
   const notifier = new OverlayNotifier((key, params) => language.t(key as Parameters<I18nState['t']>[0], params))
   const kv = new IdbKvStore({ databaseName: CLIENT_DATABASE_NAME })
   if (IS_DEMO_MODE) {
-    // Demo handlers and credentials must not enter the production dependency graph.
     const { createDemoRuntime } = await import('./demo')
     await kv.clear()
     const demo = createDemoRuntime()
@@ -97,9 +97,11 @@ export function createWebRuntime(services: WebServices): AppDeps {
     getLocale: () => services.language.locale,
   })
   const actualBackend = { ...backend }
+  const aiExtensions = aiHostExtensions({ ai: !IS_DEMO_MODE && backend.capabilities.ai })
   if (IS_DEMO_MODE) {
     delete actualBackend.update
-    actualBackend.capabilities = { ...backend.capabilities, totp: false, semanticSearch: false, updateCheck: false }
+    delete actualBackend.ai
+    actualBackend.capabilities = { ...backend.capabilities, ai: false, totp: false, semanticSearch: false, updateCheck: false }
   }
   return {
     backend: actualBackend,
@@ -108,8 +110,10 @@ export function createWebRuntime(services: WebServices): AppDeps {
     prefs: services.prefs,
     notifier: services.notifier,
     extensions: {
-      settingsSections: [],
+      settingsSections: [...aiExtensions.settingsSections],
       aboutPanels: [{ id: 'diagnostics', order: 100, titleKey: 'host.diagnostics', component: DiagnosticsPanel }],
+      ...(aiExtensions.workspacePanel ? { workspacePanel: aiExtensions.workspacePanel } : {}),
+      ...(aiExtensions.writingToolbar ? { writingToolbar: aiExtensions.writingToolbar } : {}),
     },
     ...(IS_DEMO_MODE ? { authDefaults: { username: 'admin', password: 'password' } } : {}),
   }

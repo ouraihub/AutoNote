@@ -5,11 +5,12 @@ const MASTER_KEY_NAME = 'backup-master-key-v1'
 const MASTER_KEY_BYTES = 32
 const MAX_REQUEST_BYTES = 24 * 1024
 const MAX_CIPHERTEXT_LENGTH = 24 * 1024
-const CREDENTIAL_SCOPE_PATTERN = /^(?:backup|totp):[0-9a-hjkmnp-tv-z]{26}$/
+const CREDENTIAL_SCOPE_PATTERN = /^(?:backup|totp|ai-endpoint):[0-9a-hjkmnp-tv-z]{20,26}$/
 const CIPHERTEXT_PATTERN = /^v1\.([A-Za-z0-9_-]+)$/
 const HKDF_SALT = utf8('autonote.backup-credentials.v1')
-const BACKUP_SECRET_FIELDS = new Set(['password', 'accessKeyId', 'secretAccessKey'])
-const TOTP_SECRET_FIELDS = new Set(['secret'])
+const BACKUP_SECRET_FIELDS: Record<string, true> = { password: true, accessKeyId: true, secretAccessKey: true }
+const TOTP_SECRET_FIELDS: Record<string, true> = { secret: true }
+const AI_SECRET_FIELDS: Record<string, true> = { apiKey: true }
 
 type CredentialRecord = Record<string, string>
 
@@ -153,16 +154,10 @@ function isScope(value: unknown): value is string {
 
 function isCredentialRecord(scope: string, value: unknown): value is CredentialRecord {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
-  const allowed = scope.startsWith('totp:') ? TOTP_SECRET_FIELDS : BACKUP_SECRET_FIELDS
+  const allowed = scope.startsWith('totp:') ? TOTP_SECRET_FIELDS : scope.startsWith('ai-endpoint:') ? AI_SECRET_FIELDS : BACKUP_SECRET_FIELDS
   const entries = Object.entries(value)
-  if (entries.length < 1 || entries.length > allowed.size) return false
-  return entries.every(
-    ([key, field]) =>
-      allowed.has(key) &&
-      typeof field === 'string' &&
-      field.length > 0 &&
-      field.length <= 4096,
-  )
+  if (entries.length < 1 || entries.length > Object.keys(allowed).length) return false
+  return entries.every(([key, field]) => allowed[key] === true && typeof field === 'string' && field.length > 0 && field.length <= 4096)
 }
 
 function jsonError(status: number, error: string): Response {

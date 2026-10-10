@@ -7,6 +7,28 @@ export {
 } from './change-feed'
 export { BackendError, backendErrorFromPayload, isBackendError, type BackendErrorDetails } from './errors'
 export type {
+  AiCallOptions,
+  AiChatEvent,
+  AiChatRequest,
+  AiConversation,
+  AiConversationSummary,
+  AiEndpoint,
+  AiEndpointSave,
+  AiModel,
+  AiModelRef,
+  AiProbeError,
+  AiProbeResult,
+  AiProvider,
+  AiProviderSave,
+  AiRole,
+  AiRoleBinding,
+  AiStoredMessage,
+  AiWriteAction,
+  AiWriteEvent,
+  AiWriteRequest,
+  AiPort,
+} from '@shared/ai-types'
+export type {
   Backend,
   BackendCapabilities,
   BackupPort,

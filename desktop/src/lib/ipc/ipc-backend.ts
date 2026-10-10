@@ -78,6 +78,7 @@ export function createIpcBackend(
     kind: 'desktop',
     capabilities: {
       accounts: false,
+      ai: true,
       totp: false,
       share: false,
       remoteBackup: false,
