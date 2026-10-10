@@ -103,7 +103,7 @@ function fakePort(providers: AiProvider[], roles: AiRoleBinding[] = []) {
 const mount = (ai: AiPort): void => {
   mounted = mountComponent(AiSectionHarness, {
     target: document.body.appendChild(document.createElement('div')),
-    props: { backend: { ai } as unknown as Backend, i18n, notifier },
+    props: { backend: { capabilities: { ai: true }, ai } as unknown as Backend, i18n, notifier },
   })
 }
 afterEach(async () => {

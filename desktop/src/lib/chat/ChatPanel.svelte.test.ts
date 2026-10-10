@@ -94,7 +94,7 @@ function mount(ai: AiPort, overrides: PanelOverrides = {}): void {
   mounted = mountComponent(ChatPanelHarness, {
     target: document.body.appendChild(document.createElement('div')),
     props: {
-      backend: { ai } as unknown as Backend,
+      backend: { capabilities: { ai: true }, ai } as unknown as Backend,
       ...(overrides.ui ? { ui: overrides.ui as UiState } : {}),
       i18n,
       notifier: { confirm: vi.fn(async () => true), toast: vi.fn() } as Notifier,

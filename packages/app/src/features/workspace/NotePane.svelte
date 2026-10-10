@@ -438,8 +438,16 @@
             {selection}
             noteTitle={note?.title ?? ''}
             onReplace={(text, snapshot) => {
-              if (snapshot.docLength !== view!.state.doc.length || snapshot.text !== view!.state.sliceDoc(snapshot.from, snapshot.to)) return false
-              view!.dispatch({ changes: { from: snapshot.from, to: snapshot.to, insert: text }, selection: { anchor: snapshot.from + text.length }, scrollIntoView: true })
+              if (
+                snapshot.docLength !== view!.state.doc.length ||
+                snapshot.text !== view!.state.sliceDoc(snapshot.from, snapshot.to)
+              )
+                return false
+              view!.dispatch({
+                changes: { from: snapshot.from, to: snapshot.to, insert: text },
+                selection: { anchor: snapshot.from + text.length },
+                scrollIntoView: true,
+              })
               view!.focus()
               return true
             }}
@@ -558,9 +566,17 @@
     overflow: hidden;
   }
   .editor-side {
+    display: flex;
+    flex-direction: column;
     min-height: 0;
     min-width: 0;
     flex-shrink: 0;
+  }
+  /* The writing toolbar sits under the editor; a 100%-tall editor would push it under the status bar. */
+  .editor-side > :global(.ink-editor) {
+    flex: 1;
+    min-height: 0;
+    height: auto;
   }
   .preview-side {
     flex: 1;
