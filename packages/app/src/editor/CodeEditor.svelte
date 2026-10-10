@@ -120,10 +120,15 @@
     view.contentDOM.spellcheck = settings.spellcheck
   })
 
+  // Settings objects are re-created with identical values (e.g. after sync); rebuilding the live field then
+  // resets its focus state and turns the caret line into a non-editable widget mid-typing.
+  let applied: { view: EditorView; renderer: LivePreviewServices | null; revision: string | null } | null = null
   $effect(() => {
     if (!view) return
     const renderer = live && liveRenderer ? liveRenderer : null
-    renderer?.revision?.()
+    const revision = renderer?.revision?.() ?? null
+    if (applied && applied.view === view && applied.renderer === renderer && applied.revision === revision) return
+    applied = { view, renderer, revision }
     untrack(() => view?.dispatch({ effects: liveCompartment.reconfigure(renderer ? livePreview(renderer) : []) }))
   })
 
