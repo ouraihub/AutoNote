@@ -168,7 +168,10 @@
   {:else if session.status === 'anonymous' && deps.backend.capabilities.accounts}
     <LoginPage {session} {i18n} defaults={deps.authDefaults} />
   {:else if session.status === 'authed'}
-    <svelte:boundary>
+    <svelte:boundary
+      onerror={(error) =>
+        deps.logger.error('root.ui.render_failed', { name: error instanceof Error ? error.name : 'unknown' })}
+    >
       {#if ready}<AppShell />
       {:else if loadFailed}<p role="alert">{i18n.t('common.action_failed')}</p>
         <button type="button" onclick={() => retry++}>{i18n.t('common.retry')}</button>

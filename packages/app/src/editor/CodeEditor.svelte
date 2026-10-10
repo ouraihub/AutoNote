@@ -100,7 +100,7 @@
   $effect(() => {
     if (!view) return
     const document = view.state.doc.toString()
-    if (document === value) return
+    if (document === value || view.compositionStarted) return
     view.dispatch({
       changes: { from: 0, to: document.length, insert: value },
       selection: { anchor: Math.min(view.state.selection.main.anchor, value.length) },

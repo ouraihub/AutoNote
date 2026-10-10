@@ -95,19 +95,34 @@ export function livePreview(services: LivePreviewServices): Extension {
   return [field, ViewPlugin.fromClass(class {
     timer = 0
     observer: MutationObserver
+    pendingRefresh = false
     constructor(readonly view: EditorView) {
-      this.observer = new MutationObserver(() => { clearTimeout(this.timer); this.timer = window.setTimeout(() => view.dispatch({ effects: refresh.of(true) }), 0) })
+      this.observer = new MutationObserver(() => this.schedule(true))
       this.observer.observe(view.dom.closest('[data-app-root]') ?? document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'lang'] })
     }
-    update(update: { docChanged: boolean }): void {
-      if (!update.docChanged) return
+    schedule(rebuild: boolean): void {
+      this.pendingRefresh ||= rebuild
       clearTimeout(this.timer)
-      this.timer = window.setTimeout(() => this.view.dispatch({ effects: refresh.of(false) }), 90)
+      if (this.view.compositionStarted) return
+      this.timer = window.setTimeout(() => {
+        if (this.view.compositionStarted) return
+        this.view.dispatch({ effects: refresh.of(this.pendingRefresh) })
+        this.pendingRefresh = false
+      }, rebuild ? 0 : 90)
+    }
+    update(update: { docChanged: boolean }): void {
+      if (update.docChanged) this.schedule(false)
     }
     destroy(): void { clearTimeout(this.timer); this.observer.disconnect() }
-  }), EditorView.domEventHandlers({
-    focus(_event, view) { view.dispatch({ effects: focusChanged.of(true) }) },
-    blur(_event, view) { view.dispatch({ effects: focusChanged.of(false) }) },
+  }, { eventHandlers: { compositionend(_event, view) {
+    clearTimeout(this.timer)
+    this.timer = window.setTimeout(() => {
+      if (!view.hasFocus) view.dispatch({ effects: focusChanged.of(false) })
+      this.schedule(true)
+    }, 100)
+  } } }), EditorView.domEventHandlers({
+    focus(_event, view) { if (!view.compositionStarted) view.dispatch({ effects: focusChanged.of(true) }) },
+    blur(_event, view) { if (!view.compositionStarted) view.dispatch({ effects: focusChanged.of(false) }) },
   }), ViewPlugin.fromClass(class {
     decorations: DecorationSet = Decoration.none
     constructor(view: EditorView) { this.build(view) }

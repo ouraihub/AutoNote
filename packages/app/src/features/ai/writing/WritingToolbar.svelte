@@ -20,7 +20,6 @@
   const hasSelection = $derived(selection.from !== selection.to && selection.text.length > 0)
   const label = $derived(hasSelection ? selection.text.slice(0, 28) : i18n.t('writing.continue'))
   const context = $derived(view ? view.state.sliceDoc(Math.max(0, selection.from - 1000), Math.min(view.state.doc.length, selection.to + 1000)) : '')
-  // The host rejects polish/rewrite/... without text and continue without context (bad_request).
   const canRun = (next: AiWriteAction): boolean => (next === 'continue' ? context.trim().length > 0 : hasSelection)
 
   async function run(next: AiWriteAction): Promise<void> {
