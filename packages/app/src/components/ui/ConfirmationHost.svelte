@@ -25,7 +25,7 @@
     <Dialog.Footer>
       <Button variant="outline" onclick={() => notifier.settle(false)}>{resolveMessage('common.cancel')}</Button>
       <Button variant={notifier.active?.request.danger ? 'destructive' : 'default'} onclick={() => notifier.settle(true)}>
-        {resolveMessage('common.save')}
+        {resolveMessage('overlay.confirm')}
       </Button>
     </Dialog.Footer>
   </Dialog.Content>

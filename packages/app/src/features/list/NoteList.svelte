@@ -446,37 +446,37 @@
 {#snippet actions(ids: readonly string[], inTrash: boolean)}
   <DropdownMenu.Group>
     {#if inTrash}
-      <DropdownMenu.Item disabled={busy} onclick={() => void batch('restore', ids)}
+      <DropdownMenu.Item disabled={busy} onSelect={() => void batch('restore', ids)}
         >{i18n.t('common.restore')}</DropdownMenu.Item
       >
-      <DropdownMenu.Item variant="destructive" disabled={busy} onclick={() => void batch('purge', ids)}
+      <DropdownMenu.Item variant="destructive" disabled={busy} onSelect={() => void batch('purge', ids)}
         >{i18n.t('notes.delete_permanently')}</DropdownMenu.Item
       >
     {:else}
       <DropdownMenu.Item
         disabled={busy}
-        onclick={() => void batch(ids.every((id) => notes.summaries[id]?.isStarred) ? 'unstar' : 'star', ids)}
+        onSelect={() => void batch(ids.every((id) => notes.summaries[id]?.isStarred) ? 'unstar' : 'star', ids)}
         >{i18n.t(
           ids.every((id) => notes.summaries[id]?.isStarred) ? 'common.remove_from_favorites' : 'navigation.favorites',
         )}</DropdownMenu.Item
       >
       <DropdownMenu.Item
         disabled={busy}
-        onclick={() => void batch(ids.every((id) => notes.summaries[id]?.isPinned) ? 'unpin' : 'pin', ids)}
+        onSelect={() => void batch(ids.every((id) => notes.summaries[id]?.isPinned) ? 'unpin' : 'pin', ids)}
         >{i18n.t(ids.every((id) => notes.summaries[id]?.isPinned) ? 'notes.unpin' : 'notes.pin')}</DropdownMenu.Item
       >
-      <DropdownMenu.Item disabled={busy} onclick={() => move(ids)}>{i18n.t('notes.move_to_folder')}</DropdownMenu.Item>
+      <DropdownMenu.Item disabled={busy} onSelect={() => move(ids)}>{i18n.t('notes.move_to_folder')}</DropdownMenu.Item>
       <DropdownMenu.Item
         disabled={busy}
-        onclick={() => void batch(ids.every((id) => notes.summaries[id]?.isArchived) ? 'unarchive' : 'archive', ids)}
+        onSelect={() => void batch(ids.every((id) => notes.summaries[id]?.isArchived) ? 'unarchive' : 'archive', ids)}
         >{i18n.t(
           ids.every((id) => notes.summaries[id]?.isArchived) ? 'common.unarchive' : 'navigation.archive',
         )}</DropdownMenu.Item
       >
-      <DropdownMenu.Item disabled={busy} onclick={() => void batch('duplicate', ids)}
+      <DropdownMenu.Item disabled={busy} onSelect={() => void batch('duplicate', ids)}
         >{i18n.t('notes.create_a_copy')}</DropdownMenu.Item
       >
-      <DropdownMenu.Item variant="destructive" disabled={busy} onclick={() => void batch('trash', ids)}
+      <DropdownMenu.Item variant="destructive" disabled={busy} onSelect={() => void batch('trash', ids)}
         >{i18n.t('common.move_to_trash')}</DropdownMenu.Item
       >
     {/if}
