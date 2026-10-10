@@ -132,17 +132,7 @@ export class HttpNotesPort implements NotesPort {
     return running
   }
   async patch(id: string, body: PatchNoteBody, options: NoteWriteOptions): Promise<NoteWriteResult> {
-    let result: NoteWriteResult
-    try {
-      result = await this.#writer.patch(id, body, options)
-    } catch (error) {
-      this.#deps.logger.error('outbox.enqueue.failed', {
-        noteId: id,
-        writeId: options.writeId,
-        code: error instanceof BackendError ? error.code : 'internal',
-      })
-      throw error
-    }
+    const result = await this.#writer.patch(id, body, options)
     if (result.queued && !this.#disposed) {
       if (this.#timer !== null) this.#deps.timers.clearTimeout(this.#timer)
       this.#timer = this.#deps.timers.setTimeout(

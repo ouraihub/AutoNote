@@ -36,6 +36,7 @@
     getBackend,
     getExtensions,
     getI18n,
+    getLogger,
     getNotes,
     getNotifier,
     getOrganize,
@@ -55,8 +56,8 @@
   import * as Drawer from '@app/components/ui/drawer'
   import * as Field from '@app/components/ui/field'
   import { folderDropTarget, folderMoveError } from './tree'
-  import { isBackendError } from '@app/backend'
-  import { messageKeyForError } from '@app/i18n/errors'
+  import { logFailure } from '@app/log/logger'
+  import { AppError, errorMessageKey } from '@app/i18n/errors'
   import { NOTE_DRAG_TYPE, runNoteBatch } from '../list/actions'
 
   const notes = getNotes(),
@@ -67,6 +68,7 @@
     notifier = getNotifier(),
     session = getSession(),
     settings = getSettings(),
+    logger = getLogger(),
     showBrand = getBackend().kind !== 'desktop'
   const instanceId = $props.id()
   const snapshot = $derived(notes.readOrganizeSnapshot())
@@ -138,6 +140,7 @@
       await action()
       return true
     } catch (error) {
+      logFailure(logger, 'organize.action.failed', error)
       feedback = errorText(error)
       return false
     } finally {
@@ -145,11 +148,7 @@
     }
   }
   function errorText(error: unknown): string {
-    return isBackendError(error)
-      ? i18n.t(messageKeyForError(error.code))
-      : error instanceof Error
-        ? error.message
-        : i18n.t('common.action_failed')
+    return i18n.t(errorMessageKey(error))
   }
   function navigate(view: ViewKind, target: { folderId?: string; tag?: string } = {}): void {
     ui.openView(view, target)
@@ -200,7 +199,7 @@
           if (parentId) ui.expandFolders([parentId])
         } else {
           if (parentId && folderPath(snapshot.folders, parentId).length >= LIMITS.folderDepthMax)
-            throw new Error(i18n.t('folders.move_depth'))
+            throw new AppError('folders.move_depth')
           const created = await organize.createFolder(patch)
           ui.expandFolders(parentId ? [parentId] : [])
           ui.openView('folder', { folderId: created.id })
@@ -341,12 +340,13 @@
           (id) => notes.flush(id),
           async (id) => {
             const note = notes.summaries[id]
-            if (!note || note.deletedAt !== null) throw new Error(i18n.t('notes.this_note_no_longer_exists'))
+            if (!note || note.deletedAt !== null) throw new AppError('notes.this_note_no_longer_exists')
             await notes.patch(id, { rev: note.rev, folderId: node?.id ?? null })
           },
-          i18n.t('common.changes_not_saved'),
+          'common.changes_not_saved',
         )
         const failures = results.filter((result) => result.error !== null)
+        if (failures.length) logger.warn('notes.batch.partial_failed', { count: results.length, failed: failures.length })
         ui.setSelection(failures.map((result) => result.id))
         feedback = failures
           .map(

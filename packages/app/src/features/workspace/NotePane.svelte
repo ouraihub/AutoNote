@@ -9,6 +9,7 @@
   import type { LivePreviewServices } from '../../editor/live-preview'
   import type { Heading as MarkdownHeading } from '../../markdown/renderer'
   import { LIMITS } from '@shared/constants'
+  import { logFailure } from '../../log/logger'
   import { readingMinutes } from '@shared/markdown-utils'
   import { organizerColorOrNull } from '@shared/organizer-colors'
   import { folderPath } from '../../state/selectors'
@@ -143,7 +144,10 @@
     },
     attachments: {
       upload: (file, id) => backend.files.upload(file, id),
-      uploadFailed: () => notifier.toast({ key: 'workspace.upload_failed', tone: 'error' }),
+      uploadFailed: (_file, error) => {
+        logFailure(logger, 'files.upload.failed', error)
+        notifier.toast({ key: 'workspace.upload_failed', tone: 'error' })
+      },
       replaceDetached(id, placeholder, replacement) {
         const content = notes.contents[id]
         const at = content?.indexOf(placeholder) ?? -1

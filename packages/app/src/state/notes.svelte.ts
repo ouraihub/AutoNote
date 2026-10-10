@@ -1,7 +1,7 @@
 import { SvelteMap } from 'svelte/reactivity'
 import type { NoteWriteResult } from '@shared/backend-types'
 import { isBackendError, type Backend, type ChangeEvent } from '@app/backend'
-import type { Logger } from '@app/log/logger'
+import { logFailure, type Logger } from '@app/log/logger'
 import type { Note, NoteSummary, PatchNoteBody, SyncResponse } from '@shared/types'
 import { mergeSync, EMPTY_SYNC_SHELL, type LocalNoteStates, type SyncShell } from './merge'
 import { NoteWriteState, type NoteSaveState, type PendingContentWrite } from './note-writes'
@@ -336,8 +336,7 @@ export class NotesState {
   #failWrite(error: unknown, submitted: PendingContentWrite): void {
     if (this.#writeIds[submitted.noteId] !== submitted.writeId) return
     this.#setSaveState(submitted.noteId, 'failed')
-    if (isBackendError(error)) this.#logger.warn('notes.save.failed', { code: error.code })
-    else this.#logger.error('notes.save.failed', { name: error instanceof Error ? error.name : 'unknown' })
+    logFailure(this.#logger, 'notes.save.failed', error, { noteId: submitted.noteId, writeId: submitted.writeId })
   }
 
   #adoptLoadedNote(note: Note, pending: PendingContentWrite | null): void {

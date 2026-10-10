@@ -3,12 +3,12 @@
   import { SvelteSet } from 'svelte/reactivity'
   import type { MessageKey } from '@shared/locales/en-US'
   import type { ListNotesQuery, NoteSummary, PatchNoteBody, ViewKind } from '@shared/types'
-  import { isBackendError } from '@app/backend'
-  import { messageKeyForError } from '@app/i18n/errors'
+  import { logFailure } from '@app/log/logger'
+  import { AppError, errorMessageKey } from '@app/i18n/errors'
   import { folderPath, selectVisibleNotes } from '@app/state/selectors'
   import { organizerColorOrNull } from '@shared/organizer-colors'
   import { breakpoint } from '@app/lib/breakpoint.svelte'
-  import { getBackend, getExtensions, getI18n, getNotes, getNotifier, getUi } from '@app/root/context'
+  import { getBackend, getExtensions, getI18n, getLogger, getNotes, getNotifier, getUi } from '@app/root/context'
   import { Button } from '@app/components/ui/button'
   import * as DropdownMenu from '@app/components/ui/dropdown-menu'
   import * as Field from '@app/components/ui/field'
@@ -26,7 +26,8 @@
     backend = getBackend(),
     notifier = getNotifier(),
     i18n = getI18n(),
-    extensions = getExtensions()
+    extensions = getExtensions(),
+    logger = getLogger()
   const PAGE_SIZE = 80
   const instanceId = $props.id()
   const labels: Record<ViewKind, MessageKey> = {
@@ -211,7 +212,7 @@
         )
         if (signal.aborted || requestGeneration !== generation) return
         if (page.nextCursor && usedCursors.has(page.nextCursor))
-          throw new Error(i18n.t('notes.sync_pagination_data_is_incomplete'))
+          throw new AppError('notes.sync_pagination_data_is_incomplete')
         accumulated = appendPage(accumulated, page, pageCursor)
         if (pageCursor) usedCursors.add(pageCursor)
         pageCursor = page.nextCursor
@@ -225,11 +226,7 @@
     }
   }
   function errorText(error: unknown): string {
-    return isBackendError(error)
-      ? i18n.t(messageKeyForError(error.code))
-      : error instanceof Error
-        ? error.message
-        : i18n.t('common.action_failed')
+    return i18n.t(errorMessageKey(error))
   }
   async function loadMore(): Promise<void> {
     if (filter.trim()) {
@@ -362,7 +359,7 @@
         (id) => notes.flush(id),
         async (id) => {
           const note = notes.summaries[id]
-          if (!note) throw new Error(i18n.t('notes.this_note_no_longer_exists'))
+          if (!note) throw new AppError('notes.this_note_no_longer_exists')
           if (action === 'trash') {
             await notes.remove(id)
             ui.forgetNote(id)
@@ -380,16 +377,18 @@
             await notes.patch(id, patch)
           }
         },
-        i18n.t('common.changes_not_saved'),
+        'common.changes_not_saved',
       )
       if (outcome.length) {
         resultTitles = titles
         results = outcome
         const failures = outcome.filter((result) => result.error !== null).map((result) => result.id)
+        if (failures.length) logger.warn('notes.batch.partial_failed', { count: outcome.length, failed: failures.length })
         ui.setSelection(failures)
         refresh++
       }
     } catch (error) {
+      logFailure(logger, 'notes.batch.failed', error)
       pageError = errorText(error)
     } finally {
       busy = false

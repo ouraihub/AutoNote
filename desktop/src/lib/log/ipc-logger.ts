@@ -30,6 +30,12 @@ function safeField(key: string, value: string | number | boolean | null): boolea
     case 'noteId':
     case 'note_id':
       return /^[0-9a-hjkmnp-tv-z]{26}$/.test(value)
+    case 'key':
+      return /^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*){1,3}$/.test(value)
+    case 'name':
+      return /^(?:Error|TypeError|SyntaxError|RangeError|AbortError|QuotaExceededError|InvalidStateError|SecurityError|NotAllowedError|unknown)$/.test(
+        value,
+      )
     case 'version':
       return /^[0-9.]{1,32}$/.test(value)
     default:

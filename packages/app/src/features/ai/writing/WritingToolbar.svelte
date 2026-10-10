@@ -2,13 +2,16 @@
   import { Copy, FileInput, Sparkles, Square, WandSparkles } from '@lucide/svelte'
   import Button from '@app/components/primitives/Button.svelte'
   import Modal from '@app/components/primitives/Modal.svelte'
-  import { getBackend, getI18n } from '@app/root/context'
+  import { getBackend, getI18n, getLogger } from '@app/root/context'
+  import { errorMessageKey } from '@app/i18n/errors'
+  import { logFailure } from '@app/log/logger'
   import type { WritingToolbarProps } from '@app/root/types'
   import type { AiWriteAction } from '@shared/ai-types'
 
   let { view, selection, noteTitle, onReplace, onInsert }: WritingToolbarProps = $props()
   const backend = getBackend()
   const i18n = getI18n()
+  const logger = getLogger()
   const ai = backend.capabilities.ai ? backend.ai : undefined
   let open = $state(false)
   let generating = $state(false)
@@ -46,7 +49,10 @@
       )
       fallback = result.isFallback
     } catch (cause) {
-      if (!abort.signal.aborted) error = cause instanceof Error ? cause.message : i18n.t('common.action_failed')
+      if (!abort.signal.aborted) {
+        logFailure(logger, 'ai.write.failed', cause)
+        error = i18n.t(errorMessageKey(cause))
+      }
     } finally {
       generating = false
       abort = null

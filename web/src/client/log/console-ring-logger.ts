@@ -42,7 +42,7 @@ const NUMERIC_FIELDS: Readonly<Record<string, true>> = {
 const BOOLEAN_FIELDS: Readonly<Record<string, true>> = { full: true, online: true, settingsPending: true }
 const LABEL_FIELDS: Readonly<Record<string, RegExp>> = {
   code: /^[a-z_]{1,40}$/,
-  name: /^(?:Error|TypeError|SyntaxError|AbortError|QuotaExceededError|InvalidStateError|SecurityError|NotAllowedError|unknown)$/,
+  name: /^(?:Error|TypeError|SyntaxError|RangeError|AbortError|QuotaExceededError|InvalidStateError|SecurityError|NotAllowedError|unknown)$/,
   mode: /^(?:production|development|demo|test)$/,
   keyKind: /^(?:outbox|content|session|shell|user)$/,
   phase: /^(?:validating|reading|writing|uploading|finalizing|completed|cancelled|failed)$/,
@@ -50,6 +50,7 @@ const LABEL_FIELDS: Readonly<Record<string, RegExp>> = {
   noteId: /^[0-9a-hjkmnp-tv-z]{26}$/i,
   writeId: /^(?:[0-9a-f-]{36}|[0-9a-hjkmnp-tv-z]{26})$/i,
   jobId: /^(?:[0-9a-f-]{36}|[0-9a-hjkmnp-tv-z]{26})$/i,
+  key: /^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*){1,3}$/,
 }
 
 export class ConsoleRingLogger implements Logger {
