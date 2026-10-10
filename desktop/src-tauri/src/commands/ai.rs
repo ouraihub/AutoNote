@@ -389,7 +389,10 @@ pub async fn ai_conversation_delete(context: Ctx<'_>, id: String) -> Result<Ok<(
 impl WriteArgs {
     fn validate(&self) -> Result<(), AppError> {
         let total = self.text.chars().count()
-            + self.context.as_deref().map_or(0, |value| value.chars().count());
+            + self
+                .context
+                .as_deref()
+                .map_or(0, |value| value.chars().count());
         if total > NOTE_MAX_CHARS {
             return Err(AppError::from(note_core::Error::invalid(
                 "request",
@@ -448,7 +451,11 @@ pub async fn ai_write(
     let result = write(&context, args, flag, on_event).await;
     context.jobs.finish(&job_id);
     if let Err(error) = &result {
-        tracing::warn!(command = "ai_write", code = error.code().as_str(), "ipc.command.failed");
+        tracing::warn!(
+            command = "ai_write",
+            code = error.code().as_str(),
+            "ipc.command.failed"
+        );
     }
     result.map(|(model, is_fallback)| ok(WriteResult { model, is_fallback }))
 }
@@ -483,7 +490,8 @@ async fn write(
             .into_iter()
             .find(|row| row.role == AiRole::Writing)
             .ok_or_else(|| note_core::Error::invalid("ai.role", "not configured"))?;
-        let (secret, model_id) = library.ai_resolve(Some(AiRole::Writing), binding.binding.as_ref())?;
+        let (secret, model_id) =
+            library.ai_resolve(Some(AiRole::Writing), binding.binding.as_ref())?;
         Ok((secret, model_id, binding.is_fallback))
     })
     .await?;
