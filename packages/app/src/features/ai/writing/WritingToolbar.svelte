@@ -20,9 +20,11 @@
   const hasSelection = $derived(selection.from !== selection.to && selection.text.length > 0)
   const label = $derived(hasSelection ? selection.text.slice(0, 28) : i18n.t('writing.continue'))
   const context = $derived(view ? view.state.sliceDoc(Math.max(0, selection.from - 1000), Math.min(view.state.doc.length, selection.to + 1000)) : '')
+  // The host rejects polish/rewrite/... without text and continue without context (bad_request).
+  const canRun = (next: AiWriteAction): boolean => (next === 'continue' ? context.trim().length > 0 : hasSelection)
 
   async function run(next: AiWriteAction): Promise<void> {
-    if (!ai || generating || (next !== 'continue' && !hasSelection)) return
+    if (!ai || generating || !canRun(next)) return
     preview = ''
     error = null
     fallback = false
@@ -68,8 +70,8 @@
   <div class="flex items-center gap-1 border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2 py-1">
     {#if hasSelection}<Button size="sm" variant="ghost" disabled={generating} onclick={() => void run('polish')}><Sparkles size={13} />{i18n.t('writing.polish')}</Button>{/if}
     {#if hasSelection}<Button size="sm" variant="ghost" disabled={generating} onclick={() => void run('rewrite')}>{i18n.t('writing.rewrite')}</Button>{/if}
-    <Button size="sm" variant="ghost" disabled={generating} onclick={() => void run(hasSelection ? 'shorten' : 'continue')}>{i18n.t(hasSelection ? 'writing.shorten' : 'writing.continue')}</Button>
-    <Button size="sm" variant="ghost" disabled={generating} onclick={() => void run(hasSelection ? 'expand' : 'continue')}><WandSparkles size={13} />{i18n.t(hasSelection ? 'writing.expand' : 'writing.generate_next')}</Button>
+    <Button size="sm" variant="ghost" disabled={generating || !canRun(hasSelection ? 'shorten' : 'continue')} onclick={() => void run(hasSelection ? 'shorten' : 'continue')}>{i18n.t(hasSelection ? 'writing.shorten' : 'writing.continue')}</Button>
+    <Button size="sm" variant="ghost" disabled={generating || !canRun(hasSelection ? 'expand' : 'continue')} onclick={() => void run(hasSelection ? 'expand' : 'continue')}><WandSparkles size={13} />{i18n.t(hasSelection ? 'writing.expand' : 'writing.generate_next')}</Button>
     <span class="min-w-0 flex-1 truncate text-[11px] text-[var(--text-tertiary)]">{label}</span>
   </div>
 {/if}
