@@ -105,15 +105,19 @@ aiRoutes.post('/endpoints/:id/probe', async (c) => {
   const probeUrl = `${endpoint.baseUrl}/models`
   const key = endpoint.keyCiphertext ? await decryptAiKey(c.env, endpoint.id, endpoint.keyCiphertext) : null
   if (!key) return c.json({ probeUrl, models: [], error: { kind: 'missing_key', status: null, message: null } })
+  let response: Response
   try {
-    const response = await fetch(probeUrl, { headers: providerHeaders(endpoint.protocol, key), signal: AbortSignal.timeout(20_000), redirect: 'error' })
-    if (!response.ok) return c.json({ probeUrl, models: [], error: probeError(response.status) })
-    const ids = modelIds(await response.json())
-    if (!ids.length) return c.json({ probeUrl, models: [], error: { kind: 'invalid_body', status: null, message: null } })
-    return c.json({ probeUrl, models: ids.map((id) => ({ id, ...inferAiModel(id, endpoint.protocol), typeSource: 'inferred', group: aiModelGroup(id) })), error: null })
-  } catch {
-    return c.json({ probeUrl, models: [], error: { kind: 'connect', status: null, message: null } })
+    response = await fetch(probeUrl, { headers: providerHeaders(endpoint.protocol, key), signal: AbortSignal.timeout(20_000), redirect: 'manual' })
+  } catch (error) {
+    return c.json({ probeUrl, models: [], error: { kind: error instanceof Error && error.name === 'TimeoutError' ? 'timeout' : 'connect', status: null, message: null } })
   }
+  if (!response.ok) return c.json({ probeUrl, models: [], error: probeError(response.status) })
+  try {
+    const ids = modelIds(await response.json())
+    if (ids.length) return c.json({ probeUrl, models: ids.map((id) => ({ id, ...inferAiModel(id, endpoint.protocol), typeSource: 'inferred', group: aiModelGroup(id) })), error: null })
+  } catch {
+  }
+  return c.json({ probeUrl, models: [], error: { kind: 'invalid_body', status: null, message: null } })
 })
 
 aiRoutes.get('/roles', async (c) => listRoles(c.env.DB, c.get('userId')))
@@ -164,16 +168,20 @@ aiRoutes.post('/chat', async (c) => {
 })
 aiRoutes.post('/write', async (c) => {
   const body = await readJson<AiWriteRequest>(c, JSON_BODY_LIMITS.note)
-  if (!isAction(body.action) || typeof body.text !== 'string' || body.text.length > 24_000 || (body.context !== undefined && typeof body.context !== 'string')) throw ApiError.badRequest('Invalid write request')
+  if (!isAction(body.action) || typeof body.text !== 'string' || typeof body.context !== 'string' && body.context !== undefined || body.text.length + (body.context?.length ?? 0) > 24_000 || (body.action !== 'continue' && !body.text.trim()) || (body.action === 'continue' && !body.context?.trim()) || (body.language !== undefined && body.language !== 'zh-CN' && body.language !== 'en-US')) throw ApiError.badRequest('Invalid write request')
   const model = await resolveModel(c.env, c.env.DB, c.get('userId'), 'writing')
-  return stream(c, model, [{ role: 'user', content: `${body.action}:\n${body.text}\n${body.context ?? ''}`.slice(0, 48_000) }], undefined, null)
+  const user = body.text ? `Text:\n${body.text}${body.context ? `\n\nContext:\n${body.context}` : ''}` : `Context:\n${body.context}`
+  return stream(c, model, [
+    { role: 'system', content: writeSystem(body) },
+    { role: 'user', content: user },
+  ], 2048, null)
 })
 
 async function listProviders(db: D1Database, userId: string): Promise<Response> {
   const { results: providers } = await db.prepare('SELECT id,name FROM ai_providers WHERE user_id = ?1 ORDER BY position,id').bind(userId).all<{ id: string; name: string }>()
   const { results: endpoints } = await db.prepare('SELECT id,provider_id AS providerId,slug,base_url AS baseUrl,protocol,key_ciphertext AS keyCiphertext FROM ai_endpoints WHERE user_id = ?1 ORDER BY position,id').bind(userId).all<{ id: string; providerId: string; slug: string; baseUrl: string; protocol: AiProtocol; keyCiphertext: string | null }>()
   const { results: models } = await db.prepare('SELECT endpoint_id AS endpointId,model_id AS id,model_type AS modelType,type_source AS typeSource,context_window AS contextWindow,can_vision AS canVision FROM ai_models WHERE user_id = ?1 ORDER BY position,id').bind(userId).all<{ endpointId: string; id: string; modelType: AiModelType; typeSource: string; contextWindow: number | null; canVision: number }>()
-  return Response.json(providers.map((provider) => ({ id: provider.id, name: provider.name, endpoints: endpoints.filter((endpoint) => endpoint.providerId === provider.id).map((endpoint) => ({ id: endpoint.id, slug: endpoint.slug, baseUrl: endpoint.baseUrl, protocol: endpoint.protocol, keyMasked: endpoint.keyCiphertext ? '****' : null, probeUrl: `${endpoint.baseUrl}/models`, models: models.filter((model) => model.endpointId === endpoint.id).map((model) => ({ id: model.id, modelType: model.modelType, typeSource: model.typeSource, contextWindow: model.contextWindow, canVision: Boolean(model.canVision) })) })) })))
+  return Response.json(providers.map((provider) => ({ id: provider.id, name: provider.name, endpoints: endpoints.filter((endpoint) => endpoint.providerId === provider.id).map((endpoint) => ({ id: endpoint.id, slug: endpoint.slug, baseUrl: normalizeBaseUrl(endpoint.baseUrl) ?? endpoint.baseUrl, protocol: endpoint.protocol, keyMasked: endpoint.keyCiphertext ? '****' : null, probeUrl: `${normalizeBaseUrl(endpoint.baseUrl) ?? endpoint.baseUrl}/models`, models: models.filter((model) => model.endpointId === endpoint.id).map((model) => ({ id: model.id, modelType: model.modelType, typeSource: model.typeSource, contextWindow: model.contextWindow, canVision: Boolean(model.canVision) })) })) })))
 }
 
 async function listRoles(db: D1Database, userId: string): Promise<Response> {
@@ -185,6 +193,7 @@ async function listRoles(db: D1Database, userId: string): Promise<Response> {
 async function loadEndpoint(db: D1Database, userId: string, id: string): Promise<{ id: string; baseUrl: string; protocol: AiProtocol; keyCiphertext: string | null }> {
   const row = await db.prepare('SELECT id,base_url AS baseUrl,protocol,key_ciphertext AS keyCiphertext FROM ai_endpoints WHERE id = ?1 AND user_id = ?2').bind(id, userId).first<{ id: string; baseUrl: string; protocol: AiProtocol; keyCiphertext: string | null }>()
   if (!row) throw ApiError.notFound('Endpoint not found')
+  row.baseUrl = normalizeBaseUrl(row.baseUrl) ?? row.baseUrl
   return row
 }
 
@@ -196,7 +205,7 @@ async function resolveModel(env: Env, db: D1Database, userId: string, role: Role
   if (!row.keyCiphertext) throw ApiError.conflict('AI API key is not configured')
   const key = await decryptAiKey(env, row.endpointId, row.keyCiphertext)
   if (!key) throw ApiError.conflict('AI API key is unavailable')
-  return { endpointId: row.endpointId, baseUrl: row.baseUrl, protocol: row.protocol, modelId: row.modelId, key, isFallback: 'role' in row && row.role === 'chat' && role === 'writing' }
+  return { endpointId: row.endpointId, baseUrl: normalizeBaseUrl(row.baseUrl) ?? row.baseUrl, protocol: row.protocol, modelId: row.modelId, key, isFallback: 'role' in row && row.role === 'chat' && role === 'writing' }
 }
 
 function stream(c: RouteContext, model: Model, messages: Message[], maxTokens: number | undefined, conversationId: string | null): Response {
@@ -213,7 +222,7 @@ function stream(c: RouteContext, model: Model, messages: Message[], maxTokens: n
     let output = ''
     try {
       controller.enqueue(encoder.encode(`data: ${JSON.stringify({ kind: 'meta', ...(conversationId ? { conversationId } : {}), model: { endpointId: model.endpointId, modelId: model.modelId }, isFallback: model.isFallback })}\n\n`))
-      const upstream = await fetch(`${model.baseUrl}/${model.protocol === 'anthropic-messages' ? 'messages' : model.protocol === 'openai-chat' ? 'chat/completions' : 'responses'}`, { method: 'POST', headers: { ...providerHeaders(model.protocol, model.key), 'content-type': 'application/json' }, body: JSON.stringify(buildBody(model.protocol, model.modelId, messages, maxTokens)), signal: c.req.raw.signal, redirect: 'error' })
+      const upstream = await fetch(`${model.baseUrl}/${model.protocol === 'anthropic-messages' ? 'messages' : model.protocol === 'openai-chat' ? 'chat/completions' : 'responses'}`, { method: 'POST', headers: { ...providerHeaders(model.protocol, model.key), 'content-type': 'application/json' }, body: JSON.stringify(buildBody(model.protocol, model.modelId, messages, maxTokens)), signal: c.req.raw.signal, redirect: 'manual' })
       if (!upstream.ok) { controller.enqueue(encoder.encode(`data: ${JSON.stringify({ kind: 'error', code: upstream.status === 401 || upstream.status === 403 ? 'unauthenticated' : upstream.status === 429 ? 'too_many_attempts' : 'internal', message: 'AI provider request failed' })}\n\n`)); controller.close(); return }
       if (!upstream.body) throw new Error('empty')
       const reader = upstream.body.getReader(); const decoder = new TextDecoder(); let buffer = ''
@@ -226,13 +235,36 @@ function stream(c: RouteContext, model: Model, messages: Message[], maxTokens: n
   return new Response(body, { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' } })
 }
 
+export function writeSystem(request: AiWriteRequest): string {
+  const actions = {
+    polish: 'Polish the selected text while preserving its meaning.',
+    rewrite: 'Rewrite the selected text clearly while preserving its meaning.',
+    shorten: 'Shorten the selected text while preserving its key meaning.',
+    expand: 'Expand the selected text with useful detail while preserving its meaning.',
+    continue: 'Continue writing naturally from the provided context.',
+  }
+  return `${actions[request.action]} Return only the resulting text, with no preamble or title. Write in ${request.language === 'zh-CN' ? 'Simplified Chinese' : 'English'}.${request.noteTitle ? ` The note is titled ${JSON.stringify(request.noteTitle)}.` : ''}`
+}
+
 function providerHeaders(protocol: AiProtocol, key: string): Record<string, string> { return protocol === 'anthropic-messages' ? { 'x-api-key': key, 'anthropic-version': '2023-06-01' } : { authorization: `Bearer ${key}` } }
 function buildBody(protocol: AiProtocol, model: string, messages: Message[], maxTokens?: number): unknown { const system = messages.filter((message) => message.role === 'system').map((message) => message.content).join('\n\n'); const turns = messages.filter((message) => message.role !== 'system'); if (protocol === 'anthropic-messages') return { model, max_tokens: maxTokens ?? 4096, stream: true, messages: turns, ...(system ? { system } : {}) }; if (protocol === 'openai-responses') return { model, stream: true, input: turns, ...(system ? { instructions: system } : {}) }; return { model, stream: true, stream_options: { include_usage: true }, messages, ...(maxTokens ? { max_tokens: maxTokens } : {}) } }
-function extractDelta(protocol: AiProtocol, line: string): string | null { const data = line.trim().replace(/^data:\s*/, ''); if (!data || data === '[DONE]') return null; try { const value: unknown = JSON.parse(data); const object = objectValue(value); if (!object) return null; if (protocol === 'anthropic-messages') return stringValue(objectValue(object.delta)?.text, 100_000); if (protocol === 'openai-responses') return object.type === 'response.output_text.delta' ? stringValue(object.delta, 100_000) : null; const choices = Array.isArray(object.choices) ? object.choices : []; return stringValue(objectValue(choices[0])?.delta && objectValue(objectValue(choices[0])?.delta)?.content, 100_000) }
-  catch { return null }
+export function extractDelta(protocol: AiProtocol, line: string): string | null {
+  const data = line.startsWith('data:') ? line.slice(5).trimStart() : line.trim()
+  if (!data || data === '[DONE]') return null
+  try {
+    const value: unknown = JSON.parse(data)
+    const object = objectValue(value)
+    if (!object) return null
+    const delta = protocol === 'anthropic-messages'
+      ? objectValue(object.delta)?.text
+      : protocol === 'openai-responses'
+        ? object.type === 'response.output_text.delta' ? object.delta : null
+        : objectValue(objectValue((Array.isArray(object.choices) ? object.choices : [])[0])?.delta)?.content
+    return typeof delta === 'string' ? delta : null
+  } catch { return null }
 }
 function modelIds(value: unknown): string[] { const object = objectValue(value); const values = Array.isArray(value) ? value : Array.isArray(object?.data) ? object.data : Array.isArray(object?.models) ? object.models : []; const ids: string[] = []; for (const item of values) { const id = typeof item === 'string' ? item.trim() : stringValue(objectValue(item)?.id, 200); if (id && !ids.includes(id)) ids.push(id) } return ids }
-function normalizeBaseUrl(raw: unknown): string | null { if (typeof raw !== 'string') return null; try { const url = new URL(raw.trim()); if (url.protocol !== 'https:') return null; url.hash = ''; url.search = ''; url.pathname = url.pathname.replace(/\/+$/, ''); if (!url.pathname.endsWith('/v1')) url.pathname += '/v1'; return url.toString().replace(/\/$/, '') } catch { return null } }
+export function normalizeBaseUrl(raw: unknown): string | null { if (typeof raw !== 'string') return null; try { const url = new URL(raw.trim()); if (url.protocol !== 'https:' || url.username || url.password) return null; url.hash = ''; url.search = ''; const path = url.pathname.replace(/\/+/g, '/').replace(/\/$/, ''); url.pathname = path.endsWith('/v1') ? path : `${path}/v1`; return url.toString().replace(/\/$/, '') } catch { return null } }
 async function assertSafeUrl(db: D1Database, value: string): Promise<void> { const host = new URL(value).hostname.toLowerCase(); const allow = await db.prepare("SELECT value FROM app_meta WHERE key='setting:ai_allow_private'").first<{ value: string }>(); if (allow?.value === '1') return; if (host === 'localhost' || host.endsWith('.localhost') || host === '::1' || host === '127.0.0.1' || host.startsWith('10.') || host.startsWith('192.168.') || /^172\.(1[6-9]|2\d|3[01])\./.test(host) || host.startsWith('169.254.') || host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80:')) throw ApiError.forbidden('Private AI endpoints are disabled') }
 function probeError(status: number) { return { kind: status === 401 || status === 403 ? 'unauthorized' : status === 404 ? 'not_found' : status === 429 ? 'rate_limited' : 'status', status, message: null } }
 function objectValue(value: unknown): Record<string, unknown> | null { return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null }

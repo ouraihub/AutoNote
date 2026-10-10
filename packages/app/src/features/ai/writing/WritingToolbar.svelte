@@ -22,7 +22,7 @@
   const context = $derived(view ? view.state.sliceDoc(Math.max(0, selection.from - 1000), Math.min(view.state.doc.length, selection.to + 1000)) : '')
 
   async function run(next: AiWriteAction): Promise<void> {
-    if (!ai || generating) return
+    if (!ai || generating || (next !== 'continue' && !hasSelection)) return
     preview = ''
     error = null
     fallback = false
@@ -34,6 +34,7 @@
         {
           action: next,
           text: selection.text,
+          language: i18n.locale,
           ...(context ? { context } : {}),
           noteTitle,
         },
@@ -65,7 +66,7 @@
 
 {#if ai}
   <div class="flex items-center gap-1 border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2 py-1">
-    <Button size="sm" variant="ghost" disabled={generating} onclick={() => void run('polish')}><Sparkles size={13} />{i18n.t('writing.polish')}</Button>
+    {#if hasSelection}<Button size="sm" variant="ghost" disabled={generating} onclick={() => void run('polish')}><Sparkles size={13} />{i18n.t('writing.polish')}</Button>{/if}
     {#if hasSelection}<Button size="sm" variant="ghost" disabled={generating} onclick={() => void run('rewrite')}>{i18n.t('writing.rewrite')}</Button>{/if}
     <Button size="sm" variant="ghost" disabled={generating} onclick={() => void run(hasSelection ? 'shorten' : 'continue')}>{i18n.t(hasSelection ? 'writing.shorten' : 'writing.continue')}</Button>
     <Button size="sm" variant="ghost" disabled={generating} onclick={() => void run(hasSelection ? 'expand' : 'continue')}><WandSparkles size={13} />{i18n.t(hasSelection ? 'writing.expand' : 'writing.generate_next')}</Button>

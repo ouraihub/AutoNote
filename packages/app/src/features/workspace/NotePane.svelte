@@ -572,7 +572,6 @@
     min-width: 0;
     flex-shrink: 0;
   }
-  /* The writing toolbar sits under the editor; a 100%-tall editor would push it under the status bar. */
   .editor-side > :global(.ink-editor) {
     flex: 1;
     min-height: 0;
