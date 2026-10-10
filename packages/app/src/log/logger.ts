@@ -22,7 +22,6 @@ export function isSafeLogFields(fields: LogFields | undefined): boolean {
   })
 }
 
-/** Final-layer failure log: expected errors warn with a code, program errors error with a name; cancels are silent. */
 export function logFailure(logger: Logger, event: string, error: unknown, context: LogFields = {}): void {
   if (isBackendError(error)) {
     if (error.code !== 'cancelled') logger.warn(event, { ...context, code: error.code })

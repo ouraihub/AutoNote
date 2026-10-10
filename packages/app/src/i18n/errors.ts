@@ -2,7 +2,6 @@ import type { ErrorCode } from '@shared/backend-types'
 import type { MessageKey } from '@shared/locales/en-US'
 import { isBackendError } from '../backend/errors'
 
-/** Expected app-level failure with a translatable message (not a port error). */
 export class AppError extends Error {
   constructor(readonly key: MessageKey) {
     super(key)
@@ -45,7 +44,6 @@ export function messageKeyForError(code: ErrorCode): MessageKey {
   return MESSAGE_KEY_BY_ERROR_CODE[code]
 }
 
-/** Expected errors keep their specific text; program errors never leak `message` to users. */
 export function errorMessageKey(error: unknown): MessageKey {
   if (isBackendError(error)) return messageKeyForError(error.code)
   if (error instanceof AppError) return error.key

@@ -7,7 +7,6 @@
   let { onView }: { onView(view: EditorView | null): void } = $props()
   const services = createEditorServices()
   const settings: EditorSettings = { fontSize: 14, fontFamily: 'mono', lineNumbers: false, typewriter: false, focusMode: false, spellcheck: false, showToolbar: false, tabSize: 2, autoSaveDelay: 1000 }
-  // Mimics settings being re-created with identical values: the dependency changes, the revision string does not.
   let tick = $state(0)
   const liveServices = {
     title: () => '',
