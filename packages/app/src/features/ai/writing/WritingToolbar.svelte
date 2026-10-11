@@ -1,14 +1,15 @@
 <script lang="ts">
   import { Copy, FileInput, Sparkles, Square, WandSparkles } from '@lucide/svelte'
+  import { onDestroy, untrack } from 'svelte'
   import Button from '@app/components/primitives/Button.svelte'
   import Modal from '@app/components/primitives/Modal.svelte'
   import { getBackend, getI18n, getLogger } from '@app/root/context'
   import { errorMessageKey } from '@app/i18n/errors'
   import { logFailure } from '@app/log/logger'
-  import type { WritingSelection, WritingToolbarProps } from '@app/root/types'
+  import type { WritingSnapshot, WritingToolbarProps } from '@app/root/types'
   import type { AiWriteAction } from '@shared/ai-types'
 
-  let { view, selection, noteId, noteTitle, onReplace, onInsert }: WritingToolbarProps = $props()
+  let { view, selection, noteId, noteTitle, noteRev, editorGeneration, onReplace, onInsert }: WritingToolbarProps = $props()
   const backend = getBackend()
   const i18n = getI18n()
   const logger = getLogger()
@@ -22,70 +23,103 @@
   let fallback = $state(false)
   let error = $state<string | null>(null)
   let abort = $state<AbortController | null>(null)
-  let requestSelection = $state<WritingSelection | null>(null)
+  let requestSnapshot = $state.raw<WritingSnapshot | null>(null)
+  let alive = true
+  const encoder = new TextEncoder()
+  const decoder = new TextDecoder()
 
-  function bounded(value: string, maxBytes: number): string {
-    const bytes = new TextEncoder().encode(value)
-    return bytes.length <= maxBytes ? value : new TextDecoder().decode(bytes.slice(0, maxBytes))
+  function bounded(value: string, maxBytes: number, rejectOversized = false): string | null {
+    const bytes = new Uint8Array(maxBytes)
+    const { read, written } = encoder.encodeInto(value, bytes)
+    if (rejectOversized && read !== value.length) return null
+    return decoder.decode(bytes.subarray(0, written))
   }
+  function cancel(): void {
+    abort?.abort()
+    abort = null
+    generating = false
+  }
+  $effect.pre(() => {
+    void noteId
+    void view
+    void editorGeneration
+    untrack(cancel)
+  })
+  onDestroy(() => { alive = false; cancel() })
   const hasSelection = $derived(selection.from !== selection.to && selection.text.length > 0)
   const label = $derived(hasSelection ? selection.text.slice(0, 28) : i18n.t('writing.continue'))
   const context = $derived(view ? view.state.sliceDoc(Math.max(0, selection.from - 1000), Math.min(view.state.doc.length, selection.to + 1000)) : '')
   const canRun = (next: AiWriteAction): boolean => (next === 'continue' ? context.trim().length > 0 : hasSelection)
 
   async function run(next: AiWriteAction): Promise<void> {
-    if (!ai || generating || !canRun(next) || !view) return
-    const snapshot = { ...selection, text: view.state.sliceDoc(selection.from, selection.to) }
-    requestSelection = snapshot
-    let selectedText = bounded(snapshot.text, MAX_SELECTED_BYTES)
-    let beforeText = bounded(view.state.sliceDoc(Math.max(0, snapshot.from - 1000), snapshot.from), MAX_CONTEXT_BYTES)
-    let afterText = bounded(view.state.sliceDoc(snapshot.to, Math.min(view.state.doc.length, snapshot.to + 1000)), MAX_CONTEXT_BYTES)
-    while (new TextEncoder().encode(selectedText + beforeText + afterText).length > MAX_TOTAL_BYTES) {
-      if (afterText) afterText = bounded(afterText, Math.max(0, new TextEncoder().encode(afterText).length - 256))
-      else if (beforeText) beforeText = bounded(beforeText, Math.max(0, new TextEncoder().encode(beforeText).length - 256))
-      else selectedText = bounded(selectedText, Math.max(0, new TextEncoder().encode(selectedText).length - 256))
+    if (!ai || generating || !canRun(next) || !view || !view.dom.isConnected || view.compositionStarted || view.composing) return
+    const target = view
+    const { from, to, head } = target.state.selection.main
+    const snapshot: WritingSnapshot = {
+      from, to, cursorOffset: head, docLength: target.state.doc.length,
+      text: target.state.sliceDoc(from, to), doc: target.state.doc,
+      noteId, view: target, editorGeneration, revision: noteRev,
     }
+    const selectedText = bounded(snapshot.text, MAX_SELECTED_BYTES, true)
+    if (selectedText === null) {
+      error = i18n.t('api.error.payload_too_large')
+      open = true
+      return
+    }
+    requestSnapshot = snapshot
+    let beforeStart = Math.max(0, from - 1000)
+    let afterEnd = Math.min(snapshot.docLength, to + 1000)
+    if (beforeStart > 0 && /[\uDC00-\uDFFF]/.test(target.state.sliceDoc(beforeStart, beforeStart + 1))) beforeStart -= 1
+    if (afterEnd < snapshot.docLength && /[\uD800-\uDBFF]/.test(target.state.sliceDoc(afterEnd - 1, afterEnd))) afterEnd += 1
+    const beforeText = bounded(target.state.sliceDoc(beforeStart, from), MAX_CONTEXT_BYTES)!
+    const remaining = MAX_TOTAL_BYTES - encoder.encode(selectedText).length - encoder.encode(beforeText).length
+    const afterText = remaining > 0 ? bounded(target.state.sliceDoc(to, afterEnd), Math.min(MAX_CONTEXT_BYTES, remaining))! : ''
     preview = ''
     error = null
     fallback = false
     open = true
     generating = true
-    abort = new AbortController()
+    const controller = new AbortController()
+    abort = controller
+    const current = (): boolean => alive && abort === controller && noteId === snapshot.noteId &&
+      view === snapshot.view && editorGeneration === snapshot.editorGeneration
     try {
       const result = await ai.write(
         {
           action: next,
-          noteId,
+          noteId: snapshot.noteId,
           selectedText,
           beforeText,
           afterText,
-          cursorOffset: snapshot.from,
+          cursorOffset: snapshot.cursorOffset,
           language: i18n.locale,
           title: noteTitle,
         },
         (event) => {
-          if (event.kind === 'delta') preview += event.text
+          if (current() && !controller.signal.aborted && event.kind === 'delta') preview += event.text
         },
-        { signal: abort.signal },
+        { signal: controller.signal },
       )
-      fallback = result.isFallback
+      if (current() && !controller.signal.aborted) fallback = result.isFallback
     } catch (cause) {
-      if (!abort.signal.aborted) {
+      if (current() && !controller.signal.aborted) {
         logFailure(logger, 'ai.write.failed', cause)
         error = i18n.t(errorMessageKey(cause))
       }
     } finally {
-      generating = false
-      abort = null
+      if (current()) {
+        generating = false
+        abort = null
+      }
     }
   }
   function replace(): void {
-    if (!preview || !requestSelection || !onReplace(preview, requestSelection)) error = i18n.t('writing.selection_changed')
+    if (!preview || !requestSnapshot || !onReplace(preview, requestSnapshot)) error = i18n.t('writing.selection_changed')
     else open = false
   }
   function insert(): void {
-    if (preview) onInsert(preview)
-    open = false
+    if (!preview || !requestSnapshot || !onInsert(preview, requestSnapshot)) error = i18n.t('writing.selection_changed')
+    else open = false
   }
   async function copy(): Promise<void> {
     await navigator.clipboard.writeText(preview)

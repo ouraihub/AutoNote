@@ -80,7 +80,7 @@
     const [endpointId, modelId] = JSON.parse(model) as [string, string]
     return { endpointId, modelId }
   }
-  const noteContext = () => (withNote && note ? { title: note.title, content: note.content } : undefined)
+  const noteContext = () => (withNote && note ? { id: note.id, title: note.title, content: note.content } : undefined)
   async function send(regenerate = false): Promise<void> {
     if (!session) return
     const text = draft

@@ -17,7 +17,16 @@ function streamed(chunks: readonly string[]): Response {
 }
 
 it('streams split UTF-8 SSE events and refuses a truncated result', async () => {
-  const request = { action: 'polish' as const, text: '汉字' }
+  const request = {
+    action: 'polish' as const,
+    noteId: 'note',
+    selectedText: '汉字',
+    beforeText: '',
+    afterText: '',
+    cursorOffset: 0,
+    language: 'zh-CN',
+    title: '',
+  }
   const meta = 'data: {"kind":"meta","model":{"endpointId":"ep","modelId":"gpt"},"isFallback":true}\n\n'
   const delta = 'data: {"kind":"delta","text":"汉字"}\n\n'
   const done = 'data: {"kind":"done","inputTokens":1,"outputTokens":2}\n\n'

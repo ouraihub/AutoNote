@@ -15,9 +15,9 @@ it('retains whitespace-only and surrounding spaces from streamed model text', ()
 })
 
 it('asks for the selected UI language and uses continuation rather than polishing when no text is selected', () => {
-  const continuation = writeSystem({ action: 'continue', text: '', context: '秋天来了。', language: 'zh-CN' })
+  const continuation = writeSystem({ action: 'continue', noteId: 'note', selectedText: '', beforeText: '秋天来了。', afterText: '', cursorOffset: 5, language: 'zh-CN', title: '' })
   expect(continuation).toContain('Continue writing naturally')
   expect(continuation).toContain('Write in Simplified Chinese')
   expect(continuation).not.toContain('Polish')
-  expect(writeSystem({ action: 'polish', text: 'Hello.', language: 'en-US' })).toContain('Write in English')
+  expect(writeSystem({ action: 'polish', noteId: 'note', selectedText: 'Hello.', beforeText: '', afterText: '', cursorOffset: 0, language: 'en-US', title: '' })).toContain('Write in English')
 })

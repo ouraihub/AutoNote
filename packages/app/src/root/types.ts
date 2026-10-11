@@ -46,13 +46,23 @@ export interface WritingSelection {
   doc: Text
 }
 
+export interface WritingSnapshot extends WritingSelection {
+  noteId: string
+  view: EditorView
+  editorGeneration: number
+  revision: number
+  cursorOffset: number
+}
+
 export interface WritingToolbarProps {
   view: EditorView | null
   selection: WritingSelection
   noteId: string
   noteTitle: string
-  onReplace(text: string, selection: WritingSelection): boolean
-  onInsert(text: string): void
+  noteRev: number
+  editorGeneration: number
+  onReplace(text: string, snapshot: WritingSnapshot): boolean
+  onInsert(text: string, snapshot: WritingSnapshot): boolean
 }
 
 export interface WritingToolbarExtension {

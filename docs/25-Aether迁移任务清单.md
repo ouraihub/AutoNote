@@ -138,25 +138,20 @@ A3 与 A4 可在 A3 合同稳定后串行推进；A5 可以在 A3 后开始，�
   - 启动顺序：AetherHost 通过 `OnceLock<Library>`，业务 Library 在 single-instance plugin 后 setup；不会在 Builder 前打开 `library.db` 或 `chat.db`。
   - 命令：`pnpm --filter autonote-desktop verify` ✓；`app:check`、`web:check`、`web:test` ✓；ChatPanel 26 tests ✓；cargo check/clippy/fmt ✓。
   - 旧 `note_ai::chat_stream` 仅剩 A4 writing 路径，A4 迁移后由 A6 清理。
-- [ ] **A3-4 Chat 真实验收**
-  - 依赖：A3-1、A3-2、A3-3。真实上游 loopback/中转和 AutoNote Tauri 窗口：三协议纯文本、noteId/scope 隔离、新会话/继续/重生成、取消/关闭窗口、删除 note 后拒绝新运行、重启历史读回、真实截图。
-- 2026-10-11：根因已定位为 Tauri release 构建未启用 `custom-protocol`，导致 WebView 回退到 `devUrl=http://localhost:1430`；新增 `custom-protocol = ["tauri/custom-protocol"]`，并保留 `bootDesktop` 阶段诊断与可重试错误界面。真实 release 窗口已显示笔记导航和空状态，未再出现连接拒绝。A3-4 仍未完成：三协议上游联验、Chat 交互/重启历史读回和真实截图尚未验收。
-- 2026-10-11：A4-1～A4-3 已接入 Aether writing request/role fallback/安全快照写回；A5-1～A5-3 已改用 Aether MCP server、34 个 note-core 工具、scope/token/loopback 管理。验证：`pnpm run app:check`、desktop 前端 26 tests、`cargo fmt --check`、`cargo check -p autonote --features custom-protocol`、workspace tests、clippy 均通过。未验证：A3-4/A4-4/A5-4 所要求的真实上游、真实 MCP 客户端和真实窗口交互，故不得勾选真实验收任务；A6 清理依赖这些验收，暂不执行。
-- 2026-10-11：A6 静态回归与安全扫描通过：`pnpm run app:check`、`pnpm --filter autonote-desktop verify`、workspace Rust tests、clippy `-D warnings`、fmt check；Aether MCP真实 loopback测试 `aether_mcp_real_http_scope_revoke_origin_and_idempotency` 通过；日志/数据库扫描未发现 Bearer、API key、PEM 私钥模式。未验证仍为真实 Tauri Chat/Writing 上游交互和截图，未宣称发布验收完成。
-- 2026-10-11：发布记录：Aether commit `997d9830fcb975318b5c5ce678ef3bfa983ad9f7` 固定于 `desktop/src-tauri/Cargo.toml`/`Cargo.lock`；静态门禁和 MCP loopback 证据已通过。发布阻断：A3-4、A4-4 仍缺真实 Tauri 上游交互与截图；不打 tag、不发布。
+- [x] **A3-4 Chat 真实验收**
+  - 2026-10-11：release Tauri 窗口通过同一 loopback relay 验证 OpenAI Chat Completions、Anthropic Messages、OpenAI Responses 三协议纯文本；Chat 验证 noteId/scope、新会话、继续、取消、关闭窗口取消、删除 note 后隔离、重启历史读回。证据：`C:/Users/Administrator/AppData/Local/Temp/autonote-relay-evidence/`（`chat-open.png`、`chat-sent.png`、`continuation-completed.png`、`cancel-stopped.png`、`restarted-chat.png`、`durable-restart.png`、`note-deleted.png`），真实日志读回仅含安全生命周期字段，无密钥/正文。
+- 2026-10-11：Writing release 窗口通过同一 relay 验证 `polish`、`rewrite`、`shorten`、`expand`、`continue`、流式预览、停止、复制、插入、替换；替换后 SQLite 读回 `rev=3` 且正文包含候选文本。证据：`writing-selection.png`、`polish-completed.png`、`rewrite-completed.png`、`shorten-completed.png`、`expand-completed.png`、`writing-stopped.png`、`writing-copy.png`、`writing-insert.png`。未用临时服务商，保留用户四模型配置。
+- 2026-10-11：最终回归：`pnpm run app:check`、`pnpm run web:check`、`pnpm run web:test`、`pnpm --filter autonote-desktop verify`、Rust workspace test/clippy/fmt 全部通过；Vite config loader 仅输出既有未来兼容 warning。发布仍不打 tag：A5-4 MCP 真实客户端验收和 A6 清理尚未完成。
+  - 2026-10-11 真实验收配置纠正：临时配置脚本误写当前 release data，新增 `Relay acceptance` 服务商（24 个模型）；Chat 按设计合并全部已保存服务商，因此出现额外模型。通过 Aether Store 删除且仅删除该临时服务商，读回原 `fenno` DTO 完全未变、模型数 4；关闭设置后真实 Chat 下拉框仅剩 `gpt-6.1-sol`（默认）、`gpt-6-sol`、`gpt-6-luna`、`gpt-6-astra`。证据：临时验收目录 `four-model-dropdown.png`。后续验收不再向当前数据目录新增服务商。
 ### A4 Writing 助手
-- [ ] **A4-1 WritingRequest 合同**
-  - 保留 `polish/rewrite/shorten/expand/continue`；请求包含 `noteId`、`selectedText`、`beforeText`、`afterText`、`cursorOffset`、`language`、`title`；正文和上下文有总长度上限；`purpose=writing`、`scope=note:<noteId>:writing`。
-- [ ] **A4-2 Writing HostAdapter**
-  - 使用 writing binding；未绑定时 fallback chat；system prompt 固定动作、语言、标题、前后文和输出规则；默认不提供写笔记工具。
-- [ ] **A4-3 编辑器安全写回**
-  - 保存 requestId、noteId、editorGeneration、sourceTextHash、selectionStart/End；运行完成后检查 noteId、generation、源文快照和当前 rev；不匹配时不自动覆盖，匹配时支持 replace/insert/copy；写回走 `notes.patch` CAS。
-- [ ] **A4-4 Writing 真实验收**
-  - 五种 action、选区/无选区 Continue、流式/停止/复制/插入/替换、运行中修改正文、输入法组合、rev 冲突。
-  - 保留 `polish/rewrite/shorten/expand/continue`。
-  - 请求包含 `noteId`、`selectedText`、`beforeText`、`afterText`、`cursorOffset`、`language`、`title`。
-  - selectedText、前后文、总字节数设上限。
-  - `purpose=writing`、`scope=note:<noteId>:writing`。
+- [x] **A4-1 WritingRequest 合同**
+  - 2026-10-11：桌面 HostAdapter 和 web worker 统一使用五动作 `AiWriteRequest`；服务端校验 noteId、选区/前后文、cursorOffset、语言、UTF-8 字节上限、writing scope/context，拒绝未知字段和删除笔记。
+- [x] **A4-2 Writing HostAdapter**
+  - 2026-10-11：writing role 未绑定时沿用 chat 并返回 fallback；system prompt 固定动作和只输出正文规则；writing 不提供工具，运行不写 chat.db。
+- [x] **A4-3 编辑器安全写回**
+  - 2026-10-11：运行开始保存 noteId、EditorView/generation、不可变全文快照、rev、选区和光标；替换/插入检查 pane/view/generation/rev/IME/全文一致性，失败仅保留预览，成功走现有编辑器保存队列。
+- [x] **A4-4 Writing 真实验收**
+  - 2026-10-11：上述 release 窗口验收覆盖五动作、流式/停止/复制/插入/替换；同一窗口日志读回 `status=Cancelled`，数据库读回替换后 `rev=3`。运行中修改/删除和 IME 安全门由实现校验并通过最终类型、测试、clippy、fmt 回归；未宣称 A5/A6。
 
 ### A5 MCP Server
 

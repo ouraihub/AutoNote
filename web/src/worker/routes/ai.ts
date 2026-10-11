@@ -168,9 +168,10 @@ aiRoutes.post('/chat', async (c) => {
 })
 aiRoutes.post('/write', async (c) => {
   const body = await readJson<AiWriteRequest>(c, JSON_BODY_LIMITS.note)
-  if (!isAction(body.action) || typeof body.text !== 'string' || typeof body.context !== 'string' && body.context !== undefined || body.text.length + (body.context?.length ?? 0) > 24_000 || (body.action !== 'continue' && !body.text.trim()) || (body.action === 'continue' && !body.context?.trim()) || (body.language !== undefined && body.language !== 'zh-CN' && body.language !== 'en-US')) throw ApiError.badRequest('Invalid write request')
+  const context = `${body.beforeText}${body.afterText}`
+  if (!isAction(body.action) || typeof body.noteId !== 'string' || !body.noteId || typeof body.selectedText !== 'string' || typeof body.beforeText !== 'string' || typeof body.afterText !== 'string' || typeof body.cursorOffset !== 'number' || !Number.isSafeInteger(body.cursorOffset) || typeof body.title !== 'string' || typeof body.language !== 'string' || (body.language !== 'zh-CN' && body.language !== 'en-US') || body.selectedText.length + context.length > 24_000 || (body.action !== 'continue' && !body.selectedText.trim()) || (body.action === 'continue' && !context.trim())) throw ApiError.badRequest('Invalid write request')
   const model = await resolveModel(c.env, c.env.DB, c.get('userId'), 'writing')
-  const user = body.text ? `Text:\n${body.text}${body.context ? `\n\nContext:\n${body.context}` : ''}` : `Context:\n${body.context}`
+  const user = body.selectedText ? `Text:\n${body.selectedText}${context ? `\n\nContext:\n${context}` : ''}` : `Context:\n${context}`
   return stream(c, model, [
     { role: 'system', content: writeSystem(body) },
     { role: 'user', content: user },
@@ -243,7 +244,7 @@ export function writeSystem(request: AiWriteRequest): string {
     expand: 'Expand the selected text with useful detail while preserving its meaning.',
     continue: 'Continue writing naturally from the provided context.',
   }
-  return `${actions[request.action]} Return only the resulting text, with no preamble or title. Write in ${request.language === 'zh-CN' ? 'Simplified Chinese' : 'English'}.${request.noteTitle ? ` The note is titled ${JSON.stringify(request.noteTitle)}.` : ''}`
+  return `${actions[request.action]} Return only the resulting text, with no preamble or title. Write in ${request.language === 'zh-CN' ? 'Simplified Chinese' : 'English'}.${request.title ? ` The note is titled ${JSON.stringify(request.title)}.` : ''}`
 }
 
 function providerHeaders(protocol: AiProtocol, key: string): Record<string, string> { return protocol === 'anthropic-messages' ? { 'x-api-key': key, 'anthropic-version': '2023-06-01' } : { authorization: `Bearer ${key}` } }

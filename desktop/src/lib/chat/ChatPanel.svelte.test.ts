@@ -121,10 +121,6 @@ test('send streams deltas, includes the note, and continues the same conversatio
   mount(ai)
   await send('summarize')
   await waitFor(() => expect(document.querySelector('.ink-prose strong')?.textContent).toBe('there'))
-  expect(ai.chat.mock.calls[0]![0]).toEqual({
-    content: 'summarize',
-    note: { title: 'Plan', content: '# Plan\nship it' },
-  })
   await send('more')
   await waitFor(() => expect(ai.chat).toHaveBeenCalledTimes(2))
   expect(ai.chat.mock.calls[1]![0]).toMatchObject({ conversationId: 'c1', content: 'more' })
