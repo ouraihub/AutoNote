@@ -121,10 +121,13 @@ export type AiWriteAction = 'polish' | 'rewrite' | 'shorten' | 'expand' | 'conti
 
 export interface AiWriteRequest {
   action: AiWriteAction
-  text: string
-  context?: string
-  language?: string
-  noteTitle?: string
+  noteId: string
+  selectedText: string
+  beforeText: string
+  afterText: string
+  cursorOffset: number
+  language: string
+  title: string
 }
 
 export type AiWriteEvent =

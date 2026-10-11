@@ -397,31 +397,63 @@ export class TauriTransport implements IpcTransport {
     options?: CallOptions,
   ): Promise<{ model: AiModelRef; isFallback: boolean }> {
     if (options?.signal?.aborted) throw cancelled()
-    const jobId = crypto.randomUUID()
     const channel = new Channel<unknown>()
     let open = true
+    let runId: string | undefined
+    let usage = { inputTokens: null as number | null, outputTokens: null as number | null }
+    const terminal = Promise.withResolvers<unknown>()
     channel.onmessage = (event) => {
-      if (!open || this.#disposed || options?.signal?.aborted || !record(event)) return
-      if (event.kind === 'delta' && typeof event.text === 'string') onEvent({ kind: 'delta', text: event.text })
-      else if (event.kind === 'done')
-        onEvent({
-          kind: 'done',
-          inputTokens: Number.isSafeInteger(event.inputTokens) ? (event.inputTokens as number) : null,
-          outputTokens: Number.isSafeInteger(event.outputTokens) ? (event.outputTokens as number) : null,
-        })
+      if (!open || !record(event)) return
+      if (event.kind === 'end') terminal.resolve(event)
+      else if (!this.#disposed && !options?.signal?.aborted) {
+        if (event.kind === 'text_delta' && typeof event.text === 'string') onEvent({ kind: 'delta', text: event.text })
+        else if (event.kind === 'usage')
+          usage = {
+            inputTokens: Number.isSafeInteger(event.inputTokens) ? (event.inputTokens as number) : null,
+            outputTokens: Number.isSafeInteger(event.outputTokens) ? (event.outputTokens as number) : null,
+          }
+      }
     }
-    const cancel = () => this.invoke('jobs_cancel', { jobId })
-    const abort = () => {
-      void cancel().catch(() => {
-        this.cancellationFailed = true
-      })
-    }
-    this.#jobs.set(jobId, cancel)
+    const cancel = () => (runId ? this.#call('plugin:aether|chat_cancel', { runId }) : Promise.resolve())
+    const abort = () => void cancel().catch(() => (this.cancellationFailed = true))
     options?.signal?.addEventListener('abort', abort, { once: true })
     try {
-      const result = await this.#call<unknown>('ai_write', { jobId, request, onEvent: channel })
-      validateResponse('ai_write', result)
-      const { model, isFallback } = result as CommandResults['ai_write']
+      const roles = await this.#call<unknown>('ai_roles_get', undefined, options)
+      if (!Array.isArray(roles)) throw invalidResponse()
+      const writing = roles.find((role) => record(role) && role.role === 'writing')
+      if (!record(writing) || !record(writing.binding)) throw invalidResponse()
+      const model = {
+        endpointId: writing.binding.endpointId as string,
+        modelId: writing.binding.modelId as string,
+      }
+      const isFallback = writing.isFallback === true
+      const accepted = await this.#call<unknown>(
+        'plugin:aether|chat_run',
+        {
+          request: {
+            purpose: 'writing',
+            model: null,
+            skills: [],
+            context: { kind: 'autonote-note', id: request.noteId },
+            scope: `note:${request.noteId}:writing`,
+            input: `Action: ${request.action}\nTitle: ${request.title}\nSelected text:\n${request.selectedText}\nBefore:\n${request.beforeText}\nAfter:\n${request.afterText}\nCursor offset: ${request.cursorOffset}`,
+            conversationId: null,
+            regenerate: false,
+            language: request.language,
+          },
+          onEvent: channel,
+        },
+        options,
+      )
+      if (!record(accepted) || typeof accepted.runId !== 'string') throw invalidResponse()
+      runId = accepted.runId
+      this.#jobs.set(runId, cancel)
+      if (options?.signal?.aborted || this.#disposed) abort()
+      const end = await terminal.promise
+      if (!record(end)) throw invalidResponse()
+      if (end.status === 'cancelled') throw cancelled()
+      if (end.status !== 'completed') throw ipcError(end.error)
+      onEvent({ kind: 'done', ...usage })
       return { model, isFallback }
     } catch (error) {
       reportFailure('ai_write', error)
@@ -429,7 +461,7 @@ export class TauriTransport implements IpcTransport {
     } finally {
       open = false
       options?.signal?.removeEventListener('abort', abort)
-      this.#jobs.delete(jobId)
+      if (runId) this.#jobs.delete(runId)
     }
   }
   async onPrepareClose(flush: () => Promise<FlushResult>, closing: (active: boolean) => void): Promise<() => void> {

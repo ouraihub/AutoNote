@@ -267,3 +267,85 @@ pub const TOOLS: [ToolSpec; 34] = [
 pub fn find_tool(name: &str) -> Option<&'static ToolSpec> {
     TOOLS.iter().find(|tool| tool.name == name)
 }
+
+use std::sync::{Arc, OnceLock};
+
+use aether_mcp_server::{
+    CallContext, DEFAULT_MAX_REQUEST_BYTES, ExposedTool, KitError, ScopeSpec, ToolHandler,
+};
+use note_core::Library;
+use serde_json::{Value, json};
+
+/// Converts the frozen AutoNote registry into Aether handlers without opening the library before setup.
+pub fn exposed_tools(library: Arc<OnceLock<Arc<Library>>>) -> Vec<ExposedTool> {
+    let fixture: Value = serde_json::from_str(include_str!("../../../fixtures/mcp-tools.json"))
+        .unwrap_or_else(|_| json!({"tools": []}));
+    TOOLS
+        .iter()
+        .map(|spec| {
+            let schema = fixture["tools"]
+                .as_array()
+                .and_then(|tools| tools.iter().find(|tool| tool["name"] == spec.name))
+                .map(|tool| tool["inputSchema"].clone())
+                .unwrap_or_else(|| json!({"type":"object"}));
+            let library = Arc::clone(&library);
+            let name = spec.name.to_owned();
+            let write = !matches!(spec.scope, ToolScope::Read);
+            let handler: ToolHandler = Arc::new(move |args, _ctx: CallContext| {
+                let library = Arc::clone(&library);
+                let name = name.clone();
+                Box::pin(async move {
+                    let library = library
+                        .get()
+                        .ok_or_else(|| {
+                            KitError::internal(std::io::Error::other("library not ready"))
+                        })?
+                        .clone();
+                    tokio::task::spawn_blocking(move || {
+                        if write {
+                            library.execute_mcp_write(&name, &args)
+                        } else {
+                            library.execute_mcp_read(&name, &args)
+                        }
+                    })
+                    .await
+                    .map_err(KitError::internal)?
+                    .map_err(|_| KitError::internal(std::io::Error::other("MCP operation failed")))
+                })
+            });
+            ExposedTool {
+                name: spec.name,
+                description: "AutoNote knowledge-base operation",
+                input_schema: schema,
+                scope: match spec.scope {
+                    ToolScope::Read => "notes:read",
+                    ToolScope::Write => "notes:write",
+                    ToolScope::Trash => "notes:trash",
+                },
+                read_only: spec.annotations.read_only_hint,
+                destructive: spec.annotations.destructive_hint,
+                idempotent: spec.annotations.idempotent_hint,
+                max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
+                handler,
+            }
+        })
+        .collect()
+}
+
+pub const SCOPES: [ScopeSpec; 3] = [
+    ScopeSpec {
+        id: "notes:read",
+        label_key: "mcp.scope.read",
+        destructive: false,
+    },
+    ScopeSpec {
+        id: "notes:write",
+        label_key: "mcp.scope.write",
+        destructive: false,
+    },
+    ScopeSpec {
+        id: "notes:trash",
+        label_key: "mcp.scope.trash",
+        destructive: true,
+    },
+];

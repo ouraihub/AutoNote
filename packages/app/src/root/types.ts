@@ -49,6 +49,7 @@ export interface WritingSelection {
 export interface WritingToolbarProps {
   view: EditorView | null
   selection: WritingSelection
+  noteId: string
   noteTitle: string
   onReplace(text: string, selection: WritingSelection): boolean
   onInsert(text: string): void

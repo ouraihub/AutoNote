@@ -175,23 +175,24 @@ fn finish_exit(app: &tauri::AppHandle) {
     }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
+        let server = app.state::<aether_mcp_server::McpServer>();
         let context = app.state::<crate::AppContext>();
-        let shutdown =
-            async {
-                context.sync.shutdown().await?;
-                context.mcp.shutdown().await.map_err(|_| {
-                    AppError::new(ErrorCode::StorageUnavailable, "MCP shutdown failed")
-                })?;
-                app.state::<crate::commands::transfer::TransferJobs>()
-                    .shutdown()
-                    .await?;
-                let library = context.library.clone();
-                tauri::async_runtime::spawn_blocking(move || library.stop_writes())
-                    .await
-                    .map_err(|_| AppError::new(ErrorCode::Internal, "Shutdown worker failed"))?
-                    .map_err(AppError::from)
-            }
-            .await;
+        let shutdown = async {
+            context.sync.shutdown().await?;
+            server
+                .stop()
+                .await
+                .map_err(|_| AppError::new(ErrorCode::StorageUnavailable, "MCP shutdown failed"))?;
+            app.state::<crate::commands::transfer::TransferJobs>()
+                .shutdown()
+                .await?;
+            let library = context.library.clone();
+            tauri::async_runtime::spawn_blocking(move || library.stop_writes())
+                .await
+                .map_err(|_| AppError::new(ErrorCode::Internal, "Shutdown worker failed"))?
+                .map_err(AppError::from)
+        }
+        .await;
         if let Err(error) = shutdown {
             let state = app.state::<DesktopState>();
             state.shutting_down.store(false, Ordering::Release);

@@ -9,15 +9,12 @@ use note_core::ai::{
 use note_core::{AppError, ErrorCode, parse_input};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::ipc::Channel;
 
 use super::{Ok, ok, run};
 use crate::AppContext;
 
 type Ctx<'a> = tauri::State<'a, AppContext>;
 
-const NOTE_MAX_CHARS: usize = 24_000;
-const NOTE_TITLE_MAX_CHARS: usize = 200;
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiEndpoint {
@@ -71,33 +68,6 @@ struct ProviderSave {
     id: Option<String>,
     name: String,
     endpoints: Vec<EndpointSave>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum AiWriteAction {
-    Polish,
-    Rewrite,
-    Shorten,
-    Expand,
-    Continue,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct WriteArgs {
-    action: AiWriteAction,
-    text: String,
-    context: Option<String>,
-    language: Option<String>,
-    note_title: Option<String>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WriteResult {
-    model: AiModelRef,
-    is_fallback: bool,
 }
 
 #[derive(Serialize)]
@@ -315,34 +285,6 @@ async fn role_dtos(context: &AppContext) -> Result<Vec<AiRoleBinding>, AppError>
         .collect())
 }
 
-async fn resolve(
-    context: &AppContext,
-    role: Option<AiRole>,
-    model: Option<AiModelRef>,
-) -> Result<(AiModelRef, providers::Connection, bool), AppError> {
-    let (reference, fallback) = if let Some(model) = model {
-        (model, false)
-    } else {
-        let (rows, _) = role_rows(context).await?;
-        let row = rows
-            .into_iter()
-            .find(|row| row.role == role.unwrap_or(AiRole::Chat))
-            .ok_or_else(|| internal("AI role unavailable"))?;
-        (
-            row.binding.ok_or_else(|| {
-                AppError::from(note_core::Error::invalid("ai.role", "not configured"))
-            })?,
-            row.is_fallback,
-        )
-    };
-    let input = providers::ModelRef {
-        endpoint_id: reference.endpoint_id.clone(),
-        model_id: reference.model_id.clone(),
-    };
-    let connection = provider_call(context, move |store| store.resolve(&input)).await?;
-    Ok((reference, connection, fallback))
-}
-
 #[tauri::command]
 pub async fn ai_providers_list(context: Ctx<'_>) -> Result<Vec<AiProvider>, AppError> {
     provider_call(&context, providers::Store::list)
@@ -484,164 +426,6 @@ pub async fn ai_roles_set(
     role_dtos(&context).await
 }
 
-impl WriteArgs {
-    fn validate(&self) -> Result<(), AppError> {
-        let total = self.text.chars().count()
-            + self
-                .context
-                .as_deref()
-                .map_or(0, |value| value.chars().count());
-        if total > NOTE_MAX_CHARS {
-            return Err(AppError::from(note_core::Error::invalid(
-                "request",
-                "text and context are too large",
-            )));
-        }
-        if matches!(self.action, AiWriteAction::Continue)
-            && self.context.as_deref().is_none_or(str::is_empty)
-        {
-            return Err(AppError::from(note_core::Error::invalid(
-                "context",
-                "is required for continue",
-            )));
-        }
-        if !matches!(self.action, AiWriteAction::Continue) && self.text.is_empty() {
-            return Err(AppError::from(note_core::Error::invalid(
-                "text",
-                "is required",
-            )));
-        }
-        if self
-            .language
-            .as_deref()
-            .is_some_and(|value| value.chars().count() > 100)
-        {
-            return Err(AppError::from(note_core::Error::invalid(
-                "language",
-                "is too long",
-            )));
-        }
-        if self
-            .note_title
-            .as_deref()
-            .is_some_and(|value| value.chars().count() > NOTE_TITLE_MAX_CHARS)
-        {
-            return Err(AppError::from(note_core::Error::invalid(
-                "noteTitle",
-                "is too long",
-            )));
-        }
-        Ok(())
-    }
-}
-
-/// Streams a writing action without creating conversation history.
-#[tauri::command]
-pub async fn ai_write(
-    context: Ctx<'_>,
-    job_id: String,
-    request: Value,
-    on_event: Channel<note_ai::ChatEvent>,
-) -> Result<Ok<WriteResult>, AppError> {
-    let args: WriteArgs = parse_input(request).map_err(AppError::from)?;
-    args.validate()?;
-    let flag = context.jobs.start(&job_id)?;
-    let result = write(&context, args, flag, on_event).await;
-    context.jobs.finish(&job_id);
-    if let Err(error) = &result {
-        tracing::warn!(
-            command = "ai_write",
-            code = error.code().as_str(),
-            "ipc.command.failed"
-        );
-    }
-    result.map(|(model, is_fallback)| ok(WriteResult { model, is_fallback }))
-}
-
-fn write_system(action: &AiWriteAction, language: Option<&str>, title: Option<&str>) -> String {
-    let action = match action {
-        AiWriteAction::Polish => "Polish the text while preserving its meaning.",
-        AiWriteAction::Rewrite => "Rewrite the text clearly while preserving its meaning.",
-        AiWriteAction::Shorten => "Shorten the text while preserving its key meaning.",
-        AiWriteAction::Expand => "Expand the text with useful detail while preserving its meaning.",
-        AiWriteAction::Continue => "Continue writing naturally from the provided text and context.",
-    };
-    let mut prompt = format!("{action} Return only the resulting text, with no preamble or title.");
-    if let Some(language) = language {
-        prompt.push_str(&format!(" Write in {language}."));
-    }
-    if let Some(title) = title {
-        prompt.push_str(&format!(" The note is titled {title:?}."));
-    }
-    prompt
-}
-
-async fn write(
-    context: &AppContext,
-    args: WriteArgs,
-    flag: Arc<std::sync::atomic::AtomicBool>,
-    on_event: Channel<note_ai::ChatEvent>,
-) -> Result<(AiModelRef, bool), AppError> {
-    let (model, connection, is_fallback) = resolve(context, Some(AiRole::Writing), None).await?;
-    let model_id = model.model_id.clone();
-    let key = connection
-        .api_key
-        .ok_or_else(|| AppError::from(note_core::Error::invalid("apiKey", "not configured")))?;
-    let context_text = args.context.as_deref().unwrap_or("");
-    let user = if context_text.is_empty() {
-        args.text
-    } else if args.text.is_empty() {
-        format!("Context:\n{context_text}")
-    } else {
-        format!("Text:\n{}\n\nContext:\n{context_text}", args.text)
-    };
-    let request = note_ai::ChatRequest {
-        messages: vec![
-            note_ai::ChatMessage {
-                role: note_ai::ChatRole::System,
-                content: write_system(
-                    &args.action,
-                    args.language.as_deref(),
-                    args.note_title.as_deref(),
-                ),
-            },
-            note_ai::ChatMessage {
-                role: note_ai::ChatRole::User,
-                content: user,
-            },
-        ],
-        max_tokens: Some(2048),
-    };
-    let cancel = tokio_util::sync::CancellationToken::new();
-    let watcher = {
-        let (cancel, flag) = (cancel.clone(), flag.clone());
-        tauri::async_runtime::spawn(async move {
-            while !flag.load(Ordering::Relaxed) && !cancel.is_cancelled() {
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            }
-            cancel.cancel();
-        })
-    };
-    let mut forward = |event| {
-        if on_event.send(event).is_err() {
-            flag.store(true, Ordering::Relaxed);
-        }
-    };
-    let result = note_ai::chat_stream(
-        &connection.base_url,
-        protocol_dto(connection.protocol),
-        &key,
-        &model_id,
-        &request,
-        &cancel,
-        &mut forward,
-    )
-    .await;
-    cancel.cancel();
-    let _ = watcher.await;
-    result.map(|()| (model, is_fallback))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -713,22 +497,5 @@ mod tests {
                 .len(),
             1
         );
-    }
-
-    #[test]
-    fn write_validates_continue_and_combined_character_limit() {
-        let mut request = WriteArgs {
-            action: AiWriteAction::Continue,
-            text: String::new(),
-            context: None,
-            language: None,
-            note_title: None,
-        };
-        assert!(request.validate().is_err());
-        request.context = Some("上下文".to_owned());
-        assert!(request.validate().is_ok());
-        request.text = "a".repeat(super::NOTE_MAX_CHARS);
-        assert!(request.validate().is_err());
-        assert!(write_system(&request.action, None, None).contains("no preamble or title"));
     }
 }

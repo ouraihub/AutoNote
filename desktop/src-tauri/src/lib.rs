@@ -97,7 +97,7 @@ impl tauri_plugin_aether::KitHost for AetherHost {
         &self,
         req: &tauri_plugin_aether::RunRequest,
     ) -> Result<ModelRef, tauri_plugin_aether::KitError> {
-        if req.purpose != "chat" {
+        if req.purpose != "chat" && req.purpose != "writing" {
             return Err(tauri_plugin_aether::KitError::bad_request(
                 "purpose",
                 "unsupported",
@@ -114,7 +114,8 @@ impl tauri_plugin_aether::KitHost for AetherHost {
                 option.endpoint_id == model.endpoint_id && option.model_id == model.model_id
             })
         };
-        if let Some(model) = &req.model
+        if req.purpose == "chat"
+            && let Some(model) = &req.model
             && valid(model)
         {
             return Ok(model.clone());
@@ -125,8 +126,12 @@ impl tauri_plugin_aether::KitHost for AetherHost {
         let settings = library.ai_role_settings().map_err(|error| {
             tauri_plugin_aether::KitError::internal(std::io::Error::other(error.to_string()))
         })?;
-        settings
-            .chat
+        let binding = if req.purpose == "writing" {
+            settings.writing.or(settings.chat)
+        } else {
+            settings.chat
+        };
+        binding
             .map(|model| ModelRef {
                 endpoint_id: model.endpoint_id,
                 model_id: model.model_id,
@@ -136,6 +141,13 @@ impl tauri_plugin_aether::KitHost for AetherHost {
     }
 
     fn system_prompt(&self, req: &tauri_plugin_aether::RunRequest) -> Option<String> {
+        if req.purpose == "writing" {
+            return Some(if req.language.starts_with("zh") {
+                "你是 AutoNote 写作助手。严格按照输入中的动作处理文本，只输出最终结果，不要解释、前缀或标题。".to_owned()
+            } else {
+                "You are AutoNote's writing assistant. Follow the action in the input exactly. Output only the resulting text, with no explanation, preamble, or title.".to_owned()
+            });
+        }
         Some(if req.language.starts_with("zh") {
             "你是 AutoNote 的笔记助手。请直接、准确地回答用户问题。".to_owned()
         } else {
@@ -230,7 +242,6 @@ pub struct AppContext {
     pub library: Arc<Library>,
     pub jobs: Arc<Jobs>,
     pub sync: Arc<note_sync::SyncService>,
-    pub mcp: Arc<note_mcp::McpServer>,
     pub logs: aether_observability::LogHandle,
     pub providers: Arc<ProviderStore>,
 }
@@ -257,30 +268,11 @@ fn open_context(
         sink.clone(),
     )
     .map_err(|_| Error::invalid("startup", "Sync service unavailable"))?;
-    let mcp_settings: autonote_shell::desktop_prefs::McpHostSettings =
-        autonote_shell::desktop_prefs::load(&autonote_shell::paths::mcp_settings_file(&data_dir))
-            .unwrap_or_default();
-    let mcp = Arc::new(note_mcp::McpServer::new(
-        library.clone(),
-        note_mcp::McpConfig {
-            port: mcp_settings.port,
-            ..note_mcp::McpConfig::default()
-        },
-    ));
-    if mcp_settings.enabled {
-        let server = mcp.clone();
-        tauri::async_runtime::spawn(async move {
-            if let Err(error) = server.start().await {
-                tracing::warn!(code = ?error, "mcp.autostart.failed");
-            }
-        });
-    }
     Ok(AppContext {
         data_dir,
         library,
         jobs: Arc::default(),
         sync,
-        mcp,
         logs,
         providers,
     })
@@ -324,9 +316,28 @@ pub fn run() {
         library: host_library.clone(),
         providers: providers.clone(),
     });
+    let settings: autonote_shell::desktop_prefs::McpHostSettings =
+        autonote_shell::desktop_prefs::load(&autonote_shell::paths::mcp_settings_file(&data_dir))
+            .unwrap_or_default();
+    let aether_server = match aether_mcp_server::McpServer::new(
+        &data_dir,
+        aether_mcp_server::ServerConfig {
+            default_port: settings.port,
+            token_prefix: "autonote",
+        },
+        note_mcp::SCOPES.to_vec(),
+        note_mcp::exposed_tools(host_library.clone()),
+    ) {
+        Ok(server) => server,
+        Err(_) => {
+            eprintln!("AutoNote could not start: MCP server unavailable");
+            return;
+        }
+    };
     let aether = match tauri_plugin_aether::Builder::new(host, logs.clone())
         .providers(plugin_store)
         .chat(tauri_plugin_aether::ChatConfig::default(), Some(chat_store))
+        .mcp_server(aether_server)
         .build()
     {
         Ok(plugin) => plugin,
@@ -410,7 +421,6 @@ pub fn run() {
             let language = context.library.settings_get()?.appearance.language;
             app.manage(window::DesktopState::new(prefs, &language));
             app.manage(context.sync.clone());
-            app.manage(context.mcp.clone());
             app.manage(context);
             sink.bind(app.handle().clone());
             // The config window has `create: false`: built here so WebView2
@@ -465,7 +475,6 @@ pub fn run() {
             commands::ai::ai_endpoint_probe,
             commands::ai::ai_roles_get,
             commands::ai::ai_roles_set,
-            commands::ai::ai_write,
             commands::transfer::transfer_export,
             commands::transfer::transfer_import,
             commands::transfer::transfer_cancel,
@@ -474,6 +483,7 @@ pub fn run() {
             commands::mcp::mcp_stop,
             commands::mcp::mcp_set_port,
             commands::mcp::mcp_list_keys,
+            commands::mcp::mcp_scopes,
             commands::mcp::mcp_create_key,
             commands::mcp::mcp_revoke_key,
             commands::mcp::mcp_get_preferences,

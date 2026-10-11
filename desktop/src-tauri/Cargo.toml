@@ -76,7 +76,7 @@ aether-observability.workspace = true
 aether-providers.workspace = true
 aether-chat.workspace = true
 aether-mcp-server.workspace = true
-tauri-plugin-aether = { workspace = true, features = ["providers", "chat"] }
+tauri-plugin-aether = { workspace = true, features = ["providers", "chat", "mcp-server"] }
 tokio-util = "=0.7.19"
 zeroize = "=1.8.2"
 getrandom = "0.4"

@@ -141,6 +141,9 @@ A3 与 A4 可在 A3 合同稳定后串行推进；A5 可以在 A3 后开始，�
 - [ ] **A3-4 Chat 真实验收**
   - 依赖：A3-1、A3-2、A3-3。真实上游 loopback/中转和 AutoNote Tauri 窗口：三协议纯文本、noteId/scope 隔离、新会话/继续/重生成、取消/关闭窗口、删除 note 后拒绝新运行、重启历史读回、真实截图。
 - 2026-10-11：根因已定位为 Tauri release 构建未启用 `custom-protocol`，导致 WebView 回退到 `devUrl=http://localhost:1430`；新增 `custom-protocol = ["tauri/custom-protocol"]`，并保留 `bootDesktop` 阶段诊断与可重试错误界面。真实 release 窗口已显示笔记导航和空状态，未再出现连接拒绝。A3-4 仍未完成：三协议上游联验、Chat 交互/重启历史读回和真实截图尚未验收。
+- 2026-10-11：A4-1～A4-3 已接入 Aether writing request/role fallback/安全快照写回；A5-1～A5-3 已改用 Aether MCP server、34 个 note-core 工具、scope/token/loopback 管理。验证：`pnpm run app:check`、desktop 前端 26 tests、`cargo fmt --check`、`cargo check -p autonote --features custom-protocol`、workspace tests、clippy 均通过。未验证：A3-4/A4-4/A5-4 所要求的真实上游、真实 MCP 客户端和真实窗口交互，故不得勾选真实验收任务；A6 清理依赖这些验收，暂不执行。
+- 2026-10-11：A6 静态回归与安全扫描通过：`pnpm run app:check`、`pnpm --filter autonote-desktop verify`、workspace Rust tests、clippy `-D warnings`、fmt check；Aether MCP真实 loopback测试 `aether_mcp_real_http_scope_revoke_origin_and_idempotency` 通过；日志/数据库扫描未发现 Bearer、API key、PEM 私钥模式。未验证仍为真实 Tauri Chat/Writing 上游交互和截图，未宣称发布验收完成。
+- 2026-10-11：发布记录：Aether commit `997d9830fcb975318b5c5ce678ef3bfa983ad9f7` 固定于 `desktop/src-tauri/Cargo.toml`/`Cargo.lock`；静态门禁和 MCP loopback 证据已通过。发布阻断：A3-4、A4-4 仍缺真实 Tauri 上游交互与截图；不打 tag、不发布。
 ### A4 Writing 助手
 - [ ] **A4-1 WritingRequest 合同**
   - 保留 `polish/rewrite/shorten/expand/continue`；请求包含 `noteId`、`selectedText`、`beforeText`、`afterText`、`cursorOffset`、`language`、`title`；正文和上下文有总长度上限；`purpose=writing`、`scope=note:<noteId>:writing`。

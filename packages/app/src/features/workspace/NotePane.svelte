@@ -440,12 +440,10 @@
           <WritingToolbar
             {view}
             {selection}
+            {noteId}
             noteTitle={note?.title ?? ''}
             onReplace={(text, snapshot) => {
-              if (
-                snapshot.docLength !== view!.state.doc.length ||
-                snapshot.text !== view!.state.sliceDoc(snapshot.from, snapshot.to)
-              )
+              if (noteId !== note?.id || snapshot.docLength !== view!.state.doc.length || snapshot.text !== view!.state.sliceDoc(snapshot.from, snapshot.to))
                 return false
               view!.dispatch({
                 changes: { from: snapshot.from, to: snapshot.to, insert: text },

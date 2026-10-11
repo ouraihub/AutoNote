@@ -5,28 +5,46 @@
   import { getBackend, getI18n, getLogger } from '@app/root/context'
   import { errorMessageKey } from '@app/i18n/errors'
   import { logFailure } from '@app/log/logger'
-  import type { WritingToolbarProps } from '@app/root/types'
+  import type { WritingSelection, WritingToolbarProps } from '@app/root/types'
   import type { AiWriteAction } from '@shared/ai-types'
 
-  let { view, selection, noteTitle, onReplace, onInsert }: WritingToolbarProps = $props()
+  let { view, selection, noteId, noteTitle, onReplace, onInsert }: WritingToolbarProps = $props()
   const backend = getBackend()
   const i18n = getI18n()
   const logger = getLogger()
   const ai = backend.capabilities.ai ? backend.ai : undefined
+  const MAX_SELECTED_BYTES = 8_000
+  const MAX_CONTEXT_BYTES = 8_000
+  const MAX_TOTAL_BYTES = 24_000
   let open = $state(false)
   let generating = $state(false)
   let preview = $state('')
   let fallback = $state(false)
   let error = $state<string | null>(null)
   let abort = $state<AbortController | null>(null)
+  let requestSelection = $state<WritingSelection | null>(null)
 
+  function bounded(value: string, maxBytes: number): string {
+    const bytes = new TextEncoder().encode(value)
+    return bytes.length <= maxBytes ? value : new TextDecoder().decode(bytes.slice(0, maxBytes))
+  }
   const hasSelection = $derived(selection.from !== selection.to && selection.text.length > 0)
   const label = $derived(hasSelection ? selection.text.slice(0, 28) : i18n.t('writing.continue'))
   const context = $derived(view ? view.state.sliceDoc(Math.max(0, selection.from - 1000), Math.min(view.state.doc.length, selection.to + 1000)) : '')
   const canRun = (next: AiWriteAction): boolean => (next === 'continue' ? context.trim().length > 0 : hasSelection)
 
   async function run(next: AiWriteAction): Promise<void> {
-    if (!ai || generating || !canRun(next)) return
+    if (!ai || generating || !canRun(next) || !view) return
+    const snapshot = { ...selection, text: view.state.sliceDoc(selection.from, selection.to) }
+    requestSelection = snapshot
+    let selectedText = bounded(snapshot.text, MAX_SELECTED_BYTES)
+    let beforeText = bounded(view.state.sliceDoc(Math.max(0, snapshot.from - 1000), snapshot.from), MAX_CONTEXT_BYTES)
+    let afterText = bounded(view.state.sliceDoc(snapshot.to, Math.min(view.state.doc.length, snapshot.to + 1000)), MAX_CONTEXT_BYTES)
+    while (new TextEncoder().encode(selectedText + beforeText + afterText).length > MAX_TOTAL_BYTES) {
+      if (afterText) afterText = bounded(afterText, Math.max(0, new TextEncoder().encode(afterText).length - 256))
+      else if (beforeText) beforeText = bounded(beforeText, Math.max(0, new TextEncoder().encode(beforeText).length - 256))
+      else selectedText = bounded(selectedText, Math.max(0, new TextEncoder().encode(selectedText).length - 256))
+    }
     preview = ''
     error = null
     fallback = false
@@ -37,10 +55,13 @@
       const result = await ai.write(
         {
           action: next,
-          text: selection.text,
+          noteId,
+          selectedText,
+          beforeText,
+          afterText,
+          cursorOffset: snapshot.from,
           language: i18n.locale,
-          ...(context ? { context } : {}),
-          noteTitle,
+          title: noteTitle,
         },
         (event) => {
           if (event.kind === 'delta') preview += event.text
@@ -59,7 +80,7 @@
     }
   }
   function replace(): void {
-    if (!preview || !onReplace(preview, selection)) error = i18n.t('writing.selection_changed')
+    if (!preview || !requestSelection || !onReplace(preview, requestSelection)) error = i18n.t('writing.selection_changed')
     else open = false
   }
   function insert(): void {
