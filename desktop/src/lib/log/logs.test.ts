@@ -36,7 +36,7 @@ test('IPC logging removes free text and reports failed batches without recursive
     invoke: async (_command: string, args: CommandArgs['app_log']) => {
       batches.push(args)
       if (fail) throw new Error('token-secret')
-      return { ok: true, available: true }
+      return { ok: true, available: true, accepted: 1, rejected: 0 }
     },
   } as unknown as IpcTransport
   const logger = new IpcLogger(transport)
@@ -62,18 +62,18 @@ test('IPC logging removes free text and reports failed batches without recursive
 })
 
 test('saturated IPC log queue prioritizes warnings and remains capped at 200', async () => {
-  const waiting = Promise.withResolvers<{ ok: true; available: boolean }>()
+  const waiting = Promise.withResolvers<{ ok: true; available: boolean; accepted: number; rejected: number }>()
   const batches: CommandArgs['app_log'][] = []
   const transport = {
     invoke: async (_command: string, args: CommandArgs['app_log']) => {
       batches.push(args)
-      return batches.length === 1 ? waiting.promise : { ok: true, available: true }
+      return batches.length === 1 ? waiting.promise : { ok: true, available: true, accepted: 1, rejected: 0 }
     },
   } as unknown as IpcTransport
   const logger = new IpcLogger(transport)
   for (let count = 0; count < 240; count++) logger.info('app.lifecycle.started', { count })
   logger.warn('notes.save.failed', { code: 'conflict' })
-  waiting.resolve({ ok: true, available: true })
+  waiting.resolve({ ok: true, available: true, accepted: 1, rejected: 0 })
   await logger.flush()
   expect(batches.every((batch) => batch.entries.length <= 20)).toBe(true)
   expect(batches.slice(1).flatMap((batch) => batch.entries)).toHaveLength(200)

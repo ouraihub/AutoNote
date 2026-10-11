@@ -8,6 +8,7 @@
   const i18n = new I18nState({ prefs: new DesktopPrefs() })
   let target = $state<HTMLDivElement>()
   let error = $state(false)
+  let errorMessage = $state('')
   let loading = $state(false)
   let active = false
   let handle: AppHandle | undefined
@@ -19,8 +20,11 @@
       const mounted = await bootDesktop(target)
       if (!active) await mounted.destroy()
       else handle = mounted
-    } catch {
-      if (active) error = true
+    } catch (cause) {
+      if (active) {
+        error = true
+        errorMessage = cause instanceof Error ? cause.message : 'desktop startup failed'
+      }
     } finally {
       loading = false
     }
@@ -42,6 +46,7 @@
   <div bind:this={target} class="h-full min-h-0"></div>
   {#if error}<section class="absolute inset-0 flex flex-col items-center justify-center gap-4" role="alert">
       <p>{i18n.t('desktop.startupFailed')}</p>
+      <code class="max-w-xl break-all text-xs opacity-70">{errorMessage}</code>
       <Button disabled={loading} onclick={() => void start()}>{i18n.t('desktop.retry')}</Button>
     </section>{/if}
 </div>

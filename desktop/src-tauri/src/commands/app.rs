@@ -1,4 +1,5 @@
 use crate::window::DesktopState;
+use aether_observability::{IngestBatch, IngestEntry, IngestLevel};
 use note_core::{AppError, ErrorCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -24,7 +25,7 @@ fn status(app: &tauri::AppHandle) -> Result<DesktopStatus, AppError> {
         tray_available: state
             .tray_available
             .load(std::sync::atomic::Ordering::Relaxed),
-        log_available: autonote_shell::logging::available(),
+        log_available: app.state::<crate::AppContext>().logs.available(),
     })
 }
 #[tauri::command]
@@ -79,9 +80,15 @@ pub struct LogRecord {
 pub struct LogReceipt {
     pub ok: bool,
     pub available: bool,
+    pub accepted: u32,
+    pub rejected: u32,
 }
 #[tauri::command]
-pub async fn app_log(entries: Value, dropped_count: u64) -> Result<LogReceipt, AppError> {
+pub async fn app_log(
+    context: tauri::State<'_, crate::AppContext>,
+    entries: Value,
+    dropped_count: u64,
+) -> Result<LogReceipt, AppError> {
     if !serde_json::to_vec(&entries).is_ok_and(|bytes| bytes.len() <= 20 * 4096) {
         return Err(AppError::new(ErrorCode::BadRequest, "Log batch too large"));
     }
@@ -90,40 +97,45 @@ pub async fn app_log(entries: Value, dropped_count: u64) -> Result<LogReceipt, A
     if entries.len() > 20 {
         return Err(AppError::new(ErrorCode::BadRequest, "Log batch too large"));
     }
-    for entry in &entries {
-        if !matches!(entry.level.as_str(), "debug" | "info" | "warn" | "error")
-            || !autonote_shell::logging::valid_event(&entry.event)
-            || !serde_json::to_vec(&entry.fields)
-                .is_ok_and(|bytes| bytes.len() + entry.event.len() + entry.level.len() <= 4000)
-        {
-            return Err(AppError::new(ErrorCode::BadRequest, "Invalid log record"));
-        }
-    }
-    for entry in entries {
-        let fields: std::collections::BTreeMap<_, _> = entry
-            .fields
-            .into_iter()
-            .filter(|(key, value)| autonote_shell::logging::safe_field(key, value))
-            .collect();
-        let fields = serde_json::to_string(&fields)
-            .map_err(|_| AppError::new(ErrorCode::BadRequest, "Invalid log fields"))?;
-        match entry.level.as_str() {
-            "debug" => {
-                tracing::debug!(event = %entry.event, fields = %fields, "app.frontend.record")
+    let entries = entries
+        .into_iter()
+        .map(|entry| {
+            if !autonote_shell::logging::valid_event(&entry.event)
+                || !serde_json::to_vec(&entry.fields)
+                    .is_ok_and(|bytes| bytes.len() + entry.event.len() + entry.level.len() <= 4000)
+            {
+                return Err(());
             }
-            "info" => tracing::info!(event = %entry.event, fields = %fields, "app.frontend.record"),
-            "warn" => tracing::warn!(event = %entry.event, fields = %fields, "app.frontend.record"),
-            "error" => {
-                tracing::error!(event = %entry.event, fields = %fields, "app.frontend.record")
-            }
-            _ => return Err(AppError::new(ErrorCode::BadRequest, "Invalid log level")),
-        }
-    }
-    if dropped_count > 0 {
-        tracing::warn!(count = dropped_count, "app.log.dropped");
-    }
+            let level = match entry.level.as_str() {
+                "debug" => IngestLevel::Debug,
+                "info" => IngestLevel::Info,
+                "warn" => IngestLevel::Warn,
+                "error" => IngestLevel::Error,
+                _ => return Err(()),
+            };
+            Ok(IngestEntry {
+                level,
+                event: entry.event,
+                fields: Some(
+                    entry
+                        .fields
+                        .into_iter()
+                        .filter(|(key, value)| autonote_shell::logging::safe_field(key, value))
+                        .map(|(key, value)| (key.to_ascii_lowercase(), value))
+                        .collect(),
+                ),
+            })
+        })
+        .collect::<Result<Vec<_>, ()>>()
+        .map_err(|_| AppError::new(ErrorCode::BadRequest, "Invalid log record"))?;
+    let receipt = context.logs.ingest(&IngestBatch {
+        entries,
+        dropped_count,
+    });
     Ok(LogReceipt {
         ok: true,
-        available: autonote_shell::logging::available(),
+        available: context.logs.available(),
+        accepted: receipt.accepted,
+        rejected: receipt.rejected,
     })
 }

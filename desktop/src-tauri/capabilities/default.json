@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Main window: core defaults only. File, network and secret access stay in Rust.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "aether:chat", "aether:chat-history"]
 }

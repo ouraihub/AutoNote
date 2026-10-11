@@ -12,10 +12,172 @@ mod window;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
-use note_core::{AppError, Error, ErrorCode, Library, LibraryDeps, RandomIds, SystemClock};
+use aether_observability::LogConfig;
+use aether_providers::{ModelRef, Store as ProviderStore};
+use note_core::{AppError, Error, ErrorCode, Library, LibraryDeps, NoteId, RandomIds, SystemClock};
 use tauri::Manager;
+
+const NOTE_MAX_CHARS: usize = 24_000;
+const NOTE_TITLE_MAX_CHARS: usize = 200;
+
+struct AetherHost {
+    library: Arc<OnceLock<Arc<Library>>>,
+    providers: Arc<ProviderStore>,
+}
+
+struct LazyChatStore {
+    root: PathBuf,
+    store: Mutex<Option<Arc<aether_chat::SqliteStore>>>,
+}
+
+impl LazyChatStore {
+    fn get(&self) -> Result<Arc<aether_chat::SqliteStore>, tauri_plugin_aether::KitError> {
+        let mut store = self.store.lock().map_err(|_| {
+            tauri_plugin_aether::KitError::internal(std::io::Error::other(
+                "chat store lock poisoned",
+            ))
+        })?;
+        if let Some(store) = &*store {
+            return Ok(store.clone());
+        }
+        let opened = Arc::new(aether_chat::SqliteStore::open(&self.root)?);
+        *store = Some(opened.clone());
+        Ok(opened)
+    }
+}
+
+impl tauri_plugin_aether::ConversationStore for LazyChatStore {
+    fn list(
+        &self,
+        scope: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<aether_chat::ConversationSummary>, tauri_plugin_aether::KitError> {
+        self.get()?.list(scope, limit)
+    }
+    fn load(&self, id: &str) -> Result<aether_chat::Conversation, tauri_plugin_aether::KitError> {
+        self.get()?.load(id)
+    }
+    fn begin_turn(
+        &self,
+        conversation_id: Option<&str>,
+        scope: Option<&str>,
+        input: &str,
+    ) -> Result<aether_chat::TurnHandle, tauri_plugin_aether::KitError> {
+        self.get()?.begin_turn(conversation_id, scope, input)
+    }
+    fn regenerate(
+        &self,
+        conversation_id: &str,
+    ) -> Result<aether_chat::TurnHandle, tauri_plugin_aether::KitError> {
+        self.get()?.regenerate(conversation_id)
+    }
+    fn finish_turn(
+        &self,
+        turn: aether_chat::TurnHandle,
+        record: aether_chat::TurnRecord,
+    ) -> Result<(), tauri_plugin_aether::KitError> {
+        self.get()?.finish_turn(turn, record)
+    }
+    fn delete(&self, id: &str) -> Result<(), tauri_plugin_aether::KitError> {
+        self.get()?.delete(id)
+    }
+    fn rename(
+        &self,
+        id: &str,
+        title: &str,
+    ) -> Result<aether_chat::ConversationSummary, tauri_plugin_aether::KitError> {
+        self.get()?.rename(id, title)
+    }
+}
+
+impl tauri_plugin_aether::KitHost for AetherHost {
+    fn select_model(
+        &self,
+        req: &tauri_plugin_aether::RunRequest,
+    ) -> Result<ModelRef, tauri_plugin_aether::KitError> {
+        if req.purpose != "chat" {
+            return Err(tauri_plugin_aether::KitError::bad_request(
+                "purpose",
+                "unsupported",
+            ));
+        }
+        let options = self
+            .providers
+            .model_options(aether_providers::ModelFilter {
+                model_type: Some(aether_providers::ModelType::Chat),
+                ..aether_providers::ModelFilter::default()
+            })?;
+        let valid = |model: &ModelRef| {
+            options.iter().any(|option| {
+                option.endpoint_id == model.endpoint_id && option.model_id == model.model_id
+            })
+        };
+        if let Some(model) = &req.model
+            && valid(model)
+        {
+            return Ok(model.clone());
+        }
+        let library = self.library.get().ok_or_else(|| {
+            tauri_plugin_aether::KitError::internal(std::io::Error::other("library not ready"))
+        })?;
+        let settings = library.ai_role_settings().map_err(|error| {
+            tauri_plugin_aether::KitError::internal(std::io::Error::other(error.to_string()))
+        })?;
+        settings
+            .chat
+            .map(|model| ModelRef {
+                endpoint_id: model.endpoint_id,
+                model_id: model.model_id,
+            })
+            .filter(valid)
+            .ok_or_else(|| tauri_plugin_aether::KitError::needs_config("model"))
+    }
+
+    fn system_prompt(&self, req: &tauri_plugin_aether::RunRequest) -> Option<String> {
+        Some(if req.language.starts_with("zh") {
+            "你是 AutoNote 的笔记助手。请直接、准确地回答用户问题。".to_owned()
+        } else {
+            "You are AutoNote's note assistant. Answer directly and accurately.".to_owned()
+        })
+    }
+
+    fn context(
+        &self,
+        req: &tauri_plugin_aether::RunRequest,
+    ) -> Result<Option<tauri_plugin_aether::ContextBlock>, tauri_plugin_aether::KitError> {
+        let Some(reference) = &req.context else {
+            return Ok(None);
+        };
+        if reference.kind != "autonote-note" {
+            return Err(tauri_plugin_aether::KitError::bad_request(
+                "context.kind",
+                "unsupported",
+            ));
+        }
+        let id = NoteId::new(reference.id.clone())
+            .map_err(|_| tauri_plugin_aether::KitError::not_found("note"))?;
+        let library = self.library.get().ok_or_else(|| {
+            tauri_plugin_aether::KitError::internal(std::io::Error::other("library not ready"))
+        })?;
+        let note = library
+            .get_note(&id)
+            .map_err(|_| tauri_plugin_aether::KitError::not_found("note"))?;
+        let title: String = note
+            .summary
+            .title
+            .trim()
+            .chars()
+            .take(NOTE_TITLE_MAX_CHARS)
+            .collect();
+        let content: String = note.content.chars().take(NOTE_MAX_CHARS).collect();
+        Ok(Some(tauri_plugin_aether::ContextBlock {
+            source: format!("AutoNote note {id}"),
+            text: format!("笔记《{title}》\n\n{content}"),
+        }))
+    }
+}
 
 /// Cancel flags for running Channel-reporting commands, keyed by caller jobId.
 #[derive(Default)]
@@ -69,12 +231,16 @@ pub struct AppContext {
     pub jobs: Arc<Jobs>,
     pub sync: Arc<note_sync::SyncService>,
     pub mcp: Arc<note_mcp::McpServer>,
+    pub logs: aether_observability::LogHandle,
+    pub providers: Arc<ProviderStore>,
 }
 
-fn open_context(sink: Arc<events::TauriChangeSink>) -> Result<AppContext, Error> {
-    let data_dir = autonote_shell::paths::data_dir()?;
-    autonote_shell::paths::prepare_data_dir(&data_dir)?;
-    autonote_shell::logging::init(&autonote_shell::paths::log_file(&data_dir));
+fn open_context(
+    data_dir: PathBuf,
+    sink: Arc<events::TauriChangeSink>,
+    logs: aether_observability::LogHandle,
+    providers: Arc<ProviderStore>,
+) -> Result<AppContext, Error> {
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "AutoNote starting");
     let library = Library::open_with_deps(
         &autonote_shell::paths::library_db(&data_dir),
@@ -91,13 +257,9 @@ fn open_context(sink: Arc<events::TauriChangeSink>) -> Result<AppContext, Error>
         sink.clone(),
     )
     .map_err(|_| Error::invalid("startup", "Sync service unavailable"))?;
-    // A corrupt mcp.json only disables autostart; it must not block opening notes.
     let mcp_settings: autonote_shell::desktop_prefs::McpHostSettings =
         autonote_shell::desktop_prefs::load(&autonote_shell::paths::mcp_settings_file(&data_dir))
-            .unwrap_or_else(|_| {
-                tracing::warn!(code = "bad_request", "mcp.settings.unreadable");
-                autonote_shell::desktop_prefs::McpHostSettings::default()
-            });
+            .unwrap_or_default();
     let mcp = Arc::new(note_mcp::McpServer::new(
         library.clone(),
         note_mcp::McpConfig {
@@ -119,15 +281,63 @@ fn open_context(sink: Arc<events::TauriChangeSink>) -> Result<AppContext, Error>
         jobs: Arc::default(),
         sync,
         mcp,
+        logs,
+        providers,
     })
 }
 
 /// Starts the desktop application.
 pub fn run() {
     let sink = Arc::new(events::TauriChangeSink::default());
-    // Single-instance plugin must run before Library/services are opened.
-
+    let data_dir = autonote_shell::paths::data_dir().unwrap_or_else(|error| {
+        eprintln!("AutoNote could not start: {error}");
+        std::process::exit(1);
+    });
+    if let Err(error) = autonote_shell::paths::prepare_data_dir(&data_dir) {
+        eprintln!("AutoNote could not start: {error}");
+        return;
+    }
+    let logs = match aether_observability::init(&data_dir.join("logs"), LogConfig::default(), None)
+    {
+        Ok(logs) => logs,
+        Err(_) => {
+            eprintln!("AutoNote could not start: Aether logging unavailable");
+            return;
+        }
+    };
+    let stores = ProviderStore::open(&data_dir).and_then(|store| {
+        ProviderStore::open(&data_dir).map(|plugin_store| (Arc::new(store), plugin_store))
+    });
+    let (providers, plugin_store) = match stores {
+        Ok(stores) => stores,
+        Err(_) => {
+            eprintln!("AutoNote could not start: provider store unavailable");
+            return;
+        }
+    };
+    let host_library = Arc::new(OnceLock::new());
+    let chat_store: Arc<LazyChatStore> = Arc::new(LazyChatStore {
+        root: data_dir.clone(),
+        store: Mutex::new(None),
+    });
+    let host = Arc::new(AetherHost {
+        library: host_library.clone(),
+        providers: providers.clone(),
+    });
+    let aether = match tauri_plugin_aether::Builder::new(host, logs.clone())
+        .providers(plugin_store)
+        .chat(tauri_plugin_aether::ChatConfig::default(), Some(chat_store))
+        .build()
+    {
+        Ok(plugin) => plugin,
+        Err(_) => {
+            eprintln!("AutoNote could not start: Aether unavailable");
+            return;
+        }
+    };
+    // Single-instance plugin must run before business services are opened.
     let application = tauri::Builder::default()
+        .plugin(aether)
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             tray::show(app)
         }))
@@ -187,7 +397,13 @@ pub fn run() {
             }
         })
         .setup(move |app| {
-            let context = open_context(sink.clone())?;
+            let context = open_context(
+                data_dir.clone(),
+                sink.clone(),
+                logs.clone(),
+                providers.clone(),
+            )?;
+            let _ = host_library.set(context.library.clone());
             let prefs = autonote_shell::desktop_prefs::load(
                 &autonote_shell::paths::desktop_prefs_file(&context.data_dir),
             )?;
@@ -249,11 +465,7 @@ pub fn run() {
             commands::ai::ai_endpoint_probe,
             commands::ai::ai_roles_get,
             commands::ai::ai_roles_set,
-            commands::ai::ai_chat,
             commands::ai::ai_write,
-            commands::ai::ai_conversations_list,
-            commands::ai::ai_conversation_get,
-            commands::ai::ai_conversation_delete,
             commands::transfer::transfer_export,
             commands::transfer::transfer_import,
             commands::transfer::transfer_cancel,

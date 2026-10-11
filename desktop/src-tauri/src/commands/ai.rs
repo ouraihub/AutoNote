@@ -1,32 +1,23 @@
-//! AI model service commands (23 §3). Keys are encrypted here with DPAPI before
-//! they reach core, and decrypted only for the probe, chat or reveal that needs them.
+//! AutoNote wire adapters over Aether providers and product-owned role settings.
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
+use aether_providers as providers;
 use note_core::ai::{
-    AiConversation, AiConversationSummary, AiEndpointInput, AiEndpointRow, AiEndpointSecret,
-    AiMessageRole, AiMessageStatus, AiModel, AiModelRef, AiProtocol, AiProviderInput,
-    AiProviderRow, AiRole, KeyChange,
+    AiModel, AiModelRef, AiModelType, AiProtocol, AiRole, AiRoleRow, AiRoleSettings, AiTypeSource,
 };
-use note_core::{AppError, ErrorCode, Library, parse_input};
-use note_sync::SecretStore;
+use note_core::{AppError, ErrorCode, parse_input};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::ipc::Channel;
-use zeroize::Zeroizing;
 
 use super::{Ok, ok, run};
 use crate::AppContext;
 
 type Ctx<'a> = tauri::State<'a, AppContext>;
 
-const KEY_MAX_LEN: usize = 4096;
-const CONTENT_MAX_BYTES: usize = 256 * 1024;
 const NOTE_MAX_CHARS: usize = 24_000;
 const NOTE_TITLE_MAX_CHARS: usize = 200;
-const DEFAULT_CONTEXT_TOKENS: u32 = 32_000;
-const DEFAULT_REPLY_TOKENS: u32 = 4096;
-
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiEndpoint {
@@ -82,27 +73,6 @@ struct ProviderSave {
     endpoints: Vec<EndpointSave>,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct NoteContext {
-    title: String,
-    content: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ChatArgs {
-    conversation_id: Option<String>,
-    #[serde(default)]
-    content: String,
-    #[serde(default)]
-    regenerate: bool,
-    role: Option<AiRole>,
-    model: Option<AiModelRef>,
-    note: Option<NoteContext>,
-    max_tokens: Option<u32>,
-}
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum AiWriteAction {
@@ -131,136 +101,253 @@ pub struct WriteResult {
 }
 
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatStarted {
-    conversation_id: String,
-}
-
-#[derive(Serialize)]
 pub struct RevealedKey {
     key: String,
-}
-
-fn secrets() -> autonote_shell::credentials::DpapiSecretStore {
-    autonote_shell::credentials::DpapiSecretStore
 }
 
 fn internal(message: &'static str) -> AppError {
     AppError::new(ErrorCode::Internal, message)
 }
 
-/// Keeps the first and last four characters; short keys are fully masked.
-fn mask(key: &str) -> String {
-    let chars: Vec<char> = key.chars().collect();
-    if chars.len() <= 8 {
-        return "*".repeat(chars.len().max(4));
+fn provider_error(error: providers::KitError) -> AppError {
+    use providers::KitErrorCode as K;
+    let code = match error.code() {
+        K::BadRequest | K::NeedsConfig => ErrorCode::BadRequest,
+        K::NotFound => ErrorCode::NotFound,
+        K::Conflict => ErrorCode::Conflict,
+        K::Cancelled => ErrorCode::Cancelled,
+        K::Unauthorized => ErrorCode::Unauthenticated,
+        K::Forbidden => ErrorCode::Forbidden,
+        K::RateLimited => ErrorCode::TooManyAttempts,
+        K::Timeout => ErrorCode::RequestTimeout,
+        K::Network => ErrorCode::Offline,
+        K::BudgetExceeded => ErrorCode::PayloadTooLarge,
+        K::Upstream => ErrorCode::InvalidResponse,
+        K::Unsupported | K::IncompatibleDb | K::Internal => ErrorCode::Internal,
+    };
+    AppError::new(code, "AI provider operation failed")
+}
+
+async fn provider_call<T: Send + 'static>(
+    context: &AppContext,
+    f: impl FnOnce(&providers::Store) -> Result<T, providers::KitError> + Send + 'static,
+) -> Result<T, AppError> {
+    let store = context.providers.clone();
+    tauri::async_runtime::spawn_blocking(move || f(&store))
+        .await
+        .map_err(|_| internal("AI provider task failed"))?
+        .map_err(provider_error)
+}
+
+macro_rules! enum_adapter {
+    ($to:ident, $from:ident, $local:ident, $remote:ident, $($variant:ident),+) => {
+        fn $to(value: $local) -> providers::$remote {
+            match value { $($local::$variant => providers::$remote::$variant),+ }
+        }
+        fn $from(value: providers::$remote) -> $local {
+            match value { $(providers::$remote::$variant => $local::$variant),+ }
+        }
+    };
+}
+enum_adapter!(
+    protocol_input,
+    protocol_dto,
+    AiProtocol,
+    Protocol,
+    AnthropicMessages,
+    OpenaiChat,
+    OpenaiResponses
+);
+enum_adapter!(
+    type_input,
+    type_dto,
+    AiModelType,
+    ModelType,
+    Chat,
+    Image,
+    Video,
+    Tts,
+    Stt,
+    Embedding,
+    Rerank,
+    Unknown
+);
+enum_adapter!(
+    source_input,
+    source_dto,
+    AiTypeSource,
+    TypeSource,
+    Inferred,
+    User
+);
+
+fn model_input(model: AiModel) -> providers::Model {
+    providers::Model {
+        id: model.id,
+        model_type: type_input(model.model_type),
+        type_source: source_input(model.type_source),
+        context_window: model.context_window,
+        can_vision: model.can_vision,
+        max_output: None,
+        supports_tools: None,
     }
-    let head: String = chars[..4].iter().collect();
-    let tail: String = chars[chars.len() - 4..].iter().collect();
-    format!("{head}{}{tail}", "*".repeat(chars.len() - 8))
 }
 
-fn decrypt(ciphertext: &[u8]) -> Result<Zeroizing<String>, AppError> {
-    let plain = Zeroizing::new(secrets().unprotect(ciphertext)?);
-    String::from_utf8(plain.to_vec())
-        .map(Zeroizing::new)
-        .map_err(|_| internal("Stored key is unreadable"))
-}
-
-fn endpoint_dto(row: AiEndpointRow) -> AiEndpoint {
-    let key_masked = row
-        .key_ciphertext
-        .as_deref()
-        .map(|ciphertext| decrypt(ciphertext).map_or_else(|_| "****".to_owned(), |key| mask(&key)));
-    AiEndpoint {
-        probe_url: note_ai::probe_url(&row.base_url),
-        id: row.id,
-        slug: row.slug,
-        base_url: row.base_url,
-        protocol: row.protocol,
-        key_masked,
-        models: row.models,
+fn model_dto(model: providers::Model) -> AiModel {
+    AiModel {
+        id: model.id,
+        model_type: type_dto(model.model_type),
+        type_source: source_dto(model.type_source),
+        context_window: model.context_window,
+        can_vision: model.can_vision,
     }
 }
 
-fn provider_dtos(rows: Vec<AiProviderRow>) -> Vec<AiProvider> {
+fn provider_input(request: ProviderSave) -> providers::ProviderSave {
+    providers::ProviderSave {
+        id: request.id,
+        name: request.name.trim().to_owned(),
+        endpoints: request
+            .endpoints
+            .into_iter()
+            .map(|endpoint| providers::EndpointSave {
+                id: endpoint.id,
+                slug: endpoint.slug.trim().to_owned(),
+                base_url: endpoint.base_url.trim().to_owned(),
+                protocol: protocol_input(endpoint.protocol),
+                api_key: endpoint.api_key.map(|key| key.trim().to_owned()),
+                models: endpoint.models.into_iter().map(model_input).collect(),
+            })
+            .collect(),
+    }
+}
+
+fn provider_dtos(rows: Vec<providers::Provider>) -> Vec<AiProvider> {
     rows.into_iter()
         .map(|row| AiProvider {
             id: row.id,
             name: row.name,
-            endpoints: row.endpoints.into_iter().map(endpoint_dto).collect(),
+            endpoints: row
+                .endpoints
+                .into_iter()
+                .map(|endpoint| AiEndpoint {
+                    id: endpoint.id,
+                    slug: endpoint.slug,
+                    base_url: endpoint.base_url,
+                    protocol: protocol_dto(endpoint.protocol),
+                    key_masked: endpoint
+                        .key_masked
+                        .or_else(|| endpoint.has_key.then(|| "****".to_owned())),
+                    probe_url: endpoint.probe_url,
+                    models: endpoint.models.into_iter().map(model_dto).collect(),
+                })
+                .collect(),
         })
         .collect()
 }
 
-fn role_dtos(library: &Library) -> Result<Vec<AiRoleBinding>, note_core::Error> {
-    let providers = library.ai_providers()?;
-    let label = |reference: &AiModelRef| {
-        providers
-            .iter()
-            .find_map(|provider| {
-                provider
-                    .endpoints
-                    .iter()
-                    .find(|endpoint| endpoint.id == reference.endpoint_id)
-                    .map(|endpoint| {
-                        format!(
-                            "{} · {} · {}",
-                            provider.name, endpoint.slug, reference.model_id
-                        )
-                    })
+fn effective_roles(
+    settings: &AiRoleSettings,
+    options: &[providers::ModelOption],
+) -> Vec<AiRoleRow> {
+    let valid = |binding: &Option<AiModelRef>| {
+        binding
+            .as_ref()
+            .filter(|reference| {
+                options.iter().any(|option| {
+                    option.endpoint_id == reference.endpoint_id
+                        && option.model_id == reference.model_id
+                        && option.model_type == providers::ModelType::Chat
+                })
             })
-            .unwrap_or_else(|| reference.model_id.clone())
+            .cloned()
     };
-    Ok(library
-        .ai_roles()?
+    let chat = valid(&settings.chat);
+    let writing = valid(&settings.writing);
+    let is_fallback = writing.is_none() && chat.is_some();
+    vec![
+        AiRoleRow {
+            role: AiRole::Chat,
+            binding: chat.clone(),
+            is_fallback: false,
+        },
+        AiRoleRow {
+            role: AiRole::Writing,
+            binding: writing.or(chat),
+            is_fallback,
+        },
+    ]
+}
+
+async fn role_rows(
+    context: &AppContext,
+) -> Result<(Vec<AiRoleRow>, Vec<providers::ModelOption>), AppError> {
+    let settings = run("ai_role_settings", context, |library| {
+        library.ai_role_settings()
+    })
+    .await?;
+    let options = provider_call(context, |store| {
+        store.model_options(providers::ModelFilter::default())
+    })
+    .await?;
+    Ok((effective_roles(&settings, &options), options))
+}
+
+async fn role_dtos(context: &AppContext) -> Result<Vec<AiRoleBinding>, AppError> {
+    let (rows, options) = role_rows(context).await?;
+    Ok(rows
         .into_iter()
         .map(|row| AiRoleBinding {
             role: row.role,
-            binding: row.binding.map(|binding| BoundModel {
-                label: label(&binding),
-                endpoint_id: binding.endpoint_id,
-                model_id: binding.model_id,
+            binding: row.binding.map(|reference| BoundModel {
+                label: options
+                    .iter()
+                    .find(|option| {
+                        option.endpoint_id == reference.endpoint_id
+                            && option.model_id == reference.model_id
+                    })
+                    .map_or_else(|| reference.model_id.clone(), |option| option.label.clone()),
+                endpoint_id: reference.endpoint_id,
+                model_id: reference.model_id,
             }),
             is_fallback: row.is_fallback,
         })
         .collect())
 }
 
-fn key_change(api_key: Option<String>) -> Result<KeyChange, AppError> {
-    let Some(key) = api_key.map(Zeroizing::new) else {
-        return Ok(KeyChange::Keep);
-    };
-    let trimmed = key.trim();
-    if trimmed.is_empty() {
-        return Ok(KeyChange::Clear);
-    }
-    if trimmed.len() > KEY_MAX_LEN {
-        return Err(AppError::from(note_core::Error::invalid(
-            "apiKey",
-            "is too long",
-        )));
-    }
-    Ok(KeyChange::Set(secrets().protect(trimmed.as_bytes())?))
-}
-
-async fn secret_for(
+async fn resolve(
     context: &AppContext,
-    endpoint_id: String,
-) -> Result<AiEndpointSecret, AppError> {
-    run("ai_endpoint_secret", context, move |library| {
-        library.ai_endpoint_secret(&endpoint_id)
-    })
-    .await
+    role: Option<AiRole>,
+    model: Option<AiModelRef>,
+) -> Result<(AiModelRef, providers::Connection, bool), AppError> {
+    let (reference, fallback) = if let Some(model) = model {
+        (model, false)
+    } else {
+        let (rows, _) = role_rows(context).await?;
+        let row = rows
+            .into_iter()
+            .find(|row| row.role == role.unwrap_or(AiRole::Chat))
+            .ok_or_else(|| internal("AI role unavailable"))?;
+        (
+            row.binding.ok_or_else(|| {
+                AppError::from(note_core::Error::invalid("ai.role", "not configured"))
+            })?,
+            row.is_fallback,
+        )
+    };
+    let input = providers::ModelRef {
+        endpoint_id: reference.endpoint_id.clone(),
+        model_id: reference.model_id.clone(),
+    };
+    let connection = provider_call(context, move |store| store.resolve(&input)).await?;
+    Ok((reference, connection, fallback))
 }
 
 #[tauri::command]
 pub async fn ai_providers_list(context: Ctx<'_>) -> Result<Vec<AiProvider>, AppError> {
-    run("ai_providers_list", &context, |library| {
-        library.ai_providers()
-    })
-    .await
-    .map(provider_dtos)
+    provider_call(&context, providers::Store::list)
+        .await
+        .map(provider_dtos)
 }
 
 #[tauri::command]
@@ -268,78 +355,93 @@ pub async fn ai_provider_save(
     context: Ctx<'_>,
     provider: Value,
 ) -> Result<Vec<AiProvider>, AppError> {
-    let request: ProviderSave = parse_input(provider).map_err(AppError::from)?;
-    let endpoints = request
-        .endpoints
-        .into_iter()
-        .map(|endpoint| {
-            Ok(AiEndpointInput {
-                key: key_change(endpoint.api_key)?,
-                id: endpoint.id,
-                slug: endpoint.slug,
-                base_url: endpoint.base_url,
-                protocol: endpoint.protocol,
-                models: endpoint.models,
-            })
-        })
-        .collect::<Result<Vec<_>, AppError>>()?;
-    let input = AiProviderInput {
-        id: request.id,
-        name: request.name,
-        endpoints,
-    };
-    let now = note_mcp::now_millis();
-    run("ai_provider_save", &context, move |library| {
-        library.ai_provider_save(input, i64::try_from(now).unwrap_or(i64::MAX))?;
-        library.ai_providers()
-    })
-    .await
-    .map(provider_dtos)
+    let input = provider_input(parse_input(provider).map_err(AppError::from)?);
+    provider_call(&context, move |store| store.save(input))
+        .await
+        .map(provider_dtos)
 }
 
 #[tauri::command]
 pub async fn ai_provider_delete(context: Ctx<'_>, id: String) -> Result<Ok<()>, AppError> {
-    run("ai_provider_delete", &context, move |library| {
-        library.ai_provider_delete(&id)
-    })
-    .await?;
+    provider_call(&context, move |store| store.delete(&id)).await?;
     Ok(ok(()))
 }
 
 #[tauri::command]
 pub async fn ai_endpoint_key_reveal(context: Ctx<'_>, id: String) -> Result<RevealedKey, AppError> {
-    let secret = secret_for(&context, id).await?;
-    let ciphertext = secret
-        .key_ciphertext
+    let connection = provider_call(&context, move |store| store.endpoint_connection(&id)).await?;
+    let key = connection
+        .api_key
         .ok_or_else(|| AppError::new(ErrorCode::NotFound, "Key not set"))?;
-    let key = decrypt(&ciphertext)?;
     Ok(RevealedKey {
         key: key.to_string(),
     })
+}
+
+fn probe_dto(result: providers::ProbeResult) -> note_ai::ProbeResult {
+    use note_ai::ProbeErrorKind as W;
+    use providers::ProbeErrorKind as K;
+    note_ai::ProbeResult {
+        probe_url: result.probe_url,
+        models: result
+            .models
+            .into_iter()
+            .map(|model| note_ai::ProbedModel {
+                model: model_dto(model.model),
+                group: model.group,
+            })
+            .collect(),
+        error: result.error.map(|error| note_ai::ProbeError {
+            kind: match error.kind {
+                K::MissingKey => W::MissingKey,
+                K::Unauthorized => W::Unauthorized,
+                K::NotFound => W::NotFound,
+                K::RateLimited => W::RateLimited,
+                K::Status => W::Status,
+                K::Timeout => W::Timeout,
+                K::Connect | K::BlockedAddress => W::Connect,
+                K::InvalidBody => W::InvalidBody,
+            },
+            status: error.status,
+            message: None,
+        }),
+    }
 }
 
 #[tauri::command]
 pub async fn ai_endpoint_probe(
     context: Ctx<'_>,
     id: String,
+    job_id: String,
 ) -> Result<note_ai::ProbeResult, AppError> {
-    let secret = secret_for(&context, id).await?;
-    let key = secret.key_ciphertext.as_deref().map(decrypt).transpose()?;
-    let result = note_ai::probe(
-        &secret.base_url,
-        secret.protocol,
-        key.as_deref().map(String::as_str),
-    )
-    .await;
-    if let Some(error) = &result.error {
-        tracing::warn!(status = error.status, "ai.probe.failed");
-    }
-    Ok(result)
+    let flag = context.jobs.start(&job_id)?;
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let watcher = watch_cancel(flag, cancel.clone());
+    let result = context
+        .providers
+        .probe(providers::ProbeTarget::Saved { endpoint_id: id }, &cancel)
+        .await;
+    cancel.cancel();
+    let _ = watcher.await;
+    context.jobs.finish(&job_id);
+    result.map(probe_dto).map_err(provider_error)
+}
+
+fn watch_cancel(
+    flag: Arc<std::sync::atomic::AtomicBool>,
+    cancel: tokio_util::sync::CancellationToken,
+) -> tauri::async_runtime::JoinHandle<()> {
+    tauri::async_runtime::spawn(async move {
+        while !flag.load(Ordering::Relaxed) && !cancel.is_cancelled() {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        cancel.cancel();
+    })
 }
 
 #[tauri::command]
 pub async fn ai_roles_get(context: Ctx<'_>) -> Result<Vec<AiRoleBinding>, AppError> {
-    run("ai_roles_get", &context, |library| role_dtos(library)).await
+    role_dtos(&context).await
 }
 
 #[tauri::command]
@@ -352,38 +454,34 @@ pub async fn ai_roles_set(
         .map(parse_input)
         .transpose()
         .map_err(AppError::from)?;
+    if let Some(reference) = &binding {
+        let options = provider_call(&context, |store| {
+            store.model_options(providers::ModelFilter::default())
+        })
+        .await?;
+        let option = options
+            .iter()
+            .find(|option| {
+                option.endpoint_id == reference.endpoint_id && option.model_id == reference.model_id
+            })
+            .ok_or_else(|| AppError::new(ErrorCode::NotFound, "Model not found"))?;
+        if option.model_type != providers::ModelType::Chat {
+            return Err(AppError::from(note_core::Error::invalid(
+                "binding",
+                "model is not a chat model",
+            )));
+        }
+    }
     run("ai_roles_set", &context, move |library| {
-        library.ai_role_set(role, binding)?;
-        role_dtos(library)
-    })
-    .await
-}
-
-#[tauri::command]
-pub async fn ai_conversations_list(
-    context: Ctx<'_>,
-) -> Result<Vec<AiConversationSummary>, AppError> {
-    run("ai_conversations_list", &context, |library| {
-        library.ai_conversations()
-    })
-    .await
-}
-
-#[tauri::command]
-pub async fn ai_conversation_get(context: Ctx<'_>, id: String) -> Result<AiConversation, AppError> {
-    run("ai_conversation_get", &context, move |library| {
-        library.ai_conversation(&id)
-    })
-    .await
-}
-
-#[tauri::command]
-pub async fn ai_conversation_delete(context: Ctx<'_>, id: String) -> Result<Ok<()>, AppError> {
-    run("ai_conversation_delete", &context, move |library| {
-        library.ai_conversation_delete(&id)
+        let mut settings = library.ai_role_settings()?;
+        match role {
+            AiRole::Chat => settings.chat = binding,
+            AiRole::Writing => settings.writing = binding,
+        }
+        library.ai_role_settings_save(&settings)
     })
     .await?;
-    Ok(ok(()))
+    role_dtos(&context).await
 }
 
 impl WriteArgs {
@@ -484,25 +582,11 @@ async fn write(
     flag: Arc<std::sync::atomic::AtomicBool>,
     on_event: Channel<note_ai::ChatEvent>,
 ) -> Result<(AiModelRef, bool), AppError> {
-    let (secret, model_id, is_fallback) = run("ai_resolve", context, move |library| {
-        let binding = library
-            .ai_roles()?
-            .into_iter()
-            .find(|row| row.role == AiRole::Writing)
-            .ok_or_else(|| note_core::Error::invalid("ai.role", "not configured"))?;
-        let (secret, model_id) =
-            library.ai_resolve(Some(AiRole::Writing), binding.binding.as_ref())?;
-        Ok((secret, model_id, binding.is_fallback))
-    })
-    .await?;
-    let model = AiModelRef {
-        endpoint_id: secret.endpoint_id.clone(),
-        model_id: model_id.clone(),
-    };
-    let ciphertext = secret
-        .key_ciphertext
+    let (model, connection, is_fallback) = resolve(context, Some(AiRole::Writing), None).await?;
+    let model_id = model.model_id.clone();
+    let key = connection
+        .api_key
         .ok_or_else(|| AppError::from(note_core::Error::invalid("apiKey", "not configured")))?;
-    let key = decrypt(&ciphertext)?;
     let context_text = args.context.as_deref().unwrap_or("");
     let user = if context_text.is_empty() {
         args.text
@@ -544,8 +628,8 @@ async fn write(
         }
     };
     let result = note_ai::chat_stream(
-        &secret.base_url,
-        secret.protocol,
+        &connection.base_url,
+        protocol_dto(connection.protocol),
         &key,
         &model_id,
         &request,
@@ -558,160 +642,77 @@ async fn write(
     result.map(|()| (model, is_fallback))
 }
 
-/// Streams one reply over `on_event` and stores both turns; `jobs_cancel(jobId)`
-/// stops it and keeps the partial text as `interrupted`.
-#[tauri::command]
-pub async fn ai_chat(
-    context: Ctx<'_>,
-    job_id: String,
-    request: Value,
-    on_event: Channel<note_ai::ChatEvent>,
-) -> Result<Ok<ChatStarted>, AppError> {
-    let args: ChatArgs = parse_input(request).map_err(AppError::from)?;
-    if args.content.len() > CONTENT_MAX_BYTES {
-        return Err(AppError::from(note_core::Error::invalid(
-            "content",
-            "too large",
-        )));
-    }
-    let flag = context.jobs.start(&job_id)?;
-    let result = chat(&context, args, flag, on_event).await;
-    context.jobs.finish(&job_id);
-    if let Err(error) = &result {
-        tracing::warn!(
-            command = "ai_chat",
-            code = error.code().as_str(),
-            "ipc.command.failed"
-        );
-    }
-    result.map(|conversation_id| ok(ChatStarted { conversation_id }))
-}
-
-fn now() -> i64 {
-    i64::try_from(note_mcp::now_millis()).unwrap_or(i64::MAX)
-}
-
-fn system_prompt(note: Option<NoteContext>) -> Option<String> {
-    let note = note?;
-    let title: String = note
-        .title
-        .trim()
-        .chars()
-        .take(NOTE_TITLE_MAX_CHARS)
-        .collect();
-    let content: String = note.content.chars().take(NOTE_MAX_CHARS).collect();
-    Some(format!(
-        "你在协助用户处理笔记《{title}》。以下是笔记当前内容：\n\n{content}"
-    ))
-}
-
-async fn chat(
-    context: &AppContext,
-    args: ChatArgs,
-    flag: Arc<std::sync::atomic::AtomicBool>,
-    on_event: Channel<note_ai::ChatEvent>,
-) -> Result<String, AppError> {
-    let (role, model) = (args.role, args.model);
-    let (secret, model_id, window) = run("ai_resolve", context, move |library| {
-        let (secret, model_id) = library.ai_resolve(role, model.as_ref())?;
-        let window = library.ai_context_window(&secret.endpoint_id, &model_id)?;
-        Ok((secret, model_id, window))
-    })
-    .await?;
-    let ciphertext = secret
-        .key_ciphertext
-        .ok_or_else(|| AppError::from(note_core::Error::invalid("apiKey", "not configured")))?;
-    let key = decrypt(&ciphertext)?;
-
-    let (conversation, content, regenerate) = (args.conversation_id, args.content, args.regenerate);
-    let (conversation_id, history) = run("ai_chat_begin", context, move |library| {
-        library.ai_chat_begin(conversation.as_deref(), &content, regenerate, now())
-    })
-    .await?;
-
-    let system = system_prompt(args.note);
-    let reply = args.max_tokens.unwrap_or(DEFAULT_REPLY_TOKENS);
-    let budget = window
-        .unwrap_or(DEFAULT_CONTEXT_TOKENS)
-        .saturating_sub(reply) as usize;
-    let budget = budget.saturating_sub(system.as_ref().map_or(0, |s| s.len() / 4));
-    let mut messages: Vec<note_ai::ChatMessage> = system
-        .into_iter()
-        .map(|content| note_ai::ChatMessage {
-            role: note_ai::ChatRole::System,
-            content,
-        })
-        .collect();
-    messages.extend(
-        note_core::ai::ai_trim_history(history, budget)
-            .into_iter()
-            .map(|(role, content)| note_ai::ChatMessage {
-                role: match role {
-                    AiMessageRole::User => note_ai::ChatRole::User,
-                    AiMessageRole::Assistant => note_ai::ChatRole::Assistant,
-                },
-                content,
-            }),
-    );
-    let request = note_ai::ChatRequest {
-        messages,
-        max_tokens: args.max_tokens,
-    };
-
-    let cancel = tokio_util::sync::CancellationToken::new();
-    let watcher = {
-        let (cancel, flag) = (cancel.clone(), flag.clone());
-        tauri::async_runtime::spawn(async move {
-            while !flag.load(Ordering::Relaxed) && !cancel.is_cancelled() {
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            }
-            cancel.cancel();
-        })
-    };
-    let mut text = String::new();
-    let mut forward = |event: note_ai::ChatEvent| {
-        if let note_ai::ChatEvent::Delta { text: delta } = &event {
-            text.push_str(delta);
-        }
-        if on_event.send(event).is_err() {
-            flag.store(true, Ordering::Relaxed);
-        }
-    };
-    let result = note_ai::chat_stream(
-        &secret.base_url,
-        secret.protocol,
-        &key,
-        &model_id,
-        &request,
-        &cancel,
-        &mut forward,
-    )
-    .await;
-    cancel.cancel();
-    let _ = watcher.await;
-
-    let (status, stored) = match &result {
-        Result::Ok(()) => (AiMessageStatus::Done, text),
-        Err(error) if error.code() == ErrorCode::Cancelled => (AiMessageStatus::Interrupted, text),
-        Err(error) => (AiMessageStatus::Failed, error.message().to_owned()),
-    };
-    let id = conversation_id.clone();
-    run("ai_chat_finish", context, move |library| {
-        library.ai_chat_finish(&id, status, &stored, &model_id, now())
-    })
-    .await?;
-    result.map(|()| conversation_id)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{AiWriteAction, WriteArgs, mask, write_system};
+    use super::*;
+    use note_core::Library;
 
     #[test]
-    fn mask_keeps_only_edges() {
-        assert_eq!(mask("sk-abcdefghijkl"), "sk-a*******ijkl");
-        assert_eq!(mask("short"), "*****");
-        assert!(!mask("sk-0123456789secret").contains("secret"));
+    #[allow(clippy::unwrap_used, reason = "failed unwrap fails the test")]
+    fn provider_adapter_and_roles_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = providers::Store::open(dir.path()).unwrap();
+        let library_path = dir.path().join("library.db");
+        let library = Library::open(&library_path).unwrap();
+        let request = serde_json::json!({"name":" Example ","endpoints":[{
+            "slug":"main","baseUrl":"https://example.com/v1","protocol":"openai-chat",
+            "models":[{"id":"chat","modelType":"chat","typeSource":"user","contextWindow":32000,"canVision":true},
+                {"id":"emb","modelType":"embedding","typeSource":"inferred","contextWindow":null,"canVision":false}]
+        }]});
+        let saved = store
+            .save(provider_input(parse_input(request).unwrap()))
+            .unwrap();
+        let endpoint_id = saved[0].endpoints[0].id.clone();
+        let dto = provider_dtos(saved);
+        assert_eq!(dto[0].name, "Example");
+        assert_eq!(
+            dto[0].endpoints[0].models[0].type_source,
+            AiTypeSource::User
+        );
+        assert_eq!(dto[0].endpoints[0].models[0].context_window, Some(32000));
+        let reference = AiModelRef {
+            endpoint_id,
+            model_id: "chat".to_owned(),
+        };
+        let options = store
+            .model_options(providers::ModelFilter::default())
+            .unwrap();
+        let mut settings = AiRoleSettings {
+            chat: Some(reference.clone()),
+            writing: None,
+        };
+        let rows = effective_roles(&settings, &options);
+        assert_eq!(rows[1].binding, Some(reference.clone()));
+        assert!(rows[1].is_fallback);
+        settings.writing = Some(reference.clone());
+        assert!(!effective_roles(&settings, &options)[1].is_fallback);
+        settings.writing.as_mut().unwrap().model_id = "emb".to_owned();
+        assert!(effective_roles(&settings, &options)[1].is_fallback);
+        library.ai_role_settings_save(&settings).unwrap();
+        drop(library);
+        let library = Library::open(&library_path).unwrap();
+        assert_eq!(library.ai_role_settings().unwrap(), settings);
+        assert!(
+            effective_roles(&settings, &[])
+                .iter()
+                .all(|row| row.binding.is_none())
+        );
+        let connection = store
+            .resolve(&providers::ModelRef {
+                endpoint_id: reference.endpoint_id,
+                model_id: reference.model_id,
+            })
+            .unwrap();
+        assert_eq!(connection.context_window, Some(32000));
+        drop(store);
+        assert_eq!(
+            providers::Store::open(dir.path())
+                .unwrap()
+                .list()
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]

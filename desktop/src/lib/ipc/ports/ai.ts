@@ -33,7 +33,7 @@ export function aiPort(transport: Pick<IpcTransport, 'invoke' | 'aiChat' | 'aiWr
     deleteProvider: (id, options) => transport.invoke('ai_provider_delete', { id }, options),
     revealKey: async (endpointId, options) =>
       (await transport.invoke('ai_endpoint_key_reveal', { id: endpointId }, options)).key,
-    probe: (endpointId, options) => transport.invoke('ai_endpoint_probe', { id: endpointId }, options),
+    probe: (endpointId, options) => transport.invoke('ai_endpoint_probe', { id: endpointId, jobId: crypto.randomUUID() }, options),
     roles: (options) => transport.invoke('ai_roles_get', undefined, options),
     setRole: (role, binding, options) => transport.invoke('ai_roles_set', { role, binding }, options),
     listConversations: (options) => transport.invoke('ai_conversations_list', undefined, options),

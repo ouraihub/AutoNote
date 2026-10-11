@@ -15,15 +15,24 @@ export async function bootDesktop(target: HTMLElement): Promise<AppHandle> {
   const prefs = new DesktopPrefs()
   const i18n = new I18nState({ prefs })
   const notifier = new OverlayNotifier((key, params) => i18n.t(key as Parameters<I18nState['t']>[0], params))
+  let stage = 'initialization'
   let handle: AppHandle | undefined
   try {
+    stage = 'changes.start'
     await backend.changes.start()
+    stage = 'mcp.startListening'
     await backend.mcp.startListening()
-    await Promise.all([backend.session.load(), i18n.init()])
+    stage = 'session.load'
+    const session = backend.session.load()
+    stage = 'i18n.init'
+    const language = i18n.init()
+    await Promise.all([session, language])
+    stage = 'listenIntents'
     const intentListeners = new Set<(intent: 'new-note') => void>()
     await transport.listenIntents((intent) => {
       for (const listener of intentListeners) listener(intent)
     })
+    stage = 'mountApp'
     handle = mountApp(target, {
       backend,
       clock: { now: () => Date.now() },
@@ -40,6 +49,7 @@ export async function bootDesktop(target: HTMLElement): Promise<AppHandle> {
         },
       },
     })
+    stage = 'onPrepareClose'
     await transport.onPrepareClose(
       async () => {
         const result = handle ? await handle.flush() : { pending: 0, failed: 1 }
@@ -62,11 +72,11 @@ export async function bootDesktop(target: HTMLElement): Promise<AppHandle> {
         await mounted.destroy()
       },
     }
-  } catch (error) {
+  } catch (cause) {
     if (handle) await handle.destroy()
     observeIpcFailures(undefined)
     await logger.dispose()
     await backend.dispose()
-    throw error
+    throw new Error(`desktop startup failed at ${stage}`, { cause })
   }
 }

@@ -14,6 +14,11 @@ note-sync = { path = "sync" }
 note-mcp = { path = "mcp" }
 autonote-shell = { path = "shell" }
 note-ai = { path = "ai" }
+aether-observability = { git = "https://github.com/ouraihub/Aether.git", rev = "997d9830fcb975318b5c5ce678ef3bfa983ad9f7" }
+aether-providers = { git = "https://github.com/ouraihub/Aether.git", rev = "997d9830fcb975318b5c5ce678ef3bfa983ad9f7" }
+aether-chat = { git = "https://github.com/ouraihub/Aether.git", rev = "997d9830fcb975318b5c5ce678ef3bfa983ad9f7" }
+aether-mcp-server = { git = "https://github.com/ouraihub/Aether.git", rev = "997d9830fcb975318b5c5ce678ef3bfa983ad9f7" }
+tauri-plugin-aether = { git = "https://github.com/ouraihub/Aether.git", rev = "997d9830fcb975318b5c5ce678ef3bfa983ad9f7" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
@@ -50,6 +55,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2.6.3", features = [] }
 
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
 [dependencies]
 note-core.workspace = true
 autonote-shell.workspace = true
@@ -64,6 +72,11 @@ tokio = { version = "=1.53.1", features = ["time"] }
 note-sync.workspace = true
 note-mcp.workspace = true
 note-ai.workspace = true
+aether-observability.workspace = true
+aether-providers.workspace = true
+aether-chat.workspace = true
+aether-mcp-server.workspace = true
+tauri-plugin-aether = { workspace = true, features = ["providers", "chat"] }
 tokio-util = "=0.7.19"
 zeroize = "=1.8.2"
 getrandom = "0.4"

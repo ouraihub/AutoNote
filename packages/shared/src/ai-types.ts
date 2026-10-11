@@ -90,7 +90,7 @@ export interface AiChatRequest {
   regenerate?: boolean
   role?: AiRole
   model?: AiModelRef
-  note?: { title: string; content: string }
+  note?: { id?: string; title: string; content: string }
   maxTokens?: number
 }
 

@@ -9,6 +9,94 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "aether-chat"
+version = "0.1.0"
+source = "git+https://github.com/ouraihub/Aether.git?rev=997d9830fcb975318b5c5ce678ef3bfa983ad9f7#997d9830fcb975318b5c5ce678ef3bfa983ad9f7"
+dependencies = [
+ "aether-support",
+ "async-trait",
+ "getrandom 0.4.3",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "ts-rs",
+]
+
+[[package]]
+name = "aether-mcp-server"
+version = "0.1.0"
+source = "git+https://github.com/ouraihub/Aether.git?rev=997d9830fcb975318b5c5ce678ef3bfa983ad9f7#997d9830fcb975318b5c5ce678ef3bfa983ad9f7"
+dependencies = [
+ "aether-support",
+ "base64 0.22.1",
+ "getrandom 0.4.3",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "rmcp",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "ts-rs",
+ "url",
+]
+
+[[package]]
+name = "aether-observability"
+version = "0.1.0"
+source = "git+https://github.com/ouraihub/Aether.git?rev=997d9830fcb975318b5c5ce678ef3bfa983ad9f7#997d9830fcb975318b5c5ce678ef3bfa983ad9f7"
+dependencies = [
+ "aether-support",
+ "serde",
+ "serde_json",
+ "tracing",
+ "tracing-log",
+ "tracing-subscriber",
+ "ts-rs",
+]
+
+[[package]]
+name = "aether-providers"
+version = "0.1.0"
+source = "git+https://github.com/ouraihub/Aether.git?rev=997d9830fcb975318b5c5ce678ef3bfa983ad9f7#997d9830fcb975318b5c5ce678ef3bfa983ad9f7"
+dependencies = [
+ "aether-support",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tokio-util",
+ "ts-rs",
+ "zeroize",
+]
+
+[[package]]
+name = "aether-support"
+version = "0.1.0"
+source = "git+https://github.com/ouraihub/Aether.git?rev=997d9830fcb975318b5c5ce678ef3bfa983ad9f7#997d9830fcb975318b5c5ce678ef3bfa983ad9f7"
+dependencies = [
+ "getrandom 0.4.3",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "serde",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "ts-rs",
+ "url",
+ "windows",
+ "zeroize",
+]
+
+[[package]]
 name = "aho-corasick"
 version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -232,6 +320,10 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 name = "autonote"
 version = "0.1.0"
 dependencies = [
+ "aether-chat",
+ "aether-mcp-server",
+ "aether-observability",
+ "aether-providers",
  "autonote-shell",
  "getrandom 0.4.3",
  "note-ai",
@@ -242,6 +334,7 @@ dependencies = [
  "serde_json",
  "tauri",
  "tauri-build",
+ "tauri-plugin-aether",
  "tauri-plugin-dialog",
  "tauri-plugin-global-shortcut",
  "tauri-plugin-single-instance",
@@ -4370,6 +4463,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-aether"
+version = "0.1.0"
+source = "git+https://github.com/ouraihub/Aether.git?rev=997d9830fcb975318b5c5ce678ef3bfa983ad9f7#997d9830fcb975318b5c5ce678ef3bfa983ad9f7"
+dependencies = [
+ "aether-chat",
+ "aether-observability",
+ "aether-providers",
+ "aether-support",
+ "async-trait",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "ts-rs",
+]
+
+[[package]]
 name = "tauri-plugin-dialog"
 version = "2.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4562,6 +4675,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5fed54709c5b3a53d09bb1c113ea4f5ceafd1e772ddcb0030a82e1d56c087b08"
 dependencies = [
  "new_debug_unreachable",
+]
+
+[[package]]
+name = "termcolor"
+version = "1.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755"
+dependencies = [
+ "winapi-util",
 ]
 
 [[package]]
@@ -4967,6 +5089,28 @@ name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
+
+[[package]]
+name = "ts-rs"
+version = "11.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4994acea2522cd2b3b85c1d9529a55991e3ad5e25cdcd3de9d505972c4379424"
+dependencies = [
+ "thiserror 2.0.21",
+ "ts-rs-macros",
+]
+
+[[package]]
+name = "ts-rs-macros"
+version = "11.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee6ff59666c9cbaec3533964505d39154dc4e0a56151fdea30a09ed0301f62e2"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+ "termcolor",
+]
 
 [[package]]
 name = "tungstenite"

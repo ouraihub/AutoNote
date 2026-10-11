@@ -73,7 +73,7 @@ export interface CommandArgs {
   ai_provider_save: { provider: AiProviderSave }
   ai_provider_delete: { id: string }
   ai_endpoint_key_reveal: { id: string }
-  ai_endpoint_probe: { id: string }
+  ai_endpoint_probe: { id: string; jobId: string }
   ai_roles_get: Empty
   ai_roles_set: { role: AiRole; binding: AiModelRef | null }
   ai_conversations_list: Empty
@@ -220,7 +220,7 @@ export interface CommandResults {
   settings_stats: Record<string, number>
   app_info: AppInfo
   app_logs_tail: LogEntry[]
-  app_log: { ok: true; available: boolean }
+  app_log: { ok: true; available: boolean; accepted: number; rejected: number }
   app_open_log_dir: { ok: true }
   desktop_prefs_get: DesktopStatus
   desktop_prefs_save: DesktopStatus

@@ -80,10 +80,10 @@ pub async fn app_info(context: tauri::State<'_, AppContext>) -> Result<AppInfo, 
 pub async fn app_logs_tail(
     context: tauri::State<'_, AppContext>,
     limit: Option<usize>,
-) -> Result<Vec<autonote_shell::logs::LogEntry>, AppError> {
-    let path = autonote_shell::paths::log_file(&context.data_dir);
-    run("app_logs_tail", &context, move |_| {
-        Ok(autonote_shell::logs::tail(&path, limit.unwrap_or(300))?)
-    })
-    .await
+) -> Result<Vec<aether_observability::LogEntry>, AppError> {
+    let logs = context.logs.clone();
+    tauri::async_runtime::spawn_blocking(move || logs.tail(limit.unwrap_or(300)))
+        .await
+        .map_err(|_| AppError::new(ErrorCode::Internal, "Log read failed"))?
+        .map_err(|_| AppError::new(ErrorCode::Internal, "Log read failed"))
 }

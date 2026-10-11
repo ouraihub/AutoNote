@@ -204,9 +204,9 @@ fn finish_exit(app: &tauri::AppHandle) {
         }
         save_bounds(&app);
         let _ = app.global_shortcut().unregister_all();
-        tracing::info!("app.shutdown.completed");
-        if autonote_shell::logging::flush().is_err() {
-            tracing::warn!(code = "internal", "app.log.unavailable");
+        if app.state::<crate::AppContext>().logs.flush().is_err() {
+            // Do not emit through the logger being flushed; exit remains bounded.
+            eprintln!("AutoNote log flush unavailable");
         }
         app.state::<DesktopState>()
             .allow_exit
