@@ -320,29 +320,49 @@ pub async fn ai_endpoint_key_reveal(context: Ctx<'_>, id: String) -> Result<Reve
     })
 }
 
-fn probe_dto(result: providers::ProbeResult) -> note_ai::ProbeResult {
-    use note_ai::ProbeErrorKind as W;
+/// `ai_endpoint_probe` wire shape (doc 23 §5), mirrored by the TS `ProbeResult`.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProbeResult {
+    probe_url: String,
+    models: Vec<ProbedModel>,
+    error: Option<ProbeError>,
+}
+#[derive(Serialize)]
+pub struct ProbedModel {
+    #[serde(flatten)]
+    model: AiModel,
+    group: Option<String>,
+}
+#[derive(Serialize)]
+pub struct ProbeError {
+    kind: &'static str,
+    status: Option<u16>,
+    message: Option<String>,
+}
+
+fn probe_dto(result: providers::ProbeResult) -> ProbeResult {
     use providers::ProbeErrorKind as K;
-    note_ai::ProbeResult {
+    ProbeResult {
         probe_url: result.probe_url,
         models: result
             .models
             .into_iter()
-            .map(|model| note_ai::ProbedModel {
+            .map(|model| ProbedModel {
                 model: model_dto(model.model),
                 group: model.group,
             })
             .collect(),
-        error: result.error.map(|error| note_ai::ProbeError {
+        error: result.error.map(|error| ProbeError {
             kind: match error.kind {
-                K::MissingKey => W::MissingKey,
-                K::Unauthorized => W::Unauthorized,
-                K::NotFound => W::NotFound,
-                K::RateLimited => W::RateLimited,
-                K::Status => W::Status,
-                K::Timeout => W::Timeout,
-                K::Connect | K::BlockedAddress => W::Connect,
-                K::InvalidBody => W::InvalidBody,
+                K::MissingKey => "missing_key",
+                K::Unauthorized => "unauthorized",
+                K::NotFound => "not_found",
+                K::RateLimited => "rate_limited",
+                K::Status => "status",
+                K::Timeout => "timeout",
+                K::Connect | K::BlockedAddress => "connect",
+                K::InvalidBody => "invalid_body",
             },
             status: error.status,
             message: None,
@@ -355,7 +375,7 @@ pub async fn ai_endpoint_probe(
     context: Ctx<'_>,
     id: String,
     job_id: String,
-) -> Result<note_ai::ProbeResult, AppError> {
+) -> Result<ProbeResult, AppError> {
     let flag = context.jobs.start(&job_id)?;
     let cancel = tokio_util::sync::CancellationToken::new();
     let watcher = watch_cancel(flag, cancel.clone());

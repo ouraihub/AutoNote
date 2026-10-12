@@ -155,25 +155,34 @@ A3 与 A4 可在 A3 合同稳定后串行推进；A5 可以在 A3 后开始，�
 
 ### A5 MCP Server
 
-- [ ] **A5-1 替换 MCP Transport/Auth**
+- [x] **A5-1 替换 MCP Transport/Auth**
+  - 2026-10-12 核验：`src/lib.rs` 用 `aether_mcp_server::McpServer::new(data_dir, {default_port, token_prefix:"autonote"}, SCOPES, exposed_tools)` 接入插件；`note-mcp` 旧 `auth.rs`/`handler.rs`/`transport.rs` 已删，AutoNote 不再有 listener、token hash、Origin 校验代码。`cargo test -p note-mcp` 真实 HTTP：撤销 token 后 401、非法 Origin 403。
   - 使用 `aether-mcp-server` 的 Streamable HTTP、token hash、revoke、scope、Origin、回环和端口管理。
   - AutoNote 不重复实现 HTTP listener、token hash、Origin 校验。
   - 新系统重新发 token，不迁移旧 token。
 
-- [ ] **A5-2 接入 AutoNote MCP Tools**
+- [x] **A5-2 接入 AutoNote MCP Tools**
+  - 2026-10-12 核验：`mcp/src/schema.rs::exposed_tools` 34 个工具全部经 `Library::execute_mcp_read/execute_mcp_write`（note-core 事务、`check_rev`、`files.mcp_publish`）；operationId 幂等在 note-core。修复：原适配器把所有领域错误压成 `internal`，现 `kit_error` 保留 `bad_request/not_found/conflict/forbidden` 与 field/reason/resource。回归：`aether_server.rs` 过期 `expected_rev` → `-32009`、`data.code=conflict`（修复前实测为 `-32603 internal`）；同 operationId 重放返回相同结果；只读 token `tools/list` 17 个且无写工具，全权限 34 个。
+  - 未覆盖：冲突的 `expected/actual/server` 不在 Aether `Details` 白名单内，客户端需重读笔记。
   - 只读工具通过 note-core 查询。
   - 写工具通过 note-core 事务和 expected revision。
   - 附件工具经过 note-core 文件安全边界。
   - operationId 幂等和冲突逻辑保留在 AutoNote 领域层。
   - 禁止执行笔记正文中的脚本或指令。
 
-- [ ] **A5-3 MCP 权限与 UI**
+- [x] **A5-3 MCP 权限与 UI**
+  - 2026-10-12 验收（真实 exe，WebView2 CDP 驱动）：设置 → MCP 点"启动"显示运行状态与 `http://127.0.0.1:<port>/mcp`，"创建密钥"只展示一次 token（含复制警告与 `claude mcp add` 片段），关闭设置后 DOM 中不再含 token；截图已人工核对。
+  - 修复 4 处 cutover 回归：① Aether `enabled_scopes` 新库为空，新装时只读工具也是 0 个 → 启动时 `note_mcp::enable_read_baseline` 只补 `notes:read`（写/回收站仍默认关，保留用户已开的）；② 密钥原只发 `notes:read`，写/回收站开关无效 → 密钥带全部声明 scope，由开关统一控制；③ `mcp_save_preferences` 返回 scope 数组，前端校验要 `McpPreferences`，切换开关必报"操作失败" → 改为返回 `McpPreferences`；④ `CreatedKey` 被 `serde(flatten)` 拍平，前端校验 `{key, token}` 失败，UI 创建密钥必失败 → 恢复嵌套。另：`boundary` 原把全部 Aether 错误压成 `internal`，端口占用提示 `desktop.mcpPortInUse` 永远不出现 → 保留 `conflict/bad_request/not_found` 等码。
+  - 回归测试：`mcp/tests/aether_server.rs::fresh_install_enables_only_read_and_is_idempotent`。③④ 属 IPC 形状，现无 Rust↔TS 契约测试覆盖 MCP 命令（`ipc-contract.json` 不含 `mcp_*`），只有本次真实 exe 读回为证。
   - read/control scope 分离。
   - 写入、回收站、附件删除默认受控。
   - 设置页显示运行状态、端口、scope、token 创建/撤销。
   - token 明文只展示一次，不写日志和数据库。
 
-- [ ] **A5-4 MCP 真实验收**
+- [x] **A5-4 MCP 真实验收**
+  - 2026-10-12：`custom-protocol` 构建的真实 exe 放在隔离临时目录（含中文与空格路径，便携 `data/`），脚本经 IPC 操作、经回环 HTTP 调 MCP，22/22 通过：新装只读 17 个工具；写关闭时 `create_note` → `-32001 forbidden`；开写/回收站后 34 个；`create_note` 同 operationId 重放结果相同且库中只 1 行；过期 `expected_rev` → `-32009 conflict`；非法 Origin → 403；局域网地址连不上；端口被占 → IPC `conflict: port_in_use`，换回空闲端口恢复；撤销 token 立即 401；`taskkill` 重启后按保存的端口自动启动，存活密钥仍见 34 个工具，已撤销仍 401；`data/` 下 db/WAL/日志无明文 token。
+  - MCP Inspector CLI（`@modelcontextprotocol/inspector@0.17.2 --cli --transport http`）用 UI 创建的 token 连真实 exe `tools/list` 退出 0，返回 17 个只读工具。
+  - "写工具审批"：MCP Server 面向外部客户端，AutoNote 侧的控制是 scope 开关（已验拒绝），逐次审批由 MCP 客户端负责，本端不实现。未验证：Claude Code 实连（本机无 CLI 会话）。
   - MCP Inspector `tools/list`。
   - 只读 token 看不到写工具。
   - 写工具审批/拒绝/冲突。
@@ -184,19 +193,24 @@ A3 与 A4 可在 A3 合同稳定后串行推进；A5 可以在 A3 后开始，�
 
 ### A6 清理与发布
 
-- [ ] **A6-1 删除旧 AI 实现**
+- [x] **A6-1 删除旧 AI 实现**
+  - 2026-10-12：旧三协议请求、SSE decoder、旧 chat client 已在 `71778bc` 删除；本次删除整个 `note-ai` crate（`probe/classify/url` 与上游错误清洗，均与 `aether-providers` 重复，唯一残留用途是三个探测 DTO → 内联到 `commands/ai.rs`，线格式不变）与只被它用的 `fixtures/ai-classify.json`；删除 `note-core/ai.rs` 中已无调用者的旧会话存储（`ai_conversations/ai_conversation/ai_chat_begin/ai_chat_finish/ai_trim_history` 及其测试，会话已在 Aether `chat.db`）和 `Entity::AiConversation`。保留 `AiRoleSettings`（RoleStore）、`AiModel`/`AiProtocol` 等线类型。`note-core` 中已无 `ai_providers/ai_endpoints/ai_models` 写入路径，只剩历史迁移 DDL（不迁移旧数据，按 §1 不加兼容）。
+  - 验证：真实 exe 经 IPC 保存本地 Provider → `ai_endpoint_probe` 返回 2 个模型（`id/modelType/group` 符合 `validation.ts::aiProbe`），上游 401 → `{kind:"unauthorized",status:401}`；MCP 22/22 复跑通过。
   - 依赖 A3、A4 真实验收。
   - 删除 AutoNote 旧三协议请求、SSE decoder、重复错误映射和旧 AI client。
   - 删除旧 AI provider/endpoint/model SQL 新写入路径。
   - 不删除 Aether adapter、AutoNote RoleStore、WritingController。
 
-- [ ] **A6-2 删除旧 MCP 传输实现**
+- [x] **A6-2 删除旧 MCP 传输实现**
+  - 2026-10-12：`note-mcp` 只剩 `schema.rs`（工具 schema、scope、领域错误映射、read 基线），旧 `auth/handler/transport` 与 listener/token 生命周期已删；工作区无 `note_mcp::McpServer/McpConfig` 引用。note-core `execute_mcp_read/write` 与 operationId 幂等保留。
   - 依赖 A5 真实验收。
   - 删除 `note-mcp` 重复 transport/auth/server 生命周期。
   - 保留 note-core 的 MCP read/write tools。
   - 保留 AutoNote tool schema 和领域权限规则。
 
 - [ ] **A6-3 全量回归**
+  - 2026-10-12 已通过：AutoNote `pnpm run desktop:verify` 退出 0（app/desktop svelte-check 0 错 0 警告、desktop vitest 26 项、Rust test/clippy `-D warnings`/fmt）；`web:check` 0 错、`web:test` 11+102 项；Rust workspace test 全部通过（删除旧会话存储后 note-core 83 项）。Aether（`6975f44`，crates 与固定 rev `997d983` 一致）fmt、clippy `--all-features -D warnings`、`test --workspace --all-features`、`pnpm run check` 通过；修复 Aether CI：clippy 前未构建示例前端，干净 runner 上 `generate_context!` 因 `frontendDist` 不存在而 panic → 新增 "Build example frontends" 步骤。真实 exe：MCP 22/22、Provider 探测与 401、关闭/重启恢复；`data/`（含 `providers.db`/WAL/SHM、`mcp-server.db`、日志）扫描无明文 API key 与 token。
+  - 待补（本轮未重跑）：三协议 Chat 与 Writing 的真实上游流式/取消（A3-4、A4-4 已有记录；本轮未改其路径）。
   - AutoNote `app:check`、`web:check`、`web:test`、`desktop:verify`。
   - AutoNote Rust fmt/clippy/test。
   - Aether fmt/clippy/test。
@@ -299,10 +313,11 @@ docs/03-开发任务清单.md
 
 ## 9. 当前起点
 
-当前唯一可领取任务：
+当前可领取任务（2026-10-12）：
 
 ```text
-A0-1 建立 refactor/use-aether 分支
+A6-3 补三协议 Chat / Writing 真实流式与取消复验
+A6-4 发布前记录（依赖 A6-3）
 ```
 
-A0-1 完成前禁止开始 A1-A6。A0-1 完成后依赖图按本清单顺序推进。
+A0–A5、A6-1、A6-2 已完成，记录见第 5 节。

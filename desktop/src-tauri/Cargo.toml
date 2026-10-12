@@ -1,5 +1,5 @@
 [workspace]
-members = ["core", "sync", "mcp", "shell", "ai"]
+members = ["core", "sync", "mcp", "shell"]
 resolver = "2"
 
 [workspace.package]
@@ -13,7 +13,6 @@ note-core = { path = "core" }
 note-sync = { path = "sync" }
 note-mcp = { path = "mcp" }
 autonote-shell = { path = "shell" }
-note-ai = { path = "ai" }
 aether-observability = { git = "https://github.com/ouraihub/Aether.git", rev = "997d9830fcb975318b5c5ce678ef3bfa983ad9f7" }
 aether-providers = { git = "https://github.com/ouraihub/Aether.git", rev = "997d9830fcb975318b5c5ce678ef3bfa983ad9f7" }
 aether-chat = { git = "https://github.com/ouraihub/Aether.git", rev = "997d9830fcb975318b5c5ce678ef3bfa983ad9f7" }
@@ -71,7 +70,6 @@ tauri-plugin-dialog = "=2.8.1"
 tokio = { version = "=1.53.1", features = ["time"] }
 note-sync.workspace = true
 note-mcp.workspace = true
-note-ai.workspace = true
 aether-observability.workspace = true
 aether-providers.workspace = true
 aether-chat.workspace = true

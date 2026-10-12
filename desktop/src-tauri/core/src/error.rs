@@ -28,7 +28,6 @@ pub enum Entity {
     AiProvider,
     AiEndpoint,
     AiModel,
-    AiConversation,
 }
 
 impl Entity {
@@ -42,7 +41,6 @@ impl Entity {
             Self::AiProvider => "Model provider",
             Self::AiEndpoint => "Model endpoint",
             Self::AiModel => "Model",
-            Self::AiConversation => "Conversation",
         }
     }
 }
