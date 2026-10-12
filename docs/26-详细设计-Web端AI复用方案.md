@@ -1,0 +1,164 @@
+# 26 详细设计：Web 端 AI 界面复用与 Worker 实现
+
+> 状态：方案已确认（2026-10-12），未实施。
+> 范围：Web 版与桌面版共用 `@ouraihub/aether-ui` 的 AI 界面；Worker 按 Aether 合同实现服务端；Web 工具审批方式。
+> 上游：[24-详细设计-Aether框架迁移方案.md](24-详细设计-Aether框架迁移方案.md)（桌面接入）。本文补充 Web 宿主，二者冲突时以本文的 Web 部分为准。
+
+## 1. 结论
+
+- Web 版 AI 范围：对话、写作、工具调用、MCP 客户端（用户配置并调用第三方 MCP 服务）。
+- 两个宿主都用 `aether-ui` 的组件；`packages/app` 只保留 AutoNote 的产品层（布局、角色、写作工具栏、笔记上下文）。
+- `aether-ui` **不包含** Web 的 HTTP 适配器和 Worker 服务端；HTTP 适配器 `HttpKitPorts` 放在 AutoNote `web/src/client`。
+- Worker 按 Aether 的 DTO 和 `RunEvent` 语义用 TypeScript 实现服务端。这是 24 §2.3「不复制 Provider/Chat/MCP 协议实现」的唯一例外：Worker 无法运行 Aether 的 Rust crate（依赖 reqwest、rusqlite、DPAPI）。
+- Web 工具审批用**无状态续跑**，不用 Durable Object（§6）。
+- 历史数据沿用 24 §1：Web 端旧 AI 配置和对话不迁移，用户重新配置。
+
+## 2. aether-ui 的定位
+
+标准的端口与适配器分层：
+
+| 层 | 内容 | 位置 |
+| --- | --- | --- |
+| 合同 | `KitPorts` 及各 port，纯 TS，不涉及传输 | `aether-ui/ports` |
+| 组件 | 只依赖 ports，不知道下层是 Tauri 还是 HTTP | `aether-ui/providers`、`/chat`、`/mcp` 等 |
+| Tauri 适配器 | `createTauriPorts`，四个桌面程序共用 | `aether-ui/tauri` |
+| HTTP 适配器 | `HttpKitPorts` | AutoNote `web/src/client` |
+| 服务端 | Worker 路由、D1、鉴权 | AutoNote `web/src/worker` |
+
+HTTP 适配器和服务端不进 `aether-ui`：
+
+- 服务端和应用强绑定：登录、多用户隔离、D1 表结构、Cloudflare 运行限制、密钥加密方式都是 AutoNote 自己的。
+- 目前只有 AutoNote 一个 Web 宿主，抽进共享包是过早抽象。出现第二个 Web 宿主时，再把 `HttpKitPorts` 提到 Aether。
+
+`aether-ui` 的组件和合同必须能在浏览器里运行。为此在 Aether 里已做的改动见 §8。
+
+## 3. 曾考虑的方案
+
+| 方案 | 做法 | 结论 |
+| --- | --- | --- |
+| A | `packages/app` 继续自带 AI 界面，只有桌面后端用 Aether | 不采用：工具调用、审批、MCP 客户端界面要在 AutoNote 再写一遍 |
+| B | 两端都用 `aether-ui`，Worker 按 Aether 合同实现 | **采用** |
+| C | 桌面用 `aether-ui`，Web 用 `packages/app` | 不采用：同一产品两套 AI 界面，违背两端挂载同一套界面的原则 |
+
+方案 A 原本是首选（Web 只做对话 + 写作时）。Web 范围加入工具调用和 MCP 客户端后，这些界面 `aether-ui` 已有（`ToolCallItem`、`ApprovalCard`、`McpClientSettings`），Worker 也必须实现对应逻辑，照 Aether 合同做最省。
+
+## 4. 目标架构
+
+```mermaid
+flowchart TB
+  subgraph app["packages/app（AutoNote 产品层）"]
+    shell["AI 面板布局、角色绑定、写作工具栏"]
+    kit["aether-ui 组件<br/>ProvidersSettings / ChatPanel / McpClientSettings"]
+    shell --> kit
+  end
+  kit --> ports["KitPorts（Aether 合同）"]
+  ports --> T["桌面：createTauriPorts"]
+  ports --> H["Web：HttpKitPorts<br/>web/src/client"]
+  T --> R["tauri-plugin-aether<br/>providers + chat + mcp-client + mcp-server"]
+  H --> W["Worker：按 Aether 合同实现<br/>providers / chat run / history / mcp-client"]
+```
+
+不变的部分：
+
+- 角色（`chat`、`writing`）、写作工具栏、笔记上下文选择：AutoNote 产品逻辑（24 §2.2）。
+- 主题：一段 CSS 把 shadcn 变量（`--background`、`--primary` 等）映射到 AutoNote 的 token，不改 `aether-ui`。
+- i18n：`createI18n(locale, overrides)` 覆盖 AutoNote 文案。
+- 写作：不用 `ChatPanel`，直接调 `chat.run({ purpose: 'writing', ... })` 处理 `text_delta`（24 §6）。
+
+## 5. 分阶段
+
+| 阶段 | 内容 | 涉及 |
+| --- | --- | --- |
+| 0 | `ChatPanel` 增加 `context` 参数；`KitPorts.logs` 改为可选（已完成，§8） | Aether |
+| 1 | 整理 Aether DTO 的 JSON 样例和 `RunEvent` 事件序列，作为 Worker 对照测试数据；Worker 实现 providers、chat run（不含工具）、history；新增 `HttpKitPorts`；D1 只追加迁移 | Aether + AutoNote Web |
+| 2 | `packages/app` 改用 `aether-ui` 组件，两端一次切换；写作工具栏改调 `chat.run`；删除 `AiPort` 合同和桌面适配层 `commands/ai.rs`；桌面 Aether 依赖从 `997d983` 升到含 §8 改动的版本 | AutoNote 两端 |
+| 3 | 工具调用：桌面复用 `note-mcp` 34 个工具（`KitHost::tools/call_tool`）；Web 复用 `worker/mcp/operations.ts`；Web 审批按 §6 | AutoNote 两端 |
+| 4 | MCP 客户端：桌面打开 `mcp-client` feature、创建 Store、加 capability；Web 在 Worker 实现 Streamable HTTP 客户端，安全要求见 §7 | AutoNote 两端 |
+
+阶段 1 必须先于阶段 2：`packages/app` 两端共用，一换组件 Web 就必须能按 Aether 格式响应。按一次切换、不留兼容层的原则，不能先只换桌面。
+
+防漂移：Worker 的模型分类、SSE 解析与 Rust 实现跑同一批测试数据（Aether `fixtures/model-classify.json`、`fixtures/sse/`）。任一边结果不同，测试失败。AutoNote 的 `fixtures/ai-classify.json` 改为直接用 Aether 那份。
+
+## 6. Web 工具审批：无状态续跑
+
+### 6.1 问题
+
+Aether 约定一次运行一直挂着：模型发出 `approval_required` 后，运行等待 `approve(runId, callId, allow)`，5 分钟（`approval_timeout`）无回应视为拒绝。桌面端同一进程里用 `HashMap<runId, 等待中的 Promise>` 即可。
+
+Worker 每个请求相互独立。审批是另一个 HTTP 请求，可能落到另一个 isolate，找不到正在等待的运行。
+
+### 6.2 两种做法
+
+| | Durable Object | 无状态续跑 |
+| --- | --- | --- |
+| 做法 | 每次运行对应一个 DO；SSE 由 DO 输出，审批请求路由到同一 DO，在内存里唤醒等待的运行 | 遇到需审批的工具，把这一轮状态（消息、待批调用、轮次、预算、已输出文字）写入 D1 后结束响应；审批时客户端调 `/continue`，服务端读出状态继续 |
+| 与桌面语义 | 完全一致 | 服务端不一致；`HttpKitPorts` 包一层后，对组件仍是一次运行、一个 `end` 事件 |
+| 手机锁屏、断网 | 连接断开即取消（Aether 规定 Channel 断开即取消），回来时运行已没了 | 状态在 D1，5 分钟内回来仍可审批 |
+| 重新部署 Worker | 进行中的运行丢失 | 不受影响 |
+| 计费 | 等审批期间 DO 按时长计费；SSE 不能休眠，只有 WebSocket 能 | 多一次 D1 写入 |
+| 额外成本 | 几乎没有，项目已有 `SyncHub`、`CredentialVault` 两个 DO | 需保证工具只执行一次（§6.4） |
+| Token 成本 | 相同：每轮工具调用本来就是一次独立的模型请求 | 相同 |
+
+### 6.3 选择与理由
+
+采用无状态续跑。
+
+- 主流框架都采用「暂停时结束请求、把状态存起来、审批后从存储恢复」，没有一家在审批期间让请求或进程一直挂着（2026-10-12 核对官方文档）：
+
+  | 框架 | 做法 | 状态存在哪 |
+  | --- | --- | --- |
+  | [Vercel AI SDK](https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling) | `streamText` 不暂停，直接结束并返回 `tool-approval-request`；应用把 `tool-approval-response` 追加进消息后再调用一次，批准则执行工具。审批配置用 `toolApproval`（旧的 `needsApproval` 已弃用） | 消息数组本身，由应用保存 |
+  | [OpenAI Agents SDK](https://openai.github.io/openai-agents-js/guides/human-in-the-loop/) | 运行暂停并返回 `interruptions`；`result.state.toString()` 序列化，之后 `RunState.fromString(agent, saved)` 恢复。文档明确写明长时间审批不需要服务进程一直运行 | 应用自选（文件、数据库） |
+  | [Cloudflare Agents](https://developers.cloudflare.com/agents/concepts/agentic-patterns/human-in-the-loop/) | Code Mode：记录待批调用后中止，批准后从持久日志重放已完成的调用再继续；长审批用 Workflows `waitForApproval()` | Durable Object 存储、Workflows |
+
+- Cloudflare 的方案同样是「中止 + 持久化 + 恢复」，Durable Object 在其中是**存储位置**，不是让运行在内存里等待；它的待批状态能扛过请求结束和 DO 休眠。AutoNote 用 D1 存这份状态即可，不需要为此引入每次运行一个 DO。
+- 什么时候才值得用 DO：多设备同时观看同一次运行，或断线后服务端仍要继续跑。AutoNote 两者都不需要。
+- Web 用户常在手机上使用、经常锁屏，项目又频繁部署，无状态续跑更稳。
+- 桌面端不用改，Aether 的 `ChatPort` 合同不用改；变化只在 Worker 和 `HttpKitPorts`。
+
+### 6.4 流程与规则
+
+```mermaid
+sequenceDiagram
+  participant UI as ChatPanel
+  participant P as HttpKitPorts
+  participant W as Worker
+  participant D as D1
+  UI->>P: run(request)
+  P->>W: POST /ai/runs（SSE）
+  W-->>P: text_delta / tool_call …
+  W->>D: 存暂停状态（runId、版本号、过期时间）
+  W-->>P: approval_required，然后流结束
+  P-->>UI: approval_required（不发 end）
+  UI->>P: approve(runId, callId, true)
+  P->>W: POST /ai/runs/:id/continue（SSE）
+  W->>D: CAS 取出并删除状态
+  W-->>P: tool_result / text_delta … end
+  P-->>UI: 同一个 onEvent，只有一个 end
+```
+
+- 只执行一次：状态行带版本号，取出时按版本 CAS 删除；双击"允许"、重复请求只有一次能取到。
+- 过期：状态过期时间等于 `approval_timeout`（5 分钟）；过期后续跑按拒绝处理，与桌面一致。
+- 停止：等待审批时用户点"停止"，`HttpKitPorts` 调取消接口删除状态，再发出 `end: cancelled`。
+- 历史完整：暂停前已输出的文字写入状态，续跑结束后整轮写入会话历史。
+- 不需要审批的工具在同一请求里直接执行，不暂停。
+- 状态按用户隔离：续跑和取消都校验 `user_id`。
+
+## 7. Web MCP 客户端安全要求
+
+调用第三方 MCP 服务是安全边界，不做简化：
+
+- 防 SSRF：只允许 `https`；拒绝内网、回环、链路本地 IP 字面量；不跟随重定向。
+- 凭据：用现有 `encryptCredential`（`web/src/worker/lib/crypto.ts`）加密存储，不回显明文。
+- 外部内容：外部工具结果像 Aether chat 一样包装为外部内容再交给模型，防提示注入。
+- 审批：非只读工具默认需要审批。
+- 上限：单次响应大小、每轮工具调用数、总轮数都有上限。
+
+## 8. 已在 Aether 完成的改动
+
+| 提交 | 内容 |
+| --- | --- |
+| `adf2c6c fix(ui): invoke plugin:aether commands` | `packages/ui/src/tauri/index.ts` 原来调 `plugin:kit\|…`，Rust 插件注册名是 `aether`，真实窗口里每个命令都会失败 |
+| `366bec7 feat(ui): ChatPanel host context chip; logs port optional for browser hosts` | `ChatPanel` 新增 `context` 参数（可移除标签，× 只影响下一条消息）；`KitPorts.logs` 改为可选，缺省时日志面板不渲染；`createTauriPorts` 返回类型仍保证有 `logs` |
+
+验证：Aether `pnpm run check` 通过，37 项测试。未在真实 Tauri 窗口验证。
