@@ -271,15 +271,47 @@ pub fn find_tool(name: &str) -> Option<&'static ToolSpec> {
 use std::sync::{Arc, OnceLock};
 
 use aether_mcp_server::{
-    CallContext, DEFAULT_MAX_REQUEST_BYTES, ExposedTool, KitError, ScopeSpec, ToolHandler,
+    CallContext, DEFAULT_MAX_REQUEST_BYTES, ExposedTool, KitError, KitErrorCode, ScopeSpec,
+    ToolHandler,
 };
-use note_core::Library;
+use note_core::{AppError, ErrorCode, Library};
 use serde_json::{Value, json};
+
+/// Keeps the domain code (conflict, not_found, bad_request...) and its whitelisted
+/// details so MCP clients can tell a stale `expected_rev` from a crash.
+// ponytail: conflict `expected/actual/server` don't fit Aether's Details whitelist; clients re-read the note.
+fn kit_error(error: AppError) -> KitError {
+    let code = match error.code() {
+        ErrorCode::BadRequest | ErrorCode::PayloadTooLarge => KitErrorCode::BadRequest,
+        ErrorCode::NotFound => KitErrorCode::NotFound,
+        ErrorCode::Conflict => KitErrorCode::Conflict,
+        ErrorCode::Forbidden | ErrorCode::Unauthenticated => KitErrorCode::Forbidden,
+        ErrorCode::TooManyAttempts => KitErrorCode::RateLimited,
+        ErrorCode::RequestTimeout => KitErrorCode::Timeout,
+        ErrorCode::Cancelled => KitErrorCode::Cancelled,
+        ErrorCode::StorageUnavailable
+        | ErrorCode::Internal
+        | ErrorCode::Offline
+        | ErrorCode::InvalidResponse => return KitError::internal(error),
+    };
+    let details = serde_json::to_value(error.details()).unwrap_or(Value::Null);
+    let mut kit = KitError::new(code, error.message());
+    if let Some(field) = details["field"].as_str() {
+        kit = kit.with_field(field);
+    }
+    if let Some(reason) = details["reason"].as_str() {
+        kit = kit.with_reason(reason);
+    }
+    if let Some(entity) = details["resource"].as_str() {
+        kit = kit.with_entity(entity);
+    }
+    kit
+}
 
 /// Converts the frozen AutoNote registry into Aether handlers without opening the library before setup.
 pub fn exposed_tools(library: Arc<OnceLock<Arc<Library>>>) -> Vec<ExposedTool> {
     let fixture: Value = serde_json::from_str(include_str!("../../../fixtures/mcp-tools.json"))
-        .unwrap_or_else(|_| json!({"tools": []}));
+        .unwrap_or(Value::Null);
     TOOLS
         .iter()
         .map(|spec| {
@@ -310,7 +342,7 @@ pub fn exposed_tools(library: Arc<OnceLock<Arc<Library>>>) -> Vec<ExposedTool> {
                     })
                     .await
                     .map_err(KitError::internal)?
-                    .map_err(|_| KitError::internal(std::io::Error::other("MCP operation failed")))
+                    .map_err(kit_error)
                 })
             });
             ExposedTool {
@@ -330,6 +362,26 @@ pub fn exposed_tools(library: Arc<OnceLock<Arc<Library>>>) -> Vec<ExposedTool> {
             }
         })
         .collect()
+}
+
+/// Read is the always-on baseline; write and trash stay behind the settings switches.
+/// Aether's master switch starts empty, so without this a fresh install exposes no tools.
+///
+/// # Errors
+/// Database errors from the Aether store.
+pub fn enable_read_baseline(server: &aether_mcp_server::McpServer) -> Result<(), KitError> {
+    let mut enabled: Vec<String> = server
+        .scopes()?
+        .into_iter()
+        .filter(|scope| scope.enabled)
+        .map(|scope| scope.id)
+        .collect();
+    if enabled.iter().any(|id| id == "notes:read") {
+        return Ok(());
+    }
+    enabled.push("notes:read".to_owned());
+    let ids: Vec<&str> = enabled.iter().map(String::as_str).collect();
+    server.set_enabled_scopes(&ids)
 }
 
 pub const SCOPES: [ScopeSpec; 3] = [

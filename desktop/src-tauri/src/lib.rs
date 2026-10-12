@@ -485,6 +485,10 @@ pub fn run() {
             return;
         }
     };
+    if note_mcp::enable_read_baseline(&aether_server).is_err() {
+        eprintln!("AutoNote could not start: MCP server unavailable");
+        return;
+    }
     let aether = match tauri_plugin_aether::Builder::new(host, logs.clone())
         .providers(plugin_store)
         .chat(tauri_plugin_aether::ChatConfig::default(), Some(chat_store))
@@ -573,6 +577,16 @@ pub fn run() {
             app.manage(window::DesktopState::new(prefs, &language));
             app.manage(context.sync.clone());
             app.manage(context);
+            // Restore the running state saved by mcp_start/mcp_stop; a taken port only logs.
+            if settings.enabled {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let server = handle.state::<aether_mcp_server::McpServer>();
+                    if let Err(error) = server.start().await {
+                        tracing::warn!(code = ?error.code(), "mcp.autostart.failed");
+                    }
+                });
+            }
             sink.bind(app.handle().clone());
             // The config window has `create: false`: built here so WebView2
             // never touches %LOCALAPPDATA% before data_directory is set.

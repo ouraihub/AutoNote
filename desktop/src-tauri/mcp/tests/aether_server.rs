@@ -44,6 +44,41 @@ async fn rpc(
     (status, body)
 }
 
+#[test]
+fn fresh_install_enables_only_read_and_is_idempotent() {
+    let dir = tempdir().expect("tempdir");
+    let server = McpServer::new(
+        dir.path(),
+        ServerConfig {
+            default_port: free_port(),
+            token_prefix: "autonote",
+        },
+        note_mcp::SCOPES.to_vec(),
+        note_mcp::exposed_tools(Arc::new(OnceLock::new())),
+    )
+    .expect("Aether MCP server");
+    let enabled = |server: &McpServer| -> Vec<String> {
+        let scopes = server.scopes().expect("scopes");
+        scopes
+            .into_iter()
+            .filter(|s| s.enabled)
+            .map(|s| s.id)
+            .collect()
+    };
+    assert!(
+        enabled(&server).is_empty(),
+        "Aether starts with every scope off"
+    );
+    note_mcp::enable_read_baseline(&server).expect("baseline");
+    assert_eq!(enabled(&server), ["notes:read"]);
+    // A user who turned on write keeps it across restarts.
+    server
+        .set_enabled_scopes(&["notes:read", "notes:write"])
+        .expect("enable write");
+    note_mcp::enable_read_baseline(&server).expect("baseline again");
+    assert_eq!(enabled(&server), ["notes:read", "notes:write"]);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn aether_mcp_real_http_scope_revoke_origin_and_idempotency() {
     let dir = tempdir().expect("tempdir");
@@ -138,6 +173,23 @@ async fn aether_mcp_real_http_scope_revoke_origin_and_idempotency() {
         first["result"]["structuredContent"],
         second["result"]["structuredContent"]
     );
+
+    // A stale expected_rev must reach the client as a domain conflict, not an internal error.
+    let note = &first["result"]["structuredContent"]["note"];
+    let stale = json!({"operation_id":"acceptance-edit-stale","note_id":note["id"],
+        "expected_rev": note["rev"].as_i64().expect("rev") + 5,"operation":"append","text":"x"});
+    let (status, body) = rpc(
+        &client,
+        port,
+        Some(&write.token),
+        None,
+        "tools/call",
+        json!({"name":"edit_note","arguments":stale}),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(body["error"]["code"], -32009, "{body}");
+    assert_eq!(body["error"]["data"]["code"], "conflict", "{body}");
 
     let (status, _) = rpc(
         &client,

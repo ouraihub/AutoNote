@@ -1,4 +1,6 @@
-use aether_mcp_server::{IssuedToken, KitError, McpServer, ScopeState, Status, TokenRecord};
+use aether_mcp_server::{
+    IssuedToken, KitError, KitErrorCode, McpServer, ScopeState, Status, TokenRecord,
+};
 use note_core::{AppError, ErrorCode};
 use serde::{Deserialize, Serialize};
 use tauri::Emitter;
@@ -11,8 +13,26 @@ pub struct LocalStatus {
     port: u16,
     error: Option<&'static str>,
 }
+/// Keeps the codes the UI branches on (`conflict` = port in use); Aether messages are safe text.
 fn boundary(error: KitError) -> AppError {
-    AppError::new(ErrorCode::Internal, error.to_string())
+    let code = match error.code() {
+        KitErrorCode::BadRequest => ErrorCode::BadRequest,
+        KitErrorCode::NotFound => ErrorCode::NotFound,
+        KitErrorCode::Conflict => ErrorCode::Conflict,
+        KitErrorCode::Forbidden => ErrorCode::Forbidden,
+        KitErrorCode::Cancelled => ErrorCode::Cancelled,
+        KitErrorCode::Timeout => ErrorCode::RequestTimeout,
+        KitErrorCode::IncompatibleDb => ErrorCode::StorageUnavailable,
+        KitErrorCode::Unsupported
+        | KitErrorCode::Unauthorized
+        | KitErrorCode::RateLimited
+        | KitErrorCode::Upstream
+        | KitErrorCode::Network
+        | KitErrorCode::NeedsConfig
+        | KitErrorCode::BudgetExceeded
+        | KitErrorCode::Internal => ErrorCode::Internal,
+    };
+    AppError::new(code, error.message())
 }
 fn status(value: Status) -> LocalStatus {
     LocalStatus {
@@ -105,23 +125,22 @@ pub async fn mcp_list_keys(server: tauri::State<'_, McpServer>) -> Result<Vec<Ap
         })
         .map_err(boundary)
 }
+/// Wire shape `{ key, token }` (see `mcp_create_key` in `desktop/src/lib/ipc/validation.ts`).
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct CreatedKey {
-    #[serde(flatten)]
     key: ApiKey,
     token: String,
 }
+/// Keys carry every declared scope; the write/trash switches (`enabled_scopes`) are the
+/// single control, matching the settings UI which has no per-key scope picker.
 #[tauri::command]
 pub async fn mcp_create_key(
     server: tauri::State<'_, McpServer>,
     name: String,
-    scopes: Option<Vec<String>>,
 ) -> Result<CreatedKey, AppError> {
-    let scopes = scopes.unwrap_or_else(|| vec!["notes:read".into()]);
-    let refs: Vec<&str> = scopes.iter().map(String::as_str).collect();
+    let scopes: Vec<&str> = note_mcp::SCOPES.iter().map(|scope| scope.id).collect();
     server
-        .issue_token(&name, &refs)
+        .issue_token(&name, &scopes)
         .map(|issued: IssuedToken| CreatedKey {
             key: issued.record.into(),
             token: issued.token,
@@ -152,7 +171,7 @@ pub struct PreferencePatch {
 pub async fn mcp_save_preferences(
     server: tauri::State<'_, McpServer>,
     patch: serde_json::Value,
-) -> Result<Vec<ScopeState>, AppError> {
+) -> Result<note_core::mcp::McpPreferences, AppError> {
     let patch: PreferencePatch = note_core::parse_input(patch).map_err(AppError::from)?;
     let current = server.scopes().map_err(boundary)?;
     let mut enabled: Vec<String> = current
@@ -174,12 +193,15 @@ pub async fn mcp_save_preferences(
     }
     let refs: Vec<&str> = enabled.iter().map(String::as_str).collect();
     server.set_enabled_scopes(&refs).map_err(boundary)?;
-    server.scopes().map_err(boundary)
+    preferences(&server)
 }
 #[tauri::command]
 pub async fn mcp_get_preferences(
     server: tauri::State<'_, McpServer>,
 ) -> Result<note_core::mcp::McpPreferences, AppError> {
+    preferences(&server)
+}
+fn preferences(server: &McpServer) -> Result<note_core::mcp::McpPreferences, AppError> {
     let scopes = server.scopes().map_err(boundary)?;
     Ok(note_core::mcp::McpPreferences {
         write_enabled: scopes.iter().any(|s| s.id == "notes:write" && s.enabled),
