@@ -226,6 +226,7 @@ sequenceDiagram
 | Worker | `web/src/worker/ai/{kit,infer,protocol,providers,history,runs}.ts`、`web/src/worker/routes/ai-kit.ts`，挂在 `/api/ai/kit` | `web/tests/ai-kit.test.ts` 26 项，用 `node:sqlite` 实现的 D1 适配器跑真实 SQL |
 | 客户端 | `web/src/client/backend/ports/kit.ts`（`createHttpKitPorts`）、共享 SSE 读取器 `web/src/client/backend/sse.ts` | `kit.test.ts` 7 项 |
 | 整体 | — | `pnpm run web:check` 通过；web 单测 29 个文件 135 项通过；本地 dev 服务器（Worker + 本地 D1）实测服务商保存、密钥打码、探测（私网拦截、连接失败）、运行前请求错误 |
+| 真实上游 | 本地 dev 服务器（`@cloudflare/vite-plugin`，Worker 运行在 workerd + 本地 D1），中转 `api.easyclaude.com` | 三协议各跑一遍：`anthropic-messages`（`claude-haiku-4-5-20251001`）、`openai-chat` 与 `openai-responses`（`gpt-5.5`）。每种都验证：探测得到 17 个模型；新对话事件顺序 `accepted → round_start → text_delta → usage → end{completed}`，`end` 恰好一个且在最后；续聊带上历史（第二轮正确翻译上一轮回复）；重新生成复用最后一轮；历史 2 轮均 `completed`；流式中途断开后该轮记为 `cancelled` 并保留已输出文本；删除会话和服务商后无残留。另用失效密钥验证 401 → 探测 `unauthorized` + `check_key` 提示、运行 `end{failed, unauthorized}` |
 
 与 Aether 的差异：
 
@@ -236,7 +237,6 @@ sequenceDiagram
 
 未验证：
 
-- 真实上游的完整运行（本地测试账号未配置真实模型）。
-- 真实 Workers 上客户端断开时取消信号是否触发、`waitUntil` 的终态写入是否完成（单测只在 Node 下覆盖）。
+- 部署到 Cloudflare 线上环境后的运行（本地 workerd 已验证断开取消与 `waitUntil` 终态写入）。
 - 120 秒首包、60 秒空闲超时未有测试实际触发。
 - `web/tests/` 不在任何 tsconfig 内，测试文件本身不经类型检查（由 vitest 运行）。
