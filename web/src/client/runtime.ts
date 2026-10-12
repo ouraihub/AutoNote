@@ -101,7 +101,14 @@ export function createWebRuntime(services: WebServices): AppDeps {
   if (IS_DEMO_MODE) {
     delete actualBackend.update
     delete actualBackend.ai
-    actualBackend.capabilities = { ...backend.capabilities, ai: false, totp: false, semanticSearch: false, updateCheck: false }
+    delete actualBackend.aiHost
+    actualBackend.capabilities = {
+      ...backend.capabilities,
+      ai: false,
+      totp: false,
+      semanticSearch: false,
+      updateCheck: false,
+    }
   }
   return {
     backend: actualBackend,

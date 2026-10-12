@@ -249,7 +249,8 @@ export interface AiHostPort {
   readonly kit: KitPorts
   roles(options?: CallOptions): Promise<AiRoleBinding[]>
   setRole(role: AiRole, binding: ModelRef | null, options?: CallOptions): Promise<AiRoleBinding[]>
-  revealKey(endpointId: string, options?: CallOptions): Promise<string>
+  readonly revealNeedsPassword: boolean
+  revealKey(endpointId: string, currentPassword: string | null, options?: CallOptions): Promise<string>
 }
 
 export interface Backend {

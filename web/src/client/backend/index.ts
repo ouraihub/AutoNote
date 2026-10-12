@@ -31,6 +31,7 @@ import { HttpBackupPort } from './ports/backup'
 import { HttpUpdatePort } from './ports/update'
 import { HttpRemoteMcpPort } from './ports/mcp'
 import { HttpAiPort } from './ports/ai'
+import { createHttpAiHostPort } from './ports/ai-host'
 
 export interface WebBackendDeps {
   fetch: FetchLike
@@ -338,6 +339,7 @@ export function createWebBackend(deps: WebBackendDeps): Backend {
     files: new HttpFilesPort({ transport, ...(deps.resolveFileUrl ? { resolveFileUrl: deps.resolveFileUrl } : {}) }),
     transfer: new HttpTransferPort({ transport, logger: deps.logger, clock: deps.clock }),
     ai,
+    aiHost: createHttpAiHostPort(transport),
     share: new HttpSharePort({ transport }),
     backup: new HttpBackupPort({ transport }),
     mcp: new HttpRemoteMcpPort({ transport }),

@@ -7,6 +7,7 @@ import { filesPort } from './ports/files'
 import { transferPort } from './ports/transfer'
 import { IpcMcpPort } from './ports/mcp'
 import { aiPort, type AiPort } from './ports/ai'
+import { aiHostPort } from './ports/ai-host'
 
 export function createIpcBackend(
   transport: IpcTransport,
@@ -99,6 +100,7 @@ export function createIpcBackend(
     changes,
     mcp,
     ai: aiPort(transport),
+    aiHost: aiHostPort(transport),
     async dispose() {
       changes.dispose()
       mcp.dispose()
