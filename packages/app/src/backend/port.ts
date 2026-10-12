@@ -50,6 +50,7 @@ import type {
   TagPatchResult,
 } from '@shared/backend-types'
 import type { AiPort } from '@shared/ai-types'
+import type { KitPorts, ModelRef } from '@ouraihub/aether-ui/ports'
 import type { ChangeFeed, Unsubscribe } from './change-feed'
 
 export interface CallOptions {
@@ -236,6 +237,21 @@ export interface UpdatePort {
   check(options?: CallOptions): Promise<UpdateCheckResponse>
 }
 
+export type AiRole = 'chat' | 'writing'
+
+export interface AiRoleBinding {
+  role: AiRole
+  binding: (ModelRef & { label: string }) | null
+  isFallback: boolean
+}
+
+export interface AiHostPort {
+  readonly kit: KitPorts
+  roles(options?: CallOptions): Promise<AiRoleBinding[]>
+  setRole(role: AiRole, binding: ModelRef | null, options?: CallOptions): Promise<AiRoleBinding[]>
+  revealKey(endpointId: string, options?: CallOptions): Promise<string>
+}
+
 export interface Backend {
   readonly kind: 'web' | 'desktop'
   readonly capabilities: BackendCapabilities
@@ -249,6 +265,7 @@ export interface Backend {
   readonly transfer: TransferPort
   readonly changes: ChangeFeed
   readonly ai?: AiPort
+  readonly aiHost?: AiHostPort
   readonly share?: SharePort
   readonly backup?: BackupPort
   readonly mcp?: RemoteMcpPort | LocalMcpPort

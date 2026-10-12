@@ -29,6 +29,8 @@ export type {
   AiPort,
 } from '@shared/ai-types'
 export type {
+  AiHostPort,
+  AiRoleBinding as HostAiRoleBinding,
   Backend,
   BackendCapabilities,
   BackupPort,
