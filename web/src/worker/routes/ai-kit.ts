@@ -1,0 +1,118 @@
+import { Hono } from 'hono'
+import type { ContentfulStatusCode } from 'hono/utils/http-status'
+import type { RunEvent } from '@ouraihub/aether-ui/ports'
+import type { AppBindings } from '../env'
+import { ApiError, errorResponse } from '../lib/errors'
+import { JSON_BODY_LIMITS, readJson } from '../lib/request'
+import { requireAuth } from '../middleware/auth'
+import { deleteConversation, listConversations, loadConversation, renameConversation, toWire } from '../ai/history'
+import { HTTP_STATUS, KitFailure, acquireSlot, checkLength, parseBody } from '../ai/kit'
+import { ModelFilterSchema, ProbeTargetSchema, ProviderSaveSchema, listProviders, modelOptions, probe, removeProvider, saveProvider } from '../ai/providers'
+import { RunRequestSchema, executeRun, prepareRun } from '../ai/runs'
+import { z } from 'zod'
+
+const RenameSchema = z.strictObject({ title: z.string() })
+
+export const aiKitRoutes = new Hono<AppBindings>()
+
+aiKitRoutes.onError((error, c) =>
+  error instanceof KitFailure
+    ? c.json({ error: error.toJSON() }, HTTP_STATUS[error.code] as ContentfulStatusCode)
+    : errorResponse(c, error),
+)
+aiKitRoutes.use('*', requireAuth)
+aiKitRoutes.use('*', async (c, next) => {
+  if (c.get('user').role !== 'owner') throw ApiError.forbidden('AI is available to the owner only')
+  await next()
+})
+
+aiKitRoutes.get('/providers', async (c) => c.json(await listProviders(c.env, c.get('userId'))))
+aiKitRoutes.put('/providers', async (c) => {
+  const input = parseBody(ProviderSaveSchema, await readJson(c, JSON_BODY_LIMITS.profile))
+  return c.json(await saveProvider(c.env, c.get('userId'), input))
+})
+aiKitRoutes.delete('/providers/:id', async (c) => c.json(await removeProvider(c.env, c.get('userId'), c.req.param('id'))))
+aiKitRoutes.get('/model-options', async (c) => {
+  const filter = parseBody(ModelFilterSchema, c.req.query())
+  return c.json(await modelOptions(c.env.DB, c.get('userId'), filter))
+})
+aiKitRoutes.post('/probe', async (c) => {
+  const target = parseBody(ProbeTargetSchema, await readJson(c, JSON_BODY_LIMITS.small))
+  const release = acquireSlot(c.get('userId'))
+  try {
+    return c.json(await probe(c.env, c.get('userId'), target, c.req.raw.signal))
+  } finally {
+    release()
+  }
+})
+
+aiKitRoutes.post('/runs', async (c) => {
+  const req = parseBody(RunRequestSchema, await readJson(c, JSON_BODY_LIMITS.note))
+  const userId = c.get('userId')
+  const release = acquireSlot(userId)
+  const prepared = await prepareRun(c.env, userId, req).catch((error: unknown) => {
+    release()
+    throw error
+  })
+  const cancel = new AbortController()
+  c.req.raw.signal.addEventListener('abort', () => cancel.abort(), { once: true })
+  const encoder = new TextEncoder()
+  let open = true
+  let controller: ReadableStreamDefaultController<Uint8Array>
+  const body = new ReadableStream<Uint8Array>({
+    start(value) {
+      controller = value
+    },
+    cancel() {
+      open = false
+      cancel.abort()
+    },
+  })
+  const send = (frame: unknown): void => {
+    if (!open) return
+    try {
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify(frame)}\n\n`))
+    } catch {
+      open = false
+      cancel.abort()
+    }
+  }
+  send({ kind: 'accepted', runId: prepared.runId, conversationId: prepared.turn?.conversationId ?? null })
+  const task = executeRun(c.env, userId, prepared, cancel.signal, (event: RunEvent) => {
+    send(event)
+    if (event.kind === 'end' && open) {
+      open = false
+      controller.close()
+    }
+  }).finally(release)
+  try {
+    c.executionCtx.waitUntil(task)
+  } catch {
+    task.catch(() => {})
+  }
+  return new Response(body, { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' } })
+})
+
+aiKitRoutes.get('/conversations', async (c) => {
+  const scope = c.req.query('scope') ?? null
+  checkLength('scope', scope, 200)
+  return c.json(await listConversations(c.env.DB, c.get('userId'), scope))
+})
+aiKitRoutes.get('/conversations/:id', async (c) => {
+  const id = c.req.param('id')
+  checkLength('id', id, 64)
+  return c.json(toWire(await loadConversation(c.env.DB, c.get('userId'), id)))
+})
+aiKitRoutes.delete('/conversations/:id', async (c) => {
+  const id = c.req.param('id')
+  checkLength('id', id, 64)
+  await deleteConversation(c.env.DB, c.get('userId'), id)
+  return c.json({ ok: true as const })
+})
+aiKitRoutes.patch('/conversations/:id', async (c) => {
+  const id = c.req.param('id')
+  checkLength('id', id, 64)
+  const { title } = parseBody(RenameSchema, await readJson(c, JSON_BODY_LIMITS.small))
+  checkLength('title', title, 200)
+  return c.json(await renameConversation(c.env.DB, c.get('userId'), id, title))
+})

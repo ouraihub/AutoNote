@@ -162,3 +162,81 @@ sequenceDiagram
 | `366bec7 feat(ui): ChatPanel host context chip; logs port optional for browser hosts` | `ChatPanel` 新增 `context` 参数（可移除标签，× 只影响下一条消息）；`KitPorts.logs` 改为可选，缺省时日志面板不渲染；`createTauriPorts` 返回类型仍保证有 `logs` |
 
 验证：Aether `pnpm run check` 通过，37 项测试。未在真实 Tauri 窗口验证。
+
+## 9. 阶段 1 实施合同
+
+> 2026-10-12 读代码后制定。依据：Aether `crates/aether-providers`、`crates/aether-chat`、`plugin/tauri-plugin-aether/src/chat.rs`、`packages/ui/src/ports`；AutoNote `web/src/worker/routes/ai.ts`、`web/src/worker/db/schema.ts`、`web/src/client/backend/ports/ai.ts`、桌面 `desktop/src-tauri/src/lib.rs` 的 `AetherHost`。
+
+### 9.1 现状盘点（避免重复实现）
+
+| 项 | 现状 | 阶段 1 处理 |
+| --- | --- | --- |
+| Aether DTO / `RunEvent` 的 JSON 样例 | 不存在。只有 `fixtures/model-classify.json`（36 条）和 `fixtures/sse/` 18 份上游流样本；Rust 测试的期望值写在测试代码里 | 新增，见 9.4 |
+| Worker `/api/ai/runs`、`HttpKitPorts`、`KitPorts` | 不存在 | 新增 |
+| Worker 旧接口 `/api/ai/providers`、`/endpoints/:id/*`、`/roles`、`/conversations`、`/chat`、`/write` | 存在，旧 `AiPort` 合同，`packages/app` 仍在用 | 阶段 1 保留不动；阶段 2 切换界面时一次删除 |
+| D1 AI 表 | `ai_providers`、`ai_endpoints`、`ai_models`、`ai_roles`、`ai_conversations`、`ai_messages`，写在最终 `SCHEMA_STATEMENTS`，迁移号最高 12 | 见 9.2 |
+| 密钥加密 | `encryptAiKey`/`decryptAiKey`（`web/src/worker/lib/crypto.ts`），经 `CredentialVault` DO | 直接复用 |
+| 上游 SSE 解析 | `extractDelta` 只取文本，不取 usage、不判截断、不区分流内错误 | 新写一个按 Aether 映射的解码器，旧的阶段 2 删除 |
+| 私网地址策略 | `assertSafeUrl` + `app_meta` 开关 `setting:ai_allow_private` | 复用 |
+| 桌面宿主逻辑 | `AetherHost`：`purpose` 只允许 `chat`/`writing`；上下文 `autonote-note`；写作作用域 `note:<id>:writing` 且不存会话；角色 `writing` 回落 `chat` | Worker 照搬同一套规则 |
+
+### 9.2 存储
+
+沿用 24 §1：不迁移旧数据。新增迁移 13：
+
+- `ai_models` 增加 `max_output INTEGER`、`supports_tools INTEGER`（NULL 表示未知），对齐 Aether `Model`。
+- 新表 `ai_chat_conversations(id, user_id, title, scope, created_at, updated_at)` 与 `ai_chat_turns(id, user_id, conversation_id, seq, status, input, messages, model_id, error_code, input_tokens, output_tokens, created_at)`，字段语义对齐 Aether `chat.db`，加 `user_id` 隔离。
+- 旧 `ai_conversations`、`ai_messages` 阶段 2 删除旧接口时一并删除。
+
+### 9.3 新接口（`/api/ai/kit/*`）
+
+与旧接口并存到阶段 2，路径前缀区分，鉴权沿用旧路由（登录 + `owner`）。
+
+| `KitPorts` 方法 | 接口 | 说明 |
+| --- | --- | --- |
+| `providers.list` | `GET /providers` | 返回 `Provider[]`，`keyMasked` 打码，`keyReadable` 恒 true |
+| `providers.save` | `PUT /providers` | `ProviderSave` 整体替换；密钥三态（省略保留、空串清除、非空替换）；校验规则照 Aether `store.rs` |
+| `providers.remove` | `DELETE /providers/:id` | 返回剩余 `Provider[]` |
+| `providers.modelOptions` | `GET /model-options?modelType&supportsTools` | 标签 `服务商 · 线路 · 模型` |
+| `providers.probe` | `POST /probe`，body `ProbeTarget` | 上游失败作为 `ProbeResult.error` 返回，不报请求错误 |
+| `chat.run` | `POST /runs`，body `RunRequest`，返回 SSE | 第一条事件 `accepted{runId,conversationId}`，之后是 `RunEvent`，最后恰好一个 `end` |
+| 取消 | 客户端中止 fetch | 服务端感知断开后停止读上游，回合记为 `cancelled` |
+| `chat.approve` | 阶段 1 不实现 | 阶段 3 按 §6 |
+| `chat.history.*` | `GET /conversations?scope`、`GET/DELETE /conversations/:id`、`PATCH /conversations/:id` | 规则照 Aether `store.rs`：最多 200 条、按 `updated_at` 倒序、标题 40 字符 |
+
+请求错误（运行被接受前）返回 HTTP 4xx/5xx + `{ error: KitError }`，不开 SSE；运行被接受后的失败只走 `end{status:'failed', error}`。
+
+### 9.4 共享测试数据
+
+共享数据放在 Aether npm 包内，宿主经 git 依赖安装后即可读取（`@ouraihub/aether-ui/fixtures/*`）：`fixtures/sse/<protocol>/<case>.sse` 是上游流样本；`fixtures/sse/expect.json` 是每份无工具样本的期望结果（文本、usage、终态、错误码与错误信息片段）；`fixtures/model-classify.json` 是模型推断用例。Rust（`aether-chat`、`aether-support`、`aether-providers` 测试）与 Worker（`web/tests/ai-kit.test.ts`）读同一份文件断言，一边改了解析逻辑而另一边没改就会失败。
+
+### 9.5 不做
+
+- 工具调用、审批、`chat.approve`（阶段 3）；MCP 客户端（阶段 4）；技能（Web 不启用，`skills` 非空返回 `unsupported`）。
+- 不改 `packages/app` 界面，不删旧接口（阶段 2）。
+- 角色接口：Aether 没有角色端口，Worker 继续用 `ai_roles` 表做 `select_model`；角色设置界面阶段 2 由 AutoNote 产品层用 `ModelSelect` 实现。
+
+### 9.6 完成情况（2026-10-12）
+
+| 项 | 位置 | 验证 |
+| --- | --- | --- |
+| 共享测试数据 | Aether `1e97487`：fixtures 移入 `packages/ui/fixtures`，新增 `expect.json` | Rust 3 个 crate 测试与 clippy 通过 |
+| 依赖 | `web/package.json`：`@ouraihub/aether-ui` git 依赖锁 `1e97487` | Worker 与客户端类型检查可解析 |
+| D1 迁移 13 | `web/src/worker/db/schema.ts` | 测试经 `initializeDatabase` 建库 |
+| Worker | `web/src/worker/ai/{kit,infer,protocol,providers,history,runs}.ts`、`web/src/worker/routes/ai-kit.ts`，挂在 `/api/ai/kit` | `web/tests/ai-kit.test.ts` 26 项，用 `node:sqlite` 实现的 D1 适配器跑真实 SQL |
+| 客户端 | `web/src/client/backend/ports/kit.ts`（`createHttpKitPorts`）、共享 SSE 读取器 `web/src/client/backend/sse.ts` | `kit.test.ts` 7 项 |
+| 整体 | — | `pnpm run web:check` 通过；web 单测 29 个文件 135 项通过；本地 dev 服务器（Worker + 本地 D1）实测服务商保存、密钥打码、探测（私网拦截、连接失败）、运行前请求错误 |
+
+与 Aether 的差异：
+
+- 地址策略沿用旧接口：只允许 `https`，私网主机按字面拦截（`setting:ai_allow_private` 可放开）；Aether 允许 `http://localhost`。Worker 无法在连接时检查 DNS 结果。
+- `KitErrorCode` → HTTP 状态：`bad_request`/`unsupported`/`budget_exceeded` 400，`unauthorized` 401，`forbidden` 403，`not_found` 404，`conflict`/`needs_config`/`cancelled` 409，`rate_limited` 429，`upstream`/`network` 502，`timeout` 504，其余 500。客户端只看响应体里的 `code`。
+- `running` 状态超过 15 分钟的轮次读作 `failed` + `interrupted`（Worker 无法恢复中断的运行）；重新生成会刷新该轮 `created_at`。
+- `keyReadable` 按能否解密计算；`CredentialVault` 不可用时列表不报错，探测和运行返回 `needs_config{reason:'key_unreadable'}`。
+
+未验证：
+
+- 真实上游的完整运行（本地测试账号未配置真实模型）。
+- 真实 Workers 上客户端断开时取消信号是否触发、`waitUntil` 的终态写入是否完成（单测只在 Node 下覆盖）。
+- 120 秒首包、60 秒空闲超时未有测试实际触发。
+- `web/tests/` 不在任何 tsconfig 内，测试文件本身不经类型检查（由 vitest 运行）。

@@ -19,6 +19,7 @@ import { updateRoutes } from './routes/update'
 import { mcpAuthorizeRoutes } from './routes/mcp-authorize'
 import { mcpSettingsRoutes } from './routes/mcp-settings'
 import { aiRoutes } from './routes/ai'
+import { aiKitRoutes } from './routes/ai-kit'
 import type { AppBindings } from './env'
 import { selectAttachmentStorage } from './attachments/backend'
 
@@ -98,6 +99,7 @@ export function createApp() {
   app.route('/api/settings', settingsRoutes)
   app.route('/api/update', updateRoutes)
   app.route('/api/mcp', mcpSettingsRoutes)
+  app.route('/api/ai/kit', aiKitRoutes)
   app.route('/api/ai', aiRoutes)
   app.route('/api/share', shareManageRoutes)
   app.route('/api/public', shareRoutes)

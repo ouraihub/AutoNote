@@ -14,6 +14,7 @@ import type {
   AiWriteEvent,
   AiWriteRequest,
 } from '@shared/ai-types'
+import { readSseData } from '../sse'
 import type { HttpTransport } from '../transport'
 
 export interface AiPortDeps {
@@ -133,51 +134,29 @@ export class HttpAiPort implements AiPort {
     const response = await this.deps.transport.raw({ method: 'POST', path, body, signal })
     if (!response.headers.get('content-type')?.startsWith('text/event-stream') || !response.body)
       throw new BackendError('invalid_response', 502, 'Expected event stream')
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
     let done = false
-    try {
-      while (true) {
-        const chunk = await reader.read()
-        if (signal?.aborted) throw new BackendError('cancelled', 0, 'Request cancelled')
-        buffer += decoder.decode(chunk.value, { stream: !chunk.done }).replaceAll('\r\n', '\n')
-        let boundary: number
-        while ((boundary = buffer.indexOf('\n\n')) >= 0) {
-          const lines = buffer
-            .slice(0, boundary)
-            .split('\n')
-            .filter((line) => line.startsWith('data:'))
-          buffer = buffer.slice(boundary + 2)
-          if (lines.length === 0) continue
-          let value: unknown
-          try {
-            value = JSON.parse(lines.map((line) => line.slice(5).trimStart()).join('\n'))
-          } catch {
-            throw new BackendError('invalid_response', 502, 'Invalid event stream')
-          }
-          if (
-            !value ||
-            typeof value !== 'object' ||
-            Array.isArray(value) ||
-            typeof (value as Record<string, unknown>).kind !== 'string'
-          )
-            throw new BackendError('invalid_response', 502, 'Invalid event stream')
-          const event = value as Record<string, unknown>
-          if (event.kind === 'error')
-            throw new BackendError(
-              'internal',
-              502,
-              typeof event.message === 'string' ? event.message : 'AI stream failed',
-            )
-          if (event.kind === 'done') done = true
-          onEvent(event)
-        }
-        if (chunk.done) break
+    for await (const data of readSseData(response.body)) {
+      if (signal?.aborted) throw new BackendError('cancelled', 0, 'Request cancelled')
+      let value: unknown
+      try {
+        value = JSON.parse(data)
+      } catch {
+        throw new BackendError('invalid_response', 502, 'Invalid event stream')
       }
-      if (!done) throw new BackendError('invalid_response', 502, 'Incomplete event stream')
-    } finally {
-      await reader.cancel().catch(() => undefined)
+      if (
+        !value ||
+        typeof value !== 'object' ||
+        Array.isArray(value) ||
+        typeof (value as Record<string, unknown>).kind !== 'string'
+      )
+        throw new BackendError('invalid_response', 502, 'Invalid event stream')
+      const event = value as Record<string, unknown>
+      if (event.kind === 'error')
+        throw new BackendError('internal', 502, typeof event.message === 'string' ? event.message : 'AI stream failed')
+      if (event.kind === 'done') done = true
+      onEvent(event)
     }
+    if (signal?.aborted) throw new BackendError('cancelled', 0, 'Request cancelled')
+    if (!done) throw new BackendError('invalid_response', 502, 'Incomplete event stream')
   }
 }
