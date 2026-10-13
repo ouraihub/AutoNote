@@ -1,0 +1,313 @@
+diff --git a/src/i18n/en.ts b/src/i18n/en.ts
+index 5e73487ba1173ffaa6bcf93bd3a99fd5375f9ddd..504e7a2cf9de4bf945731c66b56f7972876e4754 100644
+--- a/src/i18n/en.ts
++++ b/src/i18n/en.ts
+@@ -98,8 +98,18 @@ export const en: Messages = {
+   'providers.model_type': 'Model type',
+   'providers.saved': 'Saved',
+   'providers.picker_title': 'Pick models',
+-  'providers.picker_desc': '{count} models from {url}',
+-  'providers.select_all': 'Select all',
++  'providers.picker_hint': 'Use + to add a model and − to remove it. Apply, then save the provider.',
++  'providers.search_models': 'Search model ID',
++  'providers.all_types': 'All',
++  'providers.add_all': 'Add all',
++  'providers.remove_all': 'Remove all',
++  'providers.no_matches': 'No matching models',
++  'providers.picked': 'Added',
++  'providers.picked_count': '{count} selected · Save the provider after applying',
++  'providers.add_model': 'Add {id}',
++  'providers.remove_model': 'Remove {id}',
++  'providers.type_for': 'Model type for {id}',
++  'providers.vision': 'Vision',
+   'providers.no_group': 'Other',
+   'providers.apply': 'Use {count} models',
+   'providers.model_invalid': 'No longer available, choose again',
+diff --git a/src/i18n/zh-CN.ts b/src/i18n/zh-CN.ts
+index 9d2e730a1eed3cbba7048f10dc6ab2b8bacd00f9..aeaf907071e3d3c8a8207decf5448b8a6454c283 100644
+--- a/src/i18n/zh-CN.ts
++++ b/src/i18n/zh-CN.ts
+@@ -94,8 +94,18 @@ export const zhCN: Messages = {
+   'providers.model_type': '模型类型',
+   'providers.saved': '已保存',
+   'providers.picker_title': '挑选模型',
+-  'providers.picker_desc': '来自 {url} 的 {count} 个模型',
+-  'providers.select_all': '全选',
++  'providers.picker_hint': '点 + 添加模型，点 − 移除。确认后记得保存服务商。',
++  'providers.search_models': '搜索模型 id',
++  'providers.all_types': '全部',
++  'providers.add_all': '全部添加',
++  'providers.remove_all': '全部移除',
++  'providers.no_matches': '没有匹配的模型',
++  'providers.picked': '已选',
++  'providers.picked_count': '已选 {count} 个 · 确认后记得保存服务商',
++  'providers.add_model': '添加 {id}',
++  'providers.remove_model': '移除 {id}',
++  'providers.type_for': '{id} 的模型类型',
++  'providers.vision': '可看图',
+   'providers.no_group': '其他',
+   'providers.apply': '使用 {count} 个模型',
+   'providers.model_invalid': '已失效，请重新选择',
+diff --git a/src/providers/ModelPickerDialog.svelte b/src/providers/ModelPickerDialog.svelte
+index 9a5b0238fdc7bd6c1e6dd107078c41e11039bae6..95ccdc8baf6f70fecfecd7b90dc8ea6a63ce3b7a 100644
+--- a/src/providers/ModelPickerDialog.svelte
++++ b/src/providers/ModelPickerDialog.svelte
+@@ -1,6 +1,11 @@
+ <script lang="ts">
+-  // Pick fetched models by group, select all, change type (docs/16 §4.1). Portals to body like every kit dialog.
++  // Search and filter fetched models; +/- changes the draft until Apply.
++  import { untrack } from 'svelte'
++  import ChevronRight from '@lucide/svelte/icons/chevron-right'
++  import Plus from '@lucide/svelte/icons/plus'
++  import Minus from '@lucide/svelte/icons/minus'
+   import { Button } from '#lib/components/ui/button/index.js'
++  import { Input } from '#lib/components/ui/input/index.js'
+   import * as Dialog from '#lib/components/ui/dialog/index.js'
+   import * as Select from '#lib/components/ui/select/index.js'
+   import { getKitContext } from '../context'
+@@ -24,21 +29,30 @@
+ 
+   let checked = $state<Record<string, boolean>>({})
+   let types = $state<Record<string, ModelType>>({})
++  let query = $state('')
++  let filter = $state<ModelType | 'all'>('all')
++  let collapsed = $state<Record<string, boolean>>({})
+ 
+-  // Seed from the current selection each time a new result arrives.
+   $effect.pre(() => {
+-    if (!result) return
+-    const current = Object.fromEntries(selected.map((m) => [m.id, m]))
++    if (!open || !result) return
++    const current = Object.fromEntries(untrack(() => selected).map((m) => [m.id, m]))
+     checked = Object.fromEntries(result.models.map((m) => [m.id, m.id in current]))
+     types = Object.fromEntries(result.models.map((m) => [m.id, current[m.id]?.modelType ?? m.modelType]))
++    query = ''
++    filter = 'all'
++    collapsed = {}
+   })
+ 
+   const models = $derived(result?.models ?? [])
+-  const groups = $derived(Object.entries(Object.groupBy(models, (m) => m.group ?? '')))
++  const searched = $derived(models.filter((m) => m.id.toLowerCase().includes(query.trim().toLowerCase())))
++  const shown = $derived(searched.filter((m) => filter === 'all' || (types[m.id] ?? m.modelType) === filter))
++  const groups = $derived(Object.entries(Object.groupBy(shown, (m) => m.group ?? '')))
+   const count = $derived(models.filter((m) => checked[m.id]).length)
++  const bulkRemoves = $derived(shown.length > 0 && shown.every((m) => checked[m.id]))
+ 
+-  function setAll(on: boolean) {
+-    checked = Object.fromEntries(models.map((m) => [m.id, on]))
++  function bulk() {
++    const on = !bulkRemoves
++    for (const model of shown) checked[model.id] = on
+   }
+ 
+   function apply() {
+@@ -50,7 +64,9 @@
+           return {
+             id: m.id,
+             modelType,
+-            typeSource: modelType === m.modelType ? m.typeSource : 'user',
++            typeSource:
++              selected.find((item) => item.id === m.id && item.modelType === modelType)?.typeSource ??
++              (modelType === m.modelType ? m.typeSource : 'user'),
+             contextWindow: m.contextWindow,
+             maxOutput: m.maxOutput,
+             canVision: m.canVision,
+@@ -63,56 +79,117 @@
+ </script>
+ 
+ <Dialog.Root bind:open>
+-  <Dialog.Content class="flex max-h-[80vh] flex-col sm:max-w-lg">
+-    <Dialog.Header>
+-      <Dialog.Title>{t('providers.picker_title')}</Dialog.Title>
+-      <Dialog.Description>
+-        {t('providers.picker_desc', { count: models.length, url: result?.probeUrl ?? '' })}
+-      </Dialog.Description>
++  <Dialog.Content class="flex max-h-[85dvh] min-w-0 flex-col gap-3 sm:max-w-2xl">
++    <Dialog.Header class="shrink-0 text-left">
++      <Dialog.Title class="flex items-center gap-2 pr-6">
++        {t('providers.picker_title')}
++        <span aria-hidden="true" class="bg-muted rounded px-1.5 text-kit-xs tabular-nums">{models.length}</span>
++      </Dialog.Title>
++      <Dialog.Description>{t('providers.picker_hint')}</Dialog.Description>
+     </Dialog.Header>
+-    <label class="flex items-center gap-2 text-kit-base">
+-      <input
+-        type="checkbox"
+-        class="accent-primary"
+-        checked={models.length > 0 && count === models.length}
+-        onchange={(event) => setAll(event.currentTarget.checked)}
++    <div class="flex shrink-0 items-center gap-2">
++      <Input
++        class="min-w-0 flex-1"
++        bind:value={query}
++        placeholder={t('providers.search_models')}
++        aria-label={t('providers.search_models')}
++        autocomplete="off"
++        spellcheck={false}
+       />
+-      {t('providers.select_all')}
+-    </label>
+-    <div class="flex min-h-0 flex-col gap-3 overflow-y-auto">
++      <Button variant="outline" size="sm" class="shrink-0" disabled={shown.length === 0} onclick={bulk}>
++        {t(bulkRemoves ? 'providers.remove_all' : 'providers.add_all')}
++      </Button>
++    </div>
++    <div class="flex shrink-0 gap-1 overflow-x-auto pb-1" role="group" aria-label={t('providers.model_type')}>
++      {#each ['all', ...TYPES] as type (type)}
++        {@const hits =
++          type === 'all' ? searched.length : searched.filter((m) => (types[m.id] ?? m.modelType) === type).length}
++        <Button
++          variant={filter === type ? 'secondary' : 'ghost'}
++          size="sm"
++          class="shrink-0"
++          aria-pressed={filter === type}
++          disabled={hits === 0 && type !== 'all'}
++          onclick={() => (filter = type as ModelType | 'all')}
++        >
++          {type === 'all' ? t('providers.all_types') : t(`providers.type.${type as ModelType}`)}
++          <span class="text-muted-foreground tabular-nums">{hits}</span>
++        </Button>
++      {/each}
++    </div>
++    <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto" role="region" aria-label={t('providers.models')}>
++      {#if shown.length === 0}
++        <p class="text-muted-foreground py-8 text-center text-kit-sm">{t('providers.no_matches')}</p>
++      {/if}
+       {#each groups as [group, items = []] (group)}
+-        <section class="flex flex-col gap-1">
+-          <h3 class="text-muted-foreground text-kit-xs font-medium">{group || t('providers.no_group')}</h3>
+-          {#each items as model (model.id)}
+-            <div class="flex items-center gap-2">
+-              <label class="flex flex-1 items-center gap-2 truncate text-kit-base">
+-                <input type="checkbox" class="accent-primary" bind:checked={checked[model.id]} />
+-                <span class="truncate font-mono">{model.id}</span>
+-              </label>
+-              <Select.Root
+-                type="single"
+-                value={types[model.id] ?? model.modelType}
+-                onValueChange={(value) => (types[model.id] = value as ModelType)}
+-              >
+-                <Select.Trigger size="sm" aria-label={t('providers.model_type')}>
+-                  {t(`providers.type.${types[model.id] ?? model.modelType}`)}
+-                </Select.Trigger>
+-                <Select.Content>
+-                  <Select.Group>
+-                    {#each TYPES as type (type)}
+-                      <Select.Item value={type} label={t(`providers.type.${type}`)} />
+-                    {/each}
+-                  </Select.Group>
+-                </Select.Content>
+-              </Select.Root>
+-            </div>
+-          {/each}
++        {@const folded = !query.trim() && collapsed[group]}
++        <section class="flex min-w-0 flex-col">
++          <Button
++            variant="ghost"
++            size="sm"
++            class="justify-start"
++            aria-expanded={!folded}
++            onclick={() => (collapsed[group] = !collapsed[group])}
++          >
++            <ChevronRight class={folded ? '' : 'rotate-90'} />
++            {group || t('providers.no_group')}
++            <span class="bg-muted rounded px-1.5 tabular-nums">{items.length}</span>
++          </Button>
++          {#if !folded}
++            <ul>
++              {#each items as model (model.id)}
++                <li class="hover:bg-accent/50 flex min-w-0 items-center gap-1 rounded-md py-0.5 pl-4">
++                  <span class="min-w-0 flex-1 truncate font-mono text-kit-sm" title={model.id}>{model.id}</span>
++                  <Select.Root
++                    type="single"
++                    value={types[model.id] ?? model.modelType}
++                    onValueChange={(value) => (types[model.id] = value as ModelType)}
++                  >
++                    <Select.Trigger
++                      size="sm"
++                      class="shrink-0 border-0 bg-transparent shadow-none"
++                      aria-label={t('providers.type_for', { id: model.id })}
++                    >
++                      {t(`providers.type.${types[model.id] ?? model.modelType}`)}
++                    </Select.Trigger>
++                    <Select.Content
++                      ><Select.Group>
++                        {#each TYPES as type (type)}
++                          <Select.Item value={type} label={t(`providers.type.${type}`)} />
++                        {/each}
++                      </Select.Group></Select.Content
++                    >
++                  </Select.Root>
++                  {#if model.canVision}<span class="text-muted-foreground hidden shrink-0 text-kit-xs sm:inline"
++                      >{t('providers.vision')}</span
++                    >{/if}
++                  <span class="text-chart-2 w-8 shrink-0 text-right text-kit-xs"
++                    >{checked[model.id] ? t('providers.picked') : ''}</span
++                  >
++                  <Button
++                    variant="ghost"
++                    size="icon-sm"
++                    class="shrink-0"
++                    aria-label={t(checked[model.id] ? 'providers.remove_model' : 'providers.add_model', {
++                      id: model.id,
++                    })}
++                    onclick={() => (checked[model.id] = !checked[model.id])}
++                  >
++                    {#if checked[model.id]}<Minus />{:else}<Plus />{/if}
++                  </Button>
++                </li>
++              {/each}
++            </ul>
++          {/if}
+         </section>
+       {/each}
+     </div>
+-    <Dialog.Footer>
+-      <Button variant="outline" onclick={() => (open = false)}>{t('common.cancel')}</Button>
+-      <Button onclick={apply}>{t('providers.apply', { count })}</Button>
++    <Dialog.Footer class="shrink-0 flex-row flex-wrap items-center gap-2 sm:justify-between">
++      <p class="text-muted-foreground mr-auto text-kit-xs" aria-live="polite">
++        {t('providers.picked_count', { count })}
++      </p>
++      <Button variant="outline" size="sm" onclick={() => (open = false)}>{t('common.cancel')}</Button>
++      <Button size="sm" onclick={apply}>{t('providers.apply', { count })}</Button>
+     </Dialog.Footer>
+   </Dialog.Content>
+ </Dialog.Root>
+diff --git a/src/providers/providers.test.ts b/src/providers/providers.test.ts
+index 56f9bbe6553c33c2064c1fb4a1be98c8877eed14..6ee96a249be18a79b085e947ef30753707f05bd5 100644
+--- a/src/providers/providers.test.ts
++++ b/src/providers/providers.test.ts
+@@ -49,7 +49,7 @@ describe('ProvidersSettings', () => {
+     const saves = setup()
+     await fireEvent.click(await screen.findByRole('button', { name: 'Fetch models' }))
+     await screen.findByRole('dialog', { name: 'Pick models' })
+-    await fireEvent.click(screen.getByRole('checkbox', { name: 'gpt-4o' }))
++    await fireEvent.click(screen.getByRole('button', { name: 'Add gpt-4o' }))
+     await fireEvent.click(screen.getByRole('button', { name: 'Use 1 models' }))
+     await fireEvent.click(await screen.findByRole('button', { name: 'Save' }))
+     await waitFor(() => expect(saves).toHaveLength(1))
+@@ -59,6 +59,22 @@ describe('ProvidersSettings', () => {
+     expect(saved?.models.map((m) => m.id)).toEqual(['gpt-4o'])
+   })
+ 
++  it('bulk changes only search results and preserves picks outside the filter', async () => {
++    const saves = setup()
++    await fireEvent.click(await screen.findByRole('button', { name: 'Fetch models' }))
++    await screen.findByRole('dialog', { name: 'Pick models' })
++    await fireEvent.click(screen.getByRole('button', { name: 'Add gpt-4o' }))
++    await fireEvent.input(screen.getByRole('textbox', { name: 'Search model ID' }), { target: { value: 'embedding' } })
++    await fireEvent.click(screen.getByRole('button', { name: 'Add all' }))
++    await fireEvent.click(screen.getByRole('button', { name: 'Remove all' }))
++    await fireEvent.input(screen.getByRole('textbox', { name: 'Search model ID' }), { target: { value: '' } })
++    expect(screen.getByRole('button', { name: 'Remove gpt-4o' })).toBeTruthy()
++    expect(screen.getByRole('button', { name: 'Add text-embedding-3' })).toBeTruthy()
++    await fireEvent.click(screen.getByRole('button', { name: 'Use 1 models' }))
++    await fireEvent.click(await screen.findByRole('button', { name: 'Save' }))
++    await waitFor(() => expect(saves[0]?.endpoints[0]?.models.map((m) => m.id)).toEqual(['gpt-4o']))
++  })
++
+   it('clears the key only through the explicit Clear button', async () => {
+     const saves = setup()
+     await fireEvent.click(await screen.findByRole('button', { name: 'Replace' }))

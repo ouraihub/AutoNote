@@ -57,7 +57,7 @@ export async function deploy(args = process.argv.slice(2)) {
     else if (args[index] === '--mode' && args[index + 1]) mode = args[++index]
     else throw new Error(`Unknown deployment argument: ${args[index]}`)
   }
-  if (!['production', 'kv', 'ai', 'demo'].includes(mode)) throw new Error(`Unsupported build mode: ${mode}`)
+  if (!['production', 'kv', 'demo'].includes(mode)) throw new Error(`Unsupported build mode: ${mode}`)
   const { unstable_readConfig } = await import('wrangler')
   const configPath = resolve(webRoot, mode === 'demo' ? 'wrangler.demo.toml' : mode === 'kv' ? 'wrangler.kv.toml' : 'wrangler.toml')
   const source = unstable_readConfig({ config: configPath }, { useRedirectIfAvailable: false })

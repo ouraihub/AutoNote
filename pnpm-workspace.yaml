@@ -18,3 +18,5 @@ allowBuilds:
   '@parcel/watcher': true
   core-js-pure: false
   unrs-resolver: false
+patchedDependencies:
+  '@ouraihub/aether-ui@0.1.0': patches/@ouraihub__aether-ui@0.1.0.patch
