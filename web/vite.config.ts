@@ -35,6 +35,10 @@ const config: UserConfigFnPromise = async ({ mode, command }) => ({
     ],
   },
 
+  optimizeDeps: {
+    exclude: ['@ouraihub/aether-ui'],
+  },
+
   server: {
     port: mode === 'demo' ? 7714 : 7712,
     strictPort: mode === 'demo',

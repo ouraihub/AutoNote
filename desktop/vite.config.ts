@@ -9,6 +9,9 @@ export default defineConfig({
   resolve: {
     conditions: ['svelte', 'browser', 'module', 'development|production'],
   },
+  optimizeDeps: {
+    exclude: ['@ouraihub/aether-ui'],
+  },
   clearScreen: false,
   ssr: {
     resolve: {
