@@ -275,6 +275,74 @@ index 9a5b0238fdc7bd6c1e6dd107078c41e11039bae6..95ccdc8baf6f70fecfecd7b90dc8ea6a
      </Dialog.Footer>
    </Dialog.Content>
  </Dialog.Root>
+diff --git a/src/providers/ProvidersSettings.svelte b/src/providers/ProvidersSettings.svelte
+index c3952b864394bf9e732e2ad67ed157c769307e77..ed7db1f5170e8a46474fcacdadbaa490be43000c 100644
+--- a/src/providers/ProvidersSettings.svelte
++++ b/src/providers/ProvidersSettings.svelte
+@@ -130,8 +130,8 @@
+ </script>
+ 
+ {#if port}
+-  <div class="flex min-h-0 gap-4">
+-    <nav class="flex w-52 shrink-0 flex-col gap-1" aria-label={t('providers.title')}>
++  <div class="flex min-h-0 flex-col gap-4 sm:flex-row">
++    <nav class="flex w-full shrink-0 flex-col gap-1 sm:w-52" aria-label={t('providers.title')}>
+       {#each providers as p (p.id)}
+         <Button
+           variant={draft?.id === p.id ? 'secondary' : 'ghost'}
+diff --git a/src/providers/SecretInput.svelte b/src/providers/SecretInput.svelte
+index fd8761f3ff712b928d505610767f8836602ec902..13ffa507a6bd2682a7567ce561e2fecdf5d51223 100644
+--- a/src/providers/SecretInput.svelte
++++ b/src/providers/SecretInput.svelte
+@@ -35,27 +35,39 @@
+   }
+ </script>
+ 
+-<div class="flex items-center gap-2">
++<div class="flex min-w-0 items-center gap-2">
+   {#if value === ''}
+-    <span class="text-muted-foreground flex-1 text-kit-sm">{t('providers.key_cleared')}</span>
+-    <Button variant="outline" size="sm" onclick={reset}>{t('providers.key_undo')}</Button>
++    <span class="text-muted-foreground min-w-0 flex-1 text-kit-sm">{t('providers.key_cleared')}</span>
++    <Button class="shrink-0" variant="outline" size="sm" onclick={reset}>{t('providers.key_undo')}</Button>
+   {:else if editing}
+     <Input
+       {id}
+       type="password"
+       autocomplete="off"
+-      class="flex-1"
++      class="min-w-0 flex-1"
+       value={text}
+       oninput={(event) => input(event.currentTarget.value)}
+     />
+     {#if replacing}
+-      <Button variant="outline" size="sm" onclick={reset}>{t('common.cancel')}</Button>
++      <Button class="shrink-0" variant="outline" size="sm" onclick={reset}>{t('common.cancel')}</Button>
+     {/if}
+   {:else}
+-    <span {id} class="flex-1 font-mono text-kit-sm">
+-      {saved?.keyReadable ? saved.keyMasked : t('providers.key_unreadable')}
++    {@const shown = saved?.keyReadable ? (saved.keyMasked ?? '') : t('providers.key_unreadable')}
++    <!-- Long masks shrink in the middle so the head/tail stay legible and the buttons never overflow. -->
++    <span {id} class="flex min-w-0 flex-1 whitespace-nowrap font-mono text-kit-sm">
++      {#if saved?.keyReadable && shown.length > 8}
++        <span class="sr-only">{shown}</span>
++        <span aria-hidden="true" class="shrink-0">{shown.slice(0, 4)}</span>
++        <span aria-hidden="true" class="min-w-0 truncate">{shown.slice(4, -4)}</span>
++        <span aria-hidden="true" class="shrink-0">{shown.slice(-4)}</span>
++      {:else}
++        <span class="truncate">{shown}</span>
++      {/if}
+     </span>
+-    <Button variant="outline" size="sm" onclick={() => (replacing = true)}>{t('providers.key_replace')}</Button>
+-    <Button variant="outline" size="sm" onclick={() => (value = '')}>{t('providers.key_clear')}</Button>
++    <Button class="shrink-0" variant="outline" size="sm" onclick={() => (replacing = true)}
++      >{t('providers.key_replace')}</Button
++    >
++    <Button class="shrink-0" variant="outline" size="sm" onclick={() => (value = '')}>{t('providers.key_clear')}</Button
++    >
+   {/if}
+ </div>
 diff --git a/src/providers/providers.test.ts b/src/providers/providers.test.ts
 index 56f9bbe6553c33c2064c1fb4a1be98c8877eed14..6ee96a249be18a79b085e947ef30753707f05bd5 100644
 --- a/src/providers/providers.test.ts
