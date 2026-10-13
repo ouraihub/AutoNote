@@ -240,3 +240,41 @@ sequenceDiagram
 - 部署到 Cloudflare 线上环境后的运行（本地 workerd 已验证断开取消与 `waitUntil` 终态写入）。
 - 120 秒首包、60 秒空闲超时未有测试实际触发。
 - `web/tests/` 不在任何 tsconfig 内，测试文件本身不经类型检查（由 vitest 运行）。
+
+## 10. 阶段 2 完成情况（2026-10-13）
+
+两端 AI 界面已切到 `@ouraihub/aether-ui`（锁 Aether `666c266`），旧 AI 栈一次删除。AutoNote 6 个提交 `512a95c..82e9e72`，净删约 3600 行。
+
+### 10.1 结构
+
+- 宿主合同 `AiHostPort`（`packages/app/src/backend/port.ts`）：`kit: KitPorts` + AutoNote 自有的 `roles/setRole`（chat、writing，writing 回落 chat）+ `revealKey(endpointId, currentPassword)` 与 `revealNeedsPassword`。Web 用 `createHttpKitPorts`，桌面用 `createTauriPorts`。
+- `AppRoot` 在有 `aiHost` 时调用 `provideKitContext`：i18n 跟随 AutoNote 语言，notify/confirm 走 AutoNote 通知，logger 用 AutoNote 日志。
+- 设置：aether `ProvidersSettings` + AutoNote 角色区（aether `ModelSelect`）+ 显示密钥区（Web 先输当前密码）。
+- 对话：aether `ChatPanel`，`scope` 为 `note:<id>`（无笔记时 `autonote`），`context` 为 `{kind:'autonote-note', id, label}`；按 scope 记住上次会话（AutoNote prefs `ai.chat.last:<scope>`）。
+- 写作：保留 AutoNote 工具栏，改调 `kit.chat.run({ purpose: 'writing', ... })`，输入 JSON 与桌面 `validate_writing` 一致；不写会话历史。
+- 样式：AutoNote `ui.css` 引入 `@ouraihub/aether-ui/tokens.css` 并 `@source` aether 源码，不引入 `styles.css`；颜色沿用 AutoNote 的 `@theme inline` 映射，暗色变体匹配 `data-theme`。
+- Vite：`optimizeDeps.exclude: ['@ouraihub/aether-ui']`（Web、桌面）。aether-ui 以源码发布，Vite 预打包解析不了其中的 `.svelte.ts`。
+
+### 10.2 删除
+
+- `packages/shared/src/ai-types.ts`、`ai-classify.ts`；`Backend.ai` 与 `AiPort`；`packages/app` 的 `EndpointCard`、`ModelPickerDialog`、`chat-session`。
+- Web：`HttpAiPort` 及测试；Worker 旧接口（providers、probe、conversations、chat、write），只保留 `GET/PUT /api/ai/roles` 与 `POST /api/ai/endpoints/:id/key`；D1 迁移 14 删除 `ai_conversations`、`ai_messages`。
+- 桌面：`desktop/src/lib/{chat,settings/ai,writing}` 死代码副本、`ipc/ports/ai.ts`、transport 里的 `aiChat/aiWrite/#chatHistory`；Rust `ai_providers_list/save/delete`、`ai_endpoint_probe` 命令。桌面主窗口新增 `aether:providers` 权限。
+
+### 10.3 顺带修复
+
+- Web 显示密钥此前一直失败：Worker 要求当前密码，旧前端发空 body，恒为 401。现由界面收集密码。
+- 打开笔记即崩溃（`effect_update_depth_exceeded`）：`NotePane` 的 `onViewReady` 在 CodeEditor 挂载 effect 里递增 `editorGeneration`，effect 读写同一状态。改为 `untrack`。来自 `bab490b`，已有的双窗格工作区测试此前就失败，修复后通过。
+
+### 10.4 验证
+
+- `pnpm run app:check`、`pnpm run web:check` 通过；app 测试全过（含此前失败的工作区测试）；web 单测 27 个文件 131 项；桌面 vitest 13 项；桌面 Rust `clippy --workspace --all-targets -D warnings` 与 `test --workspace` 通过。
+- Web（本地 dev 服务器 + workerd + 本地 D1，真实中转 `api.easyclaude.com`，`gpt-5.5`）：设置页显示服务商与角色，控件 30px/13px/8px 圆角与 AutoNote 一致；显示密钥错误密码提示"当前密码不正确"，正确密码显示完整密钥，关闭后清除；对话带笔记上下文回答，插入到笔记、刷新后恢复会话、删除会话（确认对话框）均正常；润色生成预览并显示"使用对话模型"回落提示，写作不写入会话历史；旧 `/api/ai/providers` 返回 404。
+- 桌面（`custom-protocol` 构建的真实 exe，放在隔离目录，WebView2 CDP 驱动）：设置页同上且无密码框，显示密钥直接成功；对话带笔记上下文回答；润色正常；旧命令 `ai_providers_list` 已不存在；完全退出重启后会话恢复。
+- 测试数据（服务商、会话、角色、测试笔记）均已删除；临时脚本与隔离目录已清理。
+
+### 10.5 已知问题
+
+- 新建笔记后立即打开对话，上下文标签显示"未命名笔记"，标题解析晚于面板挂载；发送的内容是正确的。
+- `claude-haiku` 经此中转时不遵循 AutoNote 系统提示词（自称其他身份），gpt 模型正常；疑为中转在 Claude 线路注入了自己的提示词，未核实。
+- 未验证：部署到 Cloudflare 线上；macOS 桌面。
