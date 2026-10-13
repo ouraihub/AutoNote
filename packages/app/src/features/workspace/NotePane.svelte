@@ -449,7 +449,7 @@
           {liveServices}
           placeholder={i18n.t('editor.start_writing')}
           onChange={(value) => notes.editContent(noteId, value)}
-          onViewReady={(next) => { view = next; editorGeneration += 1 }}
+          onViewReady={(next) => { view = next; untrack(() => editorGeneration += 1) }}
           onSelectionChange={(next) => (selection = next)}
         />
         {#if extensions.writingToolbar && view}
