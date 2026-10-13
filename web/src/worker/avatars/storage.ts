@@ -2,6 +2,7 @@ import {
   AVATAR_STORED_MAX_BYTES,
   generatedAvatarSeed,
   parseStoredAvatarUrl,
+  presetAvatarIndex,
 } from '@shared/avatar'
 import type { Env } from '../env'
 import { sha256Hex } from '../lib/encoding'
@@ -30,7 +31,7 @@ export interface StoredAvatarObject {
 export function normalizeAvatarPreference(value: unknown): string | null {
   if (typeof value !== 'string') return null
   if (value === '') return ''
-  if (generatedAvatarSeed(value)) return value
+  if (generatedAvatarSeed(value) || presetAvatarIndex(value) !== null) return value
   return decodeAvatarDataUrl(value) ? value : null
 }
 

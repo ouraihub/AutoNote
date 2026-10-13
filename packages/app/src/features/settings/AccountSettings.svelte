@@ -47,7 +47,7 @@
     busy = true
     error = null
     try {
-      const user = await account.updateProfile({ name: normalizedName }, { signal: session.epochSignal })
+      const user = await backend.session.updateProfile({ name: normalizedName }, { signal: session.epochSignal })
       if (session.user?.id !== user.id) return
       name = user.name
       notifier.toast({ key: 'settings.display_name_saved', tone: 'success' })

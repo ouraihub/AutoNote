@@ -662,6 +662,7 @@ pub fn run() {
             commands::sync::sync_export_quarantined,
             commands::sync::sync_discard_quarantined,
             commands::library::session_load,
+            commands::library::session_update_profile,
             commands::library::session_logout,
             commands::library::library_changes,
             commands::notes::notes_snapshot,

@@ -269,6 +269,11 @@ export function createWebBackend(deps: WebBackendDeps): Backend {
     changes,
     session: {
       load: async (options) => adoptSession(await sessionPort.load(options)),
+      updateProfile: async (...args) => {
+        const value = await sessionPort.updateProfile(...args)
+        emitChange({ kind: 'settings' })
+        return value
+      },
       logout: async (options) => {
         await sessionPort.logout(options)
         accountController.abort()
@@ -293,11 +298,6 @@ export function createWebBackend(deps: WebBackendDeps): Backend {
           return value
         },
         setPassword: (...args) => account.setPassword(...args),
-        updateProfile: async (...args) => {
-          const value = await account.updateProfile(...args)
-          emitChange({ kind: 'settings' })
-          return value
-        },
         updateRegistration: async (...args) => {
           const value = await account.updateRegistration(...args)
           emitChange({ kind: 'settings' })

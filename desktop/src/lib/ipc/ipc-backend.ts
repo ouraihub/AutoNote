@@ -15,6 +15,9 @@ export function createIpcBackend(transport: IpcTransport): Backend & { changes: 
     async load(options) {
       return transport.invoke('session_load', undefined, options)
     },
+    async updateProfile(body, options) {
+      return transport.invoke('session_update_profile', { body }, options)
+    },
     async logout(options) {
       return transport.invoke('session_logout', undefined, options)
     },

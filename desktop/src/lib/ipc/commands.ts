@@ -12,6 +12,7 @@ import type {
   NoteVersion,
   NoteVersionMeta,
   PatchNoteBody,
+  PublicUser,
   SearchResponse,
   SyncResponse,
   Tag,
@@ -84,6 +85,7 @@ export interface CommandArgs {
   sync_export_quarantined: { bindingId: string; epoch: number }
   sync_discard_quarantined: { bindingId: string; epoch: number }
   session_load: Empty
+  session_update_profile: { body: { name?: string; avatarUrl?: string } }
   session_logout: Empty
   notes_snapshot: Empty
   library_changes: { since: number }
@@ -156,6 +158,7 @@ export interface CommandResults {
   sync_export_quarantined: unknown
   sync_discard_quarantined: SyncStatus
   session_load: BackendSession
+  session_update_profile: PublicUser
   session_logout: void
   notes_snapshot: SyncResponse
   library_changes: SyncResponse

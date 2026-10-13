@@ -1,4 +1,4 @@
-import { isBackendSession, isNote, isNoteWriteResult, NoteSchema } from '@shared/backend-types'
+import { isBackendSession, isNote, isNoteWriteResult, isPublicUser, NoteSchema } from '@shared/backend-types'
 import type { SyncResponse } from '@shared/types'
 import type { CommandArgs } from './commands'
 import { invalidResponse } from './errors'
@@ -211,6 +211,9 @@ export function validateResponse(command: keyof CommandArgs, value: unknown): vo
       break
     case 'session_load':
       valid = isBackendSession(value)
+      break
+    case 'session_update_profile':
+      valid = isPublicUser(value)
       break
     case 'sync_login':
       valid = record(value) && text(value.loginId) && record(value.result) && syncLogin(value.result)

@@ -18,7 +18,7 @@
     "noImplicitOverride": true,
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
-    "types": ["svelte"],
+    "types": ["svelte", "vite/client"],
     "paths": {
       "@app/*": ["./src/*"],
       "@shared/*": ["../shared/src/*"]

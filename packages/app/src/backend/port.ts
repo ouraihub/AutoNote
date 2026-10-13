@@ -104,7 +104,6 @@ export interface SessionAccountPort {
   login(username: string, password: string, options?: CallOptions): Promise<PasswordLoginResult>
   completeTotpLogin(challengeToken: string, code: string, options?: CallOptions): Promise<TotpLoginResult>
   setPassword(body: { currentPassword: string; newPassword: string }, options?: CallOptions): Promise<{ ok: true }>
-  updateProfile(body: { name?: string; avatarUrl?: string }, options?: CallOptions): Promise<PublicUser>
   updateRegistration(
     enabled: boolean,
     password: string,
@@ -115,6 +114,7 @@ export interface SessionAccountPort {
 export interface SessionPort {
   readonly account?: SessionAccountPort
   load(options?: CallOptions): Promise<BackendSession>
+  updateProfile(body: { name?: string; avatarUrl?: string }, options?: CallOptions): Promise<PublicUser>
   logout(options?: CallOptions): Promise<void>
 }
 
