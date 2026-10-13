@@ -357,18 +357,6 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     user_id TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('chat','writing')),
     endpoint_id TEXT, model_id TEXT, PRIMARY KEY(user_id, role)
   )`,
-  `CREATE TABLE IF NOT EXISTS ai_conversations (
-    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL,
-    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_ai_conversations_user ON ai_conversations(user_id, updated_at DESC, id DESC)`,
-  `CREATE TABLE IF NOT EXISTS ai_messages (
-    id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, user_id TEXT NOT NULL,
-    role TEXT NOT NULL CHECK(role IN ('user','assistant')), content TEXT NOT NULL,
-    status TEXT NOT NULL CHECK(status IN ('done','failed','interrupted')),
-    model_id TEXT, created_at INTEGER NOT NULL
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_ai_messages_conversation ON ai_messages(user_id, conversation_id, created_at, id)`,
   `CREATE TABLE IF NOT EXISTS ai_chat_conversations (
     id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL, scope TEXT,
     created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
@@ -571,6 +559,15 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE ai_models ADD COLUMN supports_tools INTEGER`,
     ],
   },
+  {
+    version: 14,
+    statements: [
+      `DROP INDEX IF EXISTS idx_ai_messages_conversation`,
+      `DROP INDEX IF EXISTS idx_ai_conversations_user`,
+      `DROP TABLE IF EXISTS ai_messages`,
+      `DROP TABLE IF EXISTS ai_conversations`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -623,8 +620,6 @@ const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ai_endpoints: ['id', 'user_id', 'provider_id', 'slug', 'base_url', 'protocol', 'key_ciphertext', 'position'],
   ai_models: ['user_id', 'endpoint_id', 'model_id', 'model_type', 'type_source', 'context_window', 'can_vision', 'position', 'max_output', 'supports_tools'],
   ai_roles: ['user_id', 'role', 'endpoint_id', 'model_id'],
-  ai_conversations: ['id', 'user_id', 'title', 'created_at', 'updated_at'],
-  ai_messages: ['id', 'conversation_id', 'user_id', 'role', 'content', 'status', 'model_id', 'created_at'],
   ai_chat_conversations: ['id', 'user_id', 'title', 'scope', 'created_at', 'updated_at'],
   ai_chat_turns: ['id', 'user_id', 'conversation_id', 'seq', 'status', 'input', 'messages', 'model_id', 'error_code', 'input_tokens', 'output_tokens', 'created_at'],
 } as const
@@ -662,8 +657,6 @@ const REQUIRED_TABLES = [
   'ai_endpoints',
   'ai_models',
   'ai_roles',
-  'ai_conversations',
-  'ai_messages',
   'ai_chat_conversations',
   'ai_chat_turns',
 ] as const
@@ -711,8 +704,6 @@ const REQUIRED_INDEXES = [
   'idx_fts_index_queue_due',
   'idx_ai_providers_user',
   'idx_ai_endpoints_user',
-  'idx_ai_conversations_user',
-  'idx_ai_messages_conversation',
   'idx_ai_chat_conversations_user',
 ] as const
 

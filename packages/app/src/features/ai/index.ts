@@ -1,25 +1,16 @@
 import { Sparkles } from '@lucide/svelte'
-import type { BackendCapabilities } from '@app/backend'
+import type { Backend } from '@app/backend'
 import type { HostExtensions } from '@app/root'
 import AiSection from './settings/AiSection.svelte'
 import ChatPanel from './chat/ChatPanel.svelte'
 import WritingToolbar from './writing/WritingToolbar.svelte'
 
-export { default as AiSection } from './settings/AiSection.svelte'
-export { default as ChatPanel } from './chat/ChatPanel.svelte'
-export { default as WritingToolbar } from './writing/WritingToolbar.svelte'
-export { default as EndpointCard } from './settings/EndpointCard.svelte'
-export { default as ModelPickerDialog } from './settings/ModelPickerDialog.svelte'
-export { ChatSession } from './chat/chat-session.svelte'
-export function aiHostExtensions(
-  capabilities: Pick<BackendCapabilities, 'ai'>,
-  settingsId = 'ai',
-): HostExtensions {
-  if (!capabilities.ai) return { settingsSections: [], aboutPanels: [] }
+export function aiHostExtensions(backend: Pick<Backend, 'aiHost'>): HostExtensions {
+  if (!backend.aiHost) return { settingsSections: [], aboutPanels: [] }
   return {
     settingsSections: [
       {
-        id: settingsId,
+        id: 'ai',
         order: 28,
         titleKey: 'ai.settings_title',
         icon: Sparkles,

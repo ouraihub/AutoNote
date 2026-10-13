@@ -9,7 +9,6 @@ import type { SyncStatus } from './ports/remote-sync'
 import type { CommandArgs, CommandResults, TransferArgs } from './commands'
 import { cancelled, invalidResponse, ipcError } from './errors'
 import { isSyncResponse, record, validateResponse } from './validation'
-import type { AiChatEvent, AiChatRequest, AiModelRef, AiWriteEvent, AiWriteRequest } from './ports/ai'
 
 export interface IpcTransport {
   invoke<K extends keyof CommandArgs>(
@@ -32,16 +31,6 @@ export interface IpcTransport {
     options?: TransferOptions,
   ): Promise<T | null>
   reindex(options?: CallOptions): Promise<{ ok: true; indexed: number }>
-  aiChat(
-    request: AiChatRequest,
-    onEvent: (event: AiChatEvent) => void,
-    options?: CallOptions,
-  ): Promise<{ conversationId: string }>
-  aiWrite(
-    request: AiWriteRequest,
-    onEvent: (event: AiWriteEvent) => void,
-    options?: CallOptions,
-  ): Promise<{ model: AiModelRef; isFallback: boolean }>
   flushNotes(noteId?: string, options?: CallOptions): Promise<FlushResult>
   onPrepareClose(flush: () => Promise<FlushResult>, closing: (active: boolean) => void): Promise<() => void>
   listenIntents(listener: (intent: 'new-note') => void): Promise<() => void>
@@ -101,94 +90,18 @@ export class TauriTransport implements IpcTransport {
       this.#writes.delete(pending)
     }
   }
-  async #chatHistory(command: string, args: unknown, options?: CallOptions): Promise<unknown> {
-    if (command === 'ai_conversation_delete') return this.#call('plugin:aether|chat_delete', args as object, options)
-    if (command === 'ai_conversations_list') {
-      const rows = await this.#call<unknown>('plugin:aether|chat_conversations', { scope: null }, options)
-      if (!Array.isArray(rows)) throw invalidResponse()
-      return rows.map((row) => {
-        if (!record(row)) throw invalidResponse()
-        return { id: row.id, title: row.title, updatedAt: row.updatedAt }
-      })
-    }
-    const value = await this.#call<unknown>('plugin:aether|chat_conversation', args as object, options)
-    if (!record(value) || !record(value.summary) || !Array.isArray(value.turns)) throw invalidResponse()
-    const summary = value.summary
-    if (
-      !record(summary) ||
-      typeof summary.id !== 'string' ||
-      typeof summary.title !== 'string' ||
-      !Number.isSafeInteger(summary.createdAt)
-    )
-      throw invalidResponse()
-    return {
-      id: summary.id,
-      title: summary.title,
-      messages: value.turns.flatMap((turn) => {
-        if (
-          !record(turn) ||
-          typeof turn.id !== 'string' ||
-          typeof turn.input !== 'string' ||
-          typeof turn.text !== 'string'
-        )
-          throw invalidResponse()
-        const status =
-          turn.status === 'completed'
-            ? 'done'
-            : turn.status === 'cancelled' || turn.status === 'running' || turn.errorCode === 'interrupted'
-              ? 'interrupted'
-              : 'failed'
-        return [
-          {
-            id: `${turn.id}:user`,
-            role: 'user',
-            content: turn.input,
-            status: 'done',
-            modelId: null,
-            createdAt: summary.createdAt,
-          },
-          {
-            id: `${turn.id}:assistant`,
-            role: 'assistant',
-            content: turn.text || (status === 'failed' ? String(turn.errorCode ?? 'failed') : ''),
-            status,
-            modelId: turn.modelId,
-            createdAt: summary.createdAt,
-          },
-        ]
-      }),
-    }
-  }
   async invoke<K extends keyof CommandArgs>(
     command: K,
     args: CommandArgs[K],
     options?: CallOptions,
   ): Promise<CommandResults[K]> {
-    const jobId = command === 'ai_endpoint_probe' ? (args as CommandArgs['ai_endpoint_probe']).jobId : undefined
-    const cancel = () => this.invoke('jobs_cancel', { jobId: jobId! })
-    const abort = () => {
-      void cancel().catch(() => {
-        this.cancellationFailed = true
-      })
-    }
-    if (jobId) {
-      this.#jobs.set(jobId, cancel)
-      options?.signal?.addEventListener('abort', abort, { once: true })
-    }
     try {
-      const result = ['ai_conversations_list', 'ai_conversation_get', 'ai_conversation_delete'].includes(command)
-        ? ((await this.#chatHistory(command, args, options)) as CommandResults[K])
-        : await this.#call<CommandResults[K]>(command, args, options)
+      const result = await this.#call<CommandResults[K]>(command, args, options)
       validateResponse(command, result)
       return result
     } catch (error) {
       reportFailure(command, error)
       throw error
-    } finally {
-      if (jobId) {
-        this.#jobs.delete(jobId)
-        options?.signal?.removeEventListener('abort', abort)
-      }
     }
   }
   async #listen<T>(event: string, listener: (payload: T) => void): Promise<() => void> {
@@ -321,154 +234,6 @@ export class TauriTransport implements IpcTransport {
     } finally {
       options?.signal?.removeEventListener('abort', abort)
       this.#jobs.delete(jobId)
-    }
-  }
-  /** The product port settles after Aether's terminal event, not acceptance. */
-  async aiChat(
-    request: AiChatRequest,
-    onEvent: (event: AiChatEvent) => void,
-    options?: CallOptions,
-  ): Promise<{ conversationId: string }> {
-    if (options?.signal?.aborted) throw cancelled()
-    const terminal = Promise.withResolvers<unknown>()
-    const channel = new Channel<unknown>()
-    let open = true
-    let usage = { inputTokens: null as number | null, outputTokens: null as number | null }
-    channel.onmessage = (event) => {
-      if (!open || !record(event)) return
-      if (event.kind === 'end') terminal.resolve(event)
-      else if (!this.#disposed && !options?.signal?.aborted) {
-        if (event.kind === 'text_delta' && typeof event.text === 'string') onEvent({ kind: 'delta', text: event.text })
-        else if (event.kind === 'usage')
-          usage = {
-            inputTokens: Number.isSafeInteger(event.inputTokens) ? (event.inputTokens as number) : null,
-            outputTokens: Number.isSafeInteger(event.outputTokens) ? (event.outputTokens as number) : null,
-          }
-      }
-    }
-    let runId: string | undefined
-    const cancel = () => (runId ? this.#call('plugin:aether|chat_cancel', { runId }) : Promise.resolve())
-    const abort = () => {
-      void cancel().catch(() => {
-        this.cancellationFailed = true
-      })
-    }
-    options?.signal?.addEventListener('abort', abort, { once: true })
-    try {
-      const note = request.note
-      const accepted = await this.#call<unknown>(
-        'plugin:aether|chat_run',
-        {
-          request: {
-            purpose: 'chat',
-            model: request.model ?? null,
-            skills: [],
-            context: note && 'id' in note && note.id ? { kind: 'autonote-note', id: note.id } : null,
-            scope: note && 'id' in note && note.id ? `note:${note.id}` : 'autonote',
-            input: request.content,
-            conversationId: request.conversationId ?? null,
-            regenerate: request.regenerate ?? false,
-            language: document.documentElement.lang || 'zh-CN',
-          },
-          onEvent: channel,
-        },
-        options,
-      )
-      if (!record(accepted) || typeof accepted.runId !== 'string' || typeof accepted.conversationId !== 'string')
-        throw invalidResponse()
-      runId = accepted.runId
-      this.#jobs.set(runId, cancel)
-      if (options?.signal?.aborted || this.#disposed) abort()
-      const end = await terminal.promise
-      if (!record(end)) throw invalidResponse()
-      if (end.status === 'cancelled') throw cancelled()
-      if (end.status !== 'completed') throw ipcError(end.error)
-      onEvent({ kind: 'done', ...usage })
-      return { conversationId: accepted.conversationId }
-    } finally {
-      open = false
-      options?.signal?.removeEventListener('abort', abort)
-      if (runId) this.#jobs.delete(runId)
-    }
-  }
-  async aiWrite(
-    request: AiWriteRequest,
-    onEvent: (event: AiWriteEvent) => void,
-    options?: CallOptions,
-  ): Promise<{ model: AiModelRef; isFallback: boolean }> {
-    if (options?.signal?.aborted) throw cancelled()
-    const channel = new Channel<unknown>()
-    let open = true
-    let runId: string | undefined
-    let usage = { inputTokens: null as number | null, outputTokens: null as number | null }
-    const terminal = Promise.withResolvers<unknown>()
-    channel.onmessage = (event) => {
-      if (!open || !record(event)) return
-      if (event.kind === 'end') terminal.resolve(event)
-      else if (!this.#disposed && !options?.signal?.aborted) {
-        if (event.kind === 'text_delta' && typeof event.text === 'string') onEvent({ kind: 'delta', text: event.text })
-        else if (event.kind === 'usage')
-          usage = {
-            inputTokens: Number.isSafeInteger(event.inputTokens) ? (event.inputTokens as number) : null,
-            outputTokens: Number.isSafeInteger(event.outputTokens) ? (event.outputTokens as number) : null,
-          }
-      }
-    }
-    const cancel = () => (runId ? this.#call('plugin:aether|chat_cancel', { runId }) : Promise.resolve())
-    const abort = () => void cancel().catch(() => (this.cancellationFailed = true))
-    options?.signal?.addEventListener('abort', abort, { once: true })
-    try {
-      const roles = await this.#call<unknown>('ai_roles_get', undefined, options)
-      if (!Array.isArray(roles)) throw invalidResponse()
-      const writing = roles.find((role) => record(role) && role.role === 'writing')
-      if (!record(writing) || !record(writing.binding)) throw invalidResponse()
-      const model = {
-        endpointId: writing.binding.endpointId as string,
-        modelId: writing.binding.modelId as string,
-      }
-      const isFallback = writing.isFallback === true
-      const accepted = await this.#call<unknown>(
-        'plugin:aether|chat_run',
-        {
-          purpose: 'writing',
-          model: null,
-          skills: [],
-          context: { kind: 'autonote-note', id: request.noteId },
-          scope: `note:${request.noteId}:writing`,
-          input: JSON.stringify({
-            action: request.action,
-            noteId: request.noteId,
-            selectedText: request.selectedText,
-            beforeText: request.beforeText,
-            afterText: request.afterText,
-            cursorOffset: request.cursorOffset,
-            language: request.language,
-            title: request.title,
-          }),
-          conversationId: null,
-          regenerate: false,
-          language: request.language,
-          onEvent: channel,
-        },
-        options,
-      )
-      if (!record(accepted) || typeof accepted.runId !== 'string') throw invalidResponse()
-      runId = accepted.runId
-      this.#jobs.set(runId, cancel)
-      if (options?.signal?.aborted || this.#disposed) abort()
-      const end = await terminal.promise
-      if (!record(end)) throw invalidResponse()
-      if (end.status === 'cancelled') throw cancelled()
-      if (end.status !== 'completed') throw ipcError(end.error)
-      onEvent({ kind: 'done', ...usage })
-      return { model, isFallback }
-    } catch (error) {
-      reportFailure('ai_write', error)
-      throw error
-    } finally {
-      open = false
-      options?.signal?.removeEventListener('abort', abort)
-      if (runId) this.#jobs.delete(runId)
     }
   }
   async onPrepareClose(flush: () => Promise<FlushResult>, closing: (active: boolean) => void): Promise<() => void> {

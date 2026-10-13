@@ -97,19 +97,17 @@ export function createWebRuntime(services: WebServices): AppDeps {
     getLocale: () => services.language.locale,
   })
   const actualBackend = { ...backend }
-  const aiExtensions = aiHostExtensions({ ai: !IS_DEMO_MODE && backend.capabilities.ai })
   if (IS_DEMO_MODE) {
     delete actualBackend.update
-    delete actualBackend.ai
     delete actualBackend.aiHost
     actualBackend.capabilities = {
       ...backend.capabilities,
-      ai: false,
       totp: false,
       semanticSearch: false,
       updateCheck: false,
     }
   }
+  const aiExtensions = aiHostExtensions(actualBackend)
   return {
     backend: actualBackend,
     clock: { now: () => Date.now() },

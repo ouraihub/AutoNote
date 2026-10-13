@@ -1,39 +1,14 @@
-//! AutoNote wire adapters over Aether providers and product-owned role settings.
-use std::sync::Arc;
-use std::sync::atomic::Ordering;
-
+//! AutoNote role settings over Aether providers, plus endpoint key reveal.
 use aether_providers as providers;
-use note_core::ai::{
-    AiModel, AiModelRef, AiModelType, AiProtocol, AiRole, AiRoleRow, AiRoleSettings, AiTypeSource,
-};
+use note_core::ai::{AiModelRef, AiRole, AiRoleRow, AiRoleSettings};
 use note_core::{AppError, ErrorCode, parse_input};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value;
 
-use super::{Ok, ok, run};
+use super::run;
 use crate::AppContext;
 
 type Ctx<'a> = tauri::State<'a, AppContext>;
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AiEndpoint {
-    id: String,
-    slug: String,
-    base_url: String,
-    protocol: AiProtocol,
-    key_masked: Option<String>,
-    probe_url: String,
-    models: Vec<AiModel>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AiProvider {
-    id: String,
-    name: String,
-    endpoints: Vec<AiEndpoint>,
-}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -49,25 +24,6 @@ pub struct AiRoleBinding {
     role: AiRole,
     binding: Option<BoundModel>,
     is_fallback: bool,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct EndpointSave {
-    id: Option<String>,
-    slug: String,
-    base_url: String,
-    protocol: AiProtocol,
-    api_key: Option<String>,
-    models: Vec<AiModel>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ProviderSave {
-    id: Option<String>,
-    name: String,
-    endpoints: Vec<EndpointSave>,
 }
 
 #[derive(Serialize)]
@@ -107,113 +63,6 @@ async fn provider_call<T: Send + 'static>(
         .await
         .map_err(|_| internal("AI provider task failed"))?
         .map_err(provider_error)
-}
-
-macro_rules! enum_adapter {
-    ($to:ident, $from:ident, $local:ident, $remote:ident, $($variant:ident),+) => {
-        fn $to(value: $local) -> providers::$remote {
-            match value { $($local::$variant => providers::$remote::$variant),+ }
-        }
-        fn $from(value: providers::$remote) -> $local {
-            match value { $(providers::$remote::$variant => $local::$variant),+ }
-        }
-    };
-}
-enum_adapter!(
-    protocol_input,
-    protocol_dto,
-    AiProtocol,
-    Protocol,
-    AnthropicMessages,
-    OpenaiChat,
-    OpenaiResponses
-);
-enum_adapter!(
-    type_input,
-    type_dto,
-    AiModelType,
-    ModelType,
-    Chat,
-    Image,
-    Video,
-    Tts,
-    Stt,
-    Embedding,
-    Rerank,
-    Unknown
-);
-enum_adapter!(
-    source_input,
-    source_dto,
-    AiTypeSource,
-    TypeSource,
-    Inferred,
-    User
-);
-
-fn model_input(model: AiModel) -> providers::Model {
-    providers::Model {
-        id: model.id,
-        model_type: type_input(model.model_type),
-        type_source: source_input(model.type_source),
-        context_window: model.context_window,
-        can_vision: model.can_vision,
-        max_output: None,
-        supports_tools: None,
-    }
-}
-
-fn model_dto(model: providers::Model) -> AiModel {
-    AiModel {
-        id: model.id,
-        model_type: type_dto(model.model_type),
-        type_source: source_dto(model.type_source),
-        context_window: model.context_window,
-        can_vision: model.can_vision,
-    }
-}
-
-fn provider_input(request: ProviderSave) -> providers::ProviderSave {
-    providers::ProviderSave {
-        id: request.id,
-        name: request.name.trim().to_owned(),
-        endpoints: request
-            .endpoints
-            .into_iter()
-            .map(|endpoint| providers::EndpointSave {
-                id: endpoint.id,
-                slug: endpoint.slug.trim().to_owned(),
-                base_url: endpoint.base_url.trim().to_owned(),
-                protocol: protocol_input(endpoint.protocol),
-                api_key: endpoint.api_key.map(|key| key.trim().to_owned()),
-                models: endpoint.models.into_iter().map(model_input).collect(),
-            })
-            .collect(),
-    }
-}
-
-fn provider_dtos(rows: Vec<providers::Provider>) -> Vec<AiProvider> {
-    rows.into_iter()
-        .map(|row| AiProvider {
-            id: row.id,
-            name: row.name,
-            endpoints: row
-                .endpoints
-                .into_iter()
-                .map(|endpoint| AiEndpoint {
-                    id: endpoint.id,
-                    slug: endpoint.slug,
-                    base_url: endpoint.base_url,
-                    protocol: protocol_dto(endpoint.protocol),
-                    key_masked: endpoint
-                        .key_masked
-                        .or_else(|| endpoint.has_key.then(|| "****".to_owned())),
-                    probe_url: endpoint.probe_url,
-                    models: endpoint.models.into_iter().map(model_dto).collect(),
-                })
-                .collect(),
-        })
-        .collect()
 }
 
 fn effective_roles(
@@ -286,30 +135,6 @@ async fn role_dtos(context: &AppContext) -> Result<Vec<AiRoleBinding>, AppError>
 }
 
 #[tauri::command]
-pub async fn ai_providers_list(context: Ctx<'_>) -> Result<Vec<AiProvider>, AppError> {
-    provider_call(&context, providers::Store::list)
-        .await
-        .map(provider_dtos)
-}
-
-#[tauri::command]
-pub async fn ai_provider_save(
-    context: Ctx<'_>,
-    provider: Value,
-) -> Result<Vec<AiProvider>, AppError> {
-    let input = provider_input(parse_input(provider).map_err(AppError::from)?);
-    provider_call(&context, move |store| store.save(input))
-        .await
-        .map(provider_dtos)
-}
-
-#[tauri::command]
-pub async fn ai_provider_delete(context: Ctx<'_>, id: String) -> Result<Ok<()>, AppError> {
-    provider_call(&context, move |store| store.delete(&id)).await?;
-    Ok(ok(()))
-}
-
-#[tauri::command]
 pub async fn ai_endpoint_key_reveal(context: Ctx<'_>, id: String) -> Result<RevealedKey, AppError> {
     let connection = provider_call(&context, move |store| store.endpoint_connection(&id)).await?;
     let key = connection
@@ -317,87 +142,6 @@ pub async fn ai_endpoint_key_reveal(context: Ctx<'_>, id: String) -> Result<Reve
         .ok_or_else(|| AppError::new(ErrorCode::NotFound, "Key not set"))?;
     Ok(RevealedKey {
         key: key.to_string(),
-    })
-}
-
-/// `ai_endpoint_probe` wire shape (doc 23 §5), mirrored by the TS `ProbeResult`.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProbeResult {
-    probe_url: String,
-    models: Vec<ProbedModel>,
-    error: Option<ProbeError>,
-}
-#[derive(Serialize)]
-pub struct ProbedModel {
-    #[serde(flatten)]
-    model: AiModel,
-    group: Option<String>,
-}
-#[derive(Serialize)]
-pub struct ProbeError {
-    kind: &'static str,
-    status: Option<u16>,
-    message: Option<String>,
-}
-
-fn probe_dto(result: providers::ProbeResult) -> ProbeResult {
-    use providers::ProbeErrorKind as K;
-    ProbeResult {
-        probe_url: result.probe_url,
-        models: result
-            .models
-            .into_iter()
-            .map(|model| ProbedModel {
-                model: model_dto(model.model),
-                group: model.group,
-            })
-            .collect(),
-        error: result.error.map(|error| ProbeError {
-            kind: match error.kind {
-                K::MissingKey => "missing_key",
-                K::Unauthorized => "unauthorized",
-                K::NotFound => "not_found",
-                K::RateLimited => "rate_limited",
-                K::Status => "status",
-                K::Timeout => "timeout",
-                K::Connect | K::BlockedAddress => "connect",
-                K::InvalidBody => "invalid_body",
-            },
-            status: error.status,
-            message: None,
-        }),
-    }
-}
-
-#[tauri::command]
-pub async fn ai_endpoint_probe(
-    context: Ctx<'_>,
-    id: String,
-    job_id: String,
-) -> Result<ProbeResult, AppError> {
-    let flag = context.jobs.start(&job_id)?;
-    let cancel = tokio_util::sync::CancellationToken::new();
-    let watcher = watch_cancel(flag, cancel.clone());
-    let result = context
-        .providers
-        .probe(providers::ProbeTarget::Saved { endpoint_id: id }, &cancel)
-        .await;
-    cancel.cancel();
-    let _ = watcher.await;
-    context.jobs.finish(&job_id);
-    result.map(probe_dto).map_err(provider_error)
-}
-
-fn watch_cancel(
-    flag: Arc<std::sync::atomic::AtomicBool>,
-    cancel: tokio_util::sync::CancellationToken,
-) -> tauri::async_runtime::JoinHandle<()> {
-    tauri::async_runtime::spawn(async move {
-        while !flag.load(Ordering::Relaxed) && !cancel.is_cancelled() {
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        }
-        cancel.cancel();
     })
 }
 
@@ -453,27 +197,52 @@ mod tests {
 
     #[test]
     #[allow(clippy::unwrap_used, reason = "failed unwrap fails the test")]
-    fn provider_adapter_and_roles_roundtrip() {
+    fn roles_follow_saved_chat_models() {
         let dir = tempfile::tempdir().unwrap();
         let store = providers::Store::open(dir.path()).unwrap();
         let library_path = dir.path().join("library.db");
         let library = Library::open(&library_path).unwrap();
-        let request = serde_json::json!({"name":" Example ","endpoints":[{
-            "slug":"main","baseUrl":"https://example.com/v1","protocol":"openai-chat",
-            "models":[{"id":"chat","modelType":"chat","typeSource":"user","contextWindow":32000,"canVision":true},
-                {"id":"emb","modelType":"embedding","typeSource":"inferred","contextWindow":null,"canVision":false}]
-        }]});
+        let model = |id: &str, model_type, type_source, context_window, can_vision| {
+            providers::Model {
+                id: id.to_owned(),
+                model_type,
+                type_source,
+                context_window,
+                can_vision,
+                max_output: None,
+                supports_tools: None,
+            }
+        };
         let saved = store
-            .save(provider_input(parse_input(request).unwrap()))
+            .save(providers::ProviderSave {
+                id: None,
+                name: "Example".to_owned(),
+                endpoints: vec![providers::EndpointSave {
+                    id: None,
+                    slug: "main".to_owned(),
+                    base_url: "https://example.com/v1".to_owned(),
+                    protocol: providers::Protocol::OpenaiChat,
+                    api_key: None,
+                    models: vec![
+                        model(
+                            "chat",
+                            providers::ModelType::Chat,
+                            providers::TypeSource::User,
+                            Some(32000),
+                            true,
+                        ),
+                        model(
+                            "emb",
+                            providers::ModelType::Embedding,
+                            providers::TypeSource::Inferred,
+                            None,
+                            false,
+                        ),
+                    ],
+                }],
+            })
             .unwrap();
         let endpoint_id = saved[0].endpoints[0].id.clone();
-        let dto = provider_dtos(saved);
-        assert_eq!(dto[0].name, "Example");
-        assert_eq!(
-            dto[0].endpoints[0].models[0].type_source,
-            AiTypeSource::User
-        );
-        assert_eq!(dto[0].endpoints[0].models[0].context_window, Some(32000));
         let reference = AiModelRef {
             endpoint_id,
             model_id: "chat".to_owned(),

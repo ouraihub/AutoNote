@@ -40,17 +40,8 @@ import type {
 import type { AppInfo, LogEntry } from '../host/desktop-types'
 import type { McpApiKey, McpPreferences } from '@shared/types'
 import type { McpLocalStatus } from '@shared/backend-types'
-import type {
-  AiConversation,
-  AiConversationSummary,
-  AiModelRef,
-  AiProbeResult,
-  AiProvider,
-  AiProviderSave,
-  AiRole,
-  AiRoleBinding,
-  AiWriteRequest,
-} from './ports/ai'
+import type { AiRole, AiRoleBinding } from '@app/backend'
+import type { ModelRef } from '@ouraihub/aether-ui/ports'
 
 export interface DesktopPrefs {
   closeToTray: boolean
@@ -69,17 +60,9 @@ export interface LogRecord {
 type Empty = undefined
 export interface CommandArgs {
   mcp_status: Empty
-  ai_providers_list: Empty
-  ai_provider_save: { provider: AiProviderSave }
-  ai_provider_delete: { id: string }
   ai_endpoint_key_reveal: { id: string }
-  ai_endpoint_probe: { id: string; jobId: string }
   ai_roles_get: Empty
-  ai_roles_set: { role: AiRole; binding: AiModelRef | null }
-  ai_conversations_list: Empty
-  ai_conversation_get: { id: string }
-  ai_conversation_delete: { id: string }
-  ai_write: { jobId: string; request: AiWriteRequest; onEvent: unknown }
+  ai_roles_set: { role: AiRole; binding: ModelRef | null }
   mcp_start: Empty
   mcp_stop: Empty
   mcp_set_port: { port: number }
@@ -149,17 +132,9 @@ export interface CommandArgs {
 }
 export interface CommandResults {
   mcp_status: McpLocalStatus
-  ai_providers_list: AiProvider[]
-  ai_provider_save: AiProvider[]
-  ai_provider_delete: { ok: true }
   ai_endpoint_key_reveal: { key: string }
-  ai_endpoint_probe: AiProbeResult
   ai_roles_get: AiRoleBinding[]
   ai_roles_set: AiRoleBinding[]
-  ai_conversations_list: AiConversationSummary[]
-  ai_conversation_get: AiConversation
-  ai_conversation_delete: { ok: true }
-  ai_write: { ok: true; model: AiModelRef; isFallback: boolean }
   mcp_start: McpLocalStatus
   mcp_stop: McpLocalStatus
   mcp_set_port: McpLocalStatus

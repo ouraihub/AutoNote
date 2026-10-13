@@ -1,5 +1,9 @@
 @import 'tailwindcss';
+@import '@ouraihub/aether-ui/tokens.css';
 @source '../';
+@source '../../../../node_modules/@ouraihub/aether-ui/src';
+
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
 
 @theme inline {
   --color-background: var(--bg-base);
@@ -20,7 +24,21 @@
   --color-border: var(--border-default);
   --color-input: var(--border-default);
   --color-ring: var(--accent-ring);
+  --color-chart-2: var(--success);
+  --color-chart-4: var(--warning);
   --radius-sm: var(--r-sm);
   --radius-md: var(--r-md);
   --radius-lg: var(--r-lg);
+}
+
+@layer utilities {
+  :is(
+    [data-slot='select-content'],
+    [data-slot='dialog-overlay'],
+    [data-slot='dialog-content'],
+    [data-slot='alert-dialog-overlay'],
+    [data-slot='alert-dialog-content']
+  ).z-50 {
+    z-index: 300;
+  }
 }

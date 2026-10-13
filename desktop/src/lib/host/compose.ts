@@ -40,7 +40,7 @@ export async function bootDesktop(target: HTMLElement): Promise<AppHandle> {
       prefs,
       notifier,
       extensions: {
-        ...desktopSettingsSections(backend.capabilities),
+        ...desktopSettingsSections(backend),
         subscribeIntents(listener) {
           intentListeners.add(listener)
           return () => {

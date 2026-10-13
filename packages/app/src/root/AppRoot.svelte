@@ -14,6 +14,7 @@
   import type { Notifier } from '../platform/notifier'
   import type { AppDeps } from './types'
   import { ThemeController } from '../theme/apply'
+  import { provideKitContext } from '../features/ai/kit'
   import {
     setBackend,
     setClock,
@@ -67,6 +68,8 @@
     setSettings(value.settings)
     setUi(value.ui)
     setOrganize(value.organize)
+    const aiHost = value.deps.backend.aiHost
+    if (aiHost) provideKitContext(aiHost, value.i18n, value.notifier, value.deps.logger)
   }
   provideContexts(() => ({
     deps,
