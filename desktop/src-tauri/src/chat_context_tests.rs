@@ -218,6 +218,7 @@ fn dropped_context_reaches_loopback_without_note_body_and_preserves_history() {
                 }
                 Err(err) => panic!("loopback accept: {err}"),
             };
+            socket.set_nonblocking(false).unwrap();
             socket
                 .set_read_timeout(Some(Duration::from_secs(10)))
                 .unwrap();
