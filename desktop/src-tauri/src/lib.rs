@@ -9,6 +9,9 @@ mod shortcut;
 mod tray;
 mod window;
 
+#[cfg(test)]
+mod chat_context_tests;
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -104,37 +107,48 @@ fn validate_writing(
 
 fn validate_chat_relation(
     store: &LazyChatStore,
+    library: &OnceLock<Arc<Library>>,
     req: &tauri_plugin_aether::RunRequest,
 ) -> Result<(), tauri_plugin_aether::KitError> {
-    let Some(id) = req.conversation_id.as_deref() else {
-        return Ok(());
-    };
-    let conversation = store.get()?.load(id)?;
-    if conversation.summary.scope.as_deref() != req.scope.as_deref() {
+    let conversation = req
+        .conversation_id
+        .as_deref()
+        .map(|id| store.get()?.load(id))
+        .transpose()?;
+    if conversation
+        .as_ref()
+        .is_some_and(|conversation| conversation.summary.scope.as_deref() != req.scope.as_deref())
+    {
         return Err(tauri_plugin_aether::KitError::bad_request(
             "scope",
             "conversation_mismatch",
         ));
     }
-    if let Some(scope) = conversation
-        .summary
-        .scope
-        .as_deref()
-        .and_then(|s| s.strip_prefix("note:"))
-    {
+    let scope = match &conversation {
+        Some(conversation) => conversation.summary.scope.as_deref(),
+        None => req.scope.as_deref(),
+    };
+    if let Some(scope) = scope.and_then(|s| s.strip_prefix("note:")) {
         let note_id = scope.strip_suffix(":writing").unwrap_or(scope);
-        let Some(context) = req.context.as_ref() else {
-            return Err(tauri_plugin_aether::KitError::bad_request(
-                "context",
-                "conversation_mismatch",
-            ));
-        };
-        if context.kind != "autonote-note" || context.id != note_id {
+        if req
+            .context
+            .as_ref()
+            .is_some_and(|context| context.kind != "autonote-note" || context.id != note_id)
+        {
             return Err(tauri_plugin_aether::KitError::bad_request(
                 "context",
                 "conversation_mismatch",
             ));
         }
+        let id = NoteId::new(note_id.to_owned())
+            .map_err(|_| tauri_plugin_aether::KitError::not_found("note"))?;
+        library
+            .get()
+            .ok_or_else(|| {
+                tauri_plugin_aether::KitError::internal(std::io::Error::other("library not ready"))
+            })?
+            .get_note(&id)
+            .map_err(|_| tauri_plugin_aether::KitError::not_found("note"))?;
     }
     Ok(())
 }
@@ -251,7 +265,7 @@ impl tauri_plugin_aether::KitHost for AetherHost {
                 return Err(tauri_plugin_aether::KitError::not_found("note"));
             }
         } else {
-            validate_chat_relation(&self.chat_store, req)?;
+            validate_chat_relation(&self.chat_store, &self.library, req)?;
         }
         let options = self
             .providers

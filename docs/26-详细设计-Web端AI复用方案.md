@@ -12,6 +12,7 @@
 - Worker 按 Aether 的 DTO 和 `RunEvent` 语义用 TypeScript 实现服务端。这是 24 §2.3「不复制 Provider/Chat/MCP 协议实现」的唯一例外：Worker 无法运行 Aether 的 Rust crate（依赖 reqwest、rusqlite、DPAPI）。
 - Web 工具审批用**无状态续跑**，不用 Durable Object（§6）。
 - 历史数据沿用 24 §1：Web 端旧 AI 配置和对话不迁移，用户重新配置。
+- 2026-10-14聊天首批改造合同见[30](30-AI聊天界面设计与开发规划.md)：已授权CH1–CH6，UI由Aether统一实现。笔记会话继续鉴权，移除上下文时允许本轮context=null但不解除scope和笔记访问限制；写作仍要求context。RunRequest/RunEvent首批不变，Web／IPC均须证明真实出站请求不附本轮笔记正文。
 
 ## 2. aether-ui 的定位
 

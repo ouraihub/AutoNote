@@ -21,7 +21,6 @@
   --color-ink-4: var(--text-quaternary);
   --color-ink-inverse: var(--text-inverse);
 
-  --color-accent: var(--accent);
   --color-accent-hover: var(--accent-hover);
   --color-accent-soft: var(--accent-soft);
   --color-accent-softer: var(--accent-softer);

@@ -125,13 +125,16 @@ async function selectModel(
     if (!req.context) throw badRequest('context', 'required')
     await liveNote(env, userId, noteId)
     if (req.context.id !== noteId) throw notFound('note')
-  } else if (req.conversationId !== null) {
-    conversation = await loadConversation(env.DB, userId, req.conversationId)
-    const scope = conversation.summary.scope
-    if (scope !== req.scope) throw badRequest('scope', 'conversation_mismatch')
+  } else {
+    if (req.conversationId !== null) {
+      conversation = await loadConversation(env.DB, userId, req.conversationId)
+      if (conversation.summary.scope !== req.scope) throw badRequest('scope', 'conversation_mismatch')
+    }
+    const scope = conversation ? conversation.summary.scope : req.scope
     if (scope?.startsWith('note:')) {
       const noteId = scope.slice(5).replace(/:writing$/, '')
-      if (req.context?.kind !== 'autonote-note' || req.context.id !== noteId) throw badRequest('context', 'conversation_mismatch')
+      if (req.context && (req.context.kind !== 'autonote-note' || req.context.id !== noteId)) throw badRequest('context', 'conversation_mismatch')
+      await liveNote(env, userId, noteId)
     }
   }
   const options = await modelOptions(env.DB, userId, { modelType: 'chat' })
