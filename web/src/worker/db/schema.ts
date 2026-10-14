@@ -350,7 +350,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     user_id TEXT NOT NULL, endpoint_id TEXT NOT NULL, model_id TEXT NOT NULL,
     model_type TEXT NOT NULL, type_source TEXT NOT NULL, context_window INTEGER,
     can_vision INTEGER NOT NULL DEFAULT 0, position INTEGER NOT NULL,
-    max_output INTEGER, supports_tools INTEGER,
+    native_web_search INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY(user_id, endpoint_id, model_id)
   )`,
   `CREATE TABLE IF NOT EXISTS ai_roles (
@@ -369,6 +369,22 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     input TEXT NOT NULL, messages TEXT NOT NULL DEFAULT '[]', model_id TEXT, error_code TEXT,
     input_tokens INTEGER, output_tokens INTEGER, created_at INTEGER NOT NULL,
     UNIQUE(conversation_id, seq)
+  )`,
+  `CREATE TABLE IF NOT EXISTS ai_search_provider_configs (
+    user_id TEXT NOT NULL, capability TEXT NOT NULL CHECK (capability IN ('search', 'fetch')),
+    provider TEXT NOT NULL, base_url TEXT, basic_username TEXT, PRIMARY KEY(user_id, capability, provider)
+  )`,
+  `CREATE TABLE IF NOT EXISTS ai_search_defaults (
+    user_id TEXT NOT NULL, capability TEXT NOT NULL CHECK (capability IN ('search', 'fetch')),
+    provider TEXT NOT NULL, PRIMARY KEY(user_id, capability)
+  )`,
+  `CREATE TABLE IF NOT EXISTS ai_search_keys (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, capability TEXT NOT NULL CHECK (capability IN ('search', 'fetch')),
+    provider TEXT NOT NULL, key_ciphertext TEXT NOT NULL, position INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_search_keys_scope ON ai_search_keys(user_id, capability, provider, position, id)`,
+  `CREATE TABLE IF NOT EXISTS ai_search_preferences (
+    user_id TEXT PRIMARY KEY, preferences TEXT NOT NULL
   )`,
 ]
 
@@ -568,6 +584,19 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `DROP TABLE IF EXISTS ai_conversations`,
     ],
   },
+  {
+    version: 16,
+    statements: [
+      `ALTER TABLE ai_models ADD COLUMN reasoning TEXT`,
+      `ALTER TABLE ai_chat_turns ADD COLUMN cache_read_tokens INTEGER`,
+      `ALTER TABLE ai_chat_turns ADD COLUMN cache_write_tokens INTEGER`,
+      `ALTER TABLE ai_chat_turns ADD COLUMN reasoning_tokens INTEGER`,
+      `ALTER TABLE ai_chat_turns ADD COLUMN reasoning_effort TEXT`,
+      `ALTER TABLE ai_chat_turns ADD COLUMN reasoning_text TEXT`,
+      `ALTER TABLE ai_chat_turns ADD COLUMN context_usage TEXT`,
+      `ALTER TABLE ai_chat_turns ADD COLUMN endpoint_id TEXT`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -618,10 +647,10 @@ const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   fts_index_queue: ['user_id', 'note_id', 'kind', 'created_at'],
   ai_providers: ['id', 'user_id', 'name', 'position', 'created_at', 'updated_at'],
   ai_endpoints: ['id', 'user_id', 'provider_id', 'slug', 'base_url', 'protocol', 'key_ciphertext', 'position'],
-  ai_models: ['user_id', 'endpoint_id', 'model_id', 'model_type', 'type_source', 'context_window', 'can_vision', 'position', 'max_output', 'supports_tools'],
+  ai_models: ['user_id', 'endpoint_id', 'model_id', 'model_type', 'type_source', 'context_window', 'can_vision', 'position', 'max_output', 'supports_tools', 'reasoning'],
   ai_roles: ['user_id', 'role', 'endpoint_id', 'model_id'],
   ai_chat_conversations: ['id', 'user_id', 'title', 'scope', 'created_at', 'updated_at'],
-  ai_chat_turns: ['id', 'user_id', 'conversation_id', 'seq', 'status', 'input', 'messages', 'model_id', 'error_code', 'input_tokens', 'output_tokens', 'created_at'],
+  ai_chat_turns: ['id', 'user_id', 'conversation_id', 'seq', 'status', 'input', 'messages', 'model_id', 'endpoint_id', 'error_code', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'reasoning_tokens', 'reasoning_effort', 'reasoning_text', 'context_usage', 'created_at'],
 } as const
 
 const REQUIRED_TABLES = [
@@ -659,6 +688,10 @@ const REQUIRED_TABLES = [
   'ai_roles',
   'ai_chat_conversations',
   'ai_chat_turns',
+  'ai_search_provider_configs',
+  'ai_search_defaults',
+  'ai_search_keys',
+  'ai_search_preferences',
 ] as const
 
 const REQUIRED_INDEXES = [
@@ -705,6 +738,7 @@ const REQUIRED_INDEXES = [
   'idx_ai_providers_user',
   'idx_ai_endpoints_user',
   'idx_ai_chat_conversations_user',
+  'idx_ai_search_keys_scope',
 ] as const
 
 

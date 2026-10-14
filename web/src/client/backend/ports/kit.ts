@@ -12,6 +12,9 @@ import type {
   Provider,
   RunAccepted,
   RunEvent,
+  SearchSettingsDto,
+  SearchResult,
+  SearchPage,
 } from '@ouraihub/aether-ui/ports'
 import { errorFromResponse, isAbortError } from '../errors'
 import { readSseData } from '../sse'
@@ -147,6 +150,81 @@ async function run(
 
 export function createHttpKitPorts(transport: Transport): KitPorts {
   return {
+    search: {
+      revealNeedsPassword: true,
+      settings: (capability, options) =>
+        call<SearchSettingsDto>(transport, {
+          path: `${BASE}/search/settings`,
+          query: { capability },
+          signal: options?.signal,
+        }),
+      save: (body, options) =>
+        call<SearchSettingsDto>(transport, {
+          method: 'PUT',
+          path: `${BASE}/search/providers`,
+          body,
+          signal: options?.signal,
+        }),
+      setDefault: (capability, provider, options) =>
+        call<SearchSettingsDto>(transport, {
+          method: 'PUT',
+          path: `${BASE}/search/default`,
+          body: { capability, provider },
+          signal: options?.signal,
+        }),
+      savePreferences: (body, options) =>
+        call<SearchSettingsDto['preferences']>(transport, {
+          method: 'PUT',
+          path: `${BASE}/search/preferences`,
+          body,
+          signal: options?.signal,
+        }),
+      saveKey: (capability, provider, value, keyId, options) =>
+        call<SearchSettingsDto>(transport, {
+          method: 'PUT',
+          path: `${BASE}/search/keys`,
+          body: { capability, provider, value, keyId },
+          signal: options?.signal,
+        }),
+      removeKey: (capability, provider, keyId, options) =>
+        call<SearchSettingsDto>(transport, {
+          method: 'DELETE',
+          path: `${BASE}/search/keys/${encodeURIComponent(keyId)}`,
+          body: { capability, provider },
+          signal: options?.signal,
+        }),
+      reveal: (capability, provider, keyId, currentPassword, options) =>
+        call<string>(transport, {
+          method: 'POST',
+          path: `${BASE}/search/reveal`,
+          body: { capability, provider, keyId, currentPassword },
+          signal: options?.signal,
+        }),
+      check: (capability, provider, options) =>
+        call<{ count: number }>(transport, {
+          method: 'POST',
+          path: `${BASE}/search/check`,
+          body: { capability, provider },
+          signal: options?.signal,
+          timeoutMs: 30_000,
+        }),
+      search: (query, options) =>
+        call<SearchResult>(transport, {
+          method: 'POST',
+          path: `${BASE}/search/query`,
+          body: { query },
+          signal: options?.signal,
+          timeoutMs: 30_000,
+        }),
+      fetch: (url, options) =>
+        call<SearchPage>(transport, {
+          method: 'POST',
+          path: `${BASE}/search/fetch`,
+          body: { url },
+          signal: options?.signal,
+          timeoutMs: 30_000,
+        }),
+    },
     providers: {
       list: () => call<Provider[]>(transport, { path: `${BASE}/providers` }),
       save: (provider) => call<Provider[]>(transport, { method: 'PUT', path: `${BASE}/providers`, body: provider }),

@@ -1,7 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main window: core defaults only. File, network and secret access stay in Rust.",
+  "description": "Main window: Aether features and HTTP(S) browser links. File and secret access stay in Rust.",
   "windows": ["main"],
-  "permissions": ["core:default", "aether:providers", "aether:chat", "aether:chat-history"]
+  "permissions": [
+    "core:default", "aether:providers", "aether:chat", "aether:chat-history", "aether:search",
+    { "identifier": "opener:allow-open-url", "allow": [{ "url": "https://*" }, { "url": "http://*" }] }
+  ]
 }

@@ -1,4 +1,5 @@
 export const EN_US_MESSAGES = {
+  'ai.search_title': 'Web search',
   'settings.transfer_export_completed': 'Export completed',
   'settings.transfer_conflict': 'If a note already exists',
   'settings.transfer_skip': 'Skip existing',

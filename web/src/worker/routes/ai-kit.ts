@@ -9,6 +9,7 @@ import { deleteConversation, listConversations, loadConversation, renameConversa
 import { HTTP_STATUS, KitFailure, acquireSlot, checkLength, parseBody } from '../ai/kit'
 import { ModelFilterSchema, ProbeTargetSchema, ProviderSaveSchema, listProviders, modelOptions, probe, removeProvider, saveProvider } from '../ai/providers'
 import { RunRequestSchema, executeRun, prepareRun } from '../ai/runs'
+import { check as checkSearch, fetchPage, getSettings as searchSettings, reveal as revealSearch, saveProvider as saveSearchProvider, search as searchWeb, setDefault as setSearchDefault, savePreferences, saveKey, removeKey } from '../ai/search'
 import { z } from 'zod'
 
 const RenameSchema = z.strictObject({ title: z.string() })
@@ -32,6 +33,77 @@ aiKitRoutes.put('/providers', async (c) => {
   return c.json(await saveProvider(c.env, c.get('userId'), input))
 })
 aiKitRoutes.delete('/providers/:id', async (c) => c.json(await removeProvider(c.env, c.get('userId'), c.req.param('id'))))
+aiKitRoutes.get('/search/settings', async (c) => c.json(await searchSettings(c.env, c.get('userId'), c.req.query('capability'))))
+aiKitRoutes.put('/search/providers', async (c) => {
+  const release = acquireSlot(c.get('userId'))
+  try {
+    return c.json(await saveSearchProvider(c.env, c.get('userId'), await readJson(c, JSON_BODY_LIMITS.profile)))
+  } finally {
+    release()
+  }
+})
+aiKitRoutes.put('/search/default', async (c) => {
+  const release = acquireSlot(c.get('userId'))
+  try {
+    return c.json(await setSearchDefault(c.env, c.get('userId'), await readJson(c, JSON_BODY_LIMITS.small)))
+  } finally {
+    release()
+  }
+})
+aiKitRoutes.put('/search/preferences', async (c) => {
+  const release = acquireSlot(c.get('userId'))
+  try { return c.json(await savePreferences(c.env, c.get('userId'), await readJson(c, JSON_BODY_LIMITS.profile))) }
+  finally { release() }
+})
+aiKitRoutes.put('/search/keys', async (c) => {
+  const release = acquireSlot(c.get('userId'))
+  try { return c.json(await saveKey(c.env, c.get('userId'), await readJson(c, JSON_BODY_LIMITS.profile))) }
+  finally { release() }
+})
+aiKitRoutes.delete('/search/keys/:id', async (c) => {
+  const release = acquireSlot(c.get('userId'))
+  try {
+    const body = await readJson<{ capability?: unknown; provider?: unknown }>(c, JSON_BODY_LIMITS.small)
+    return c.json(await removeKey(c.env, c.get('userId'), { ...body, keyId: c.req.param('id') }))
+  } finally { release() }
+})
+aiKitRoutes.post('/search/reveal', async (c) => {
+  const release = acquireSlot(c.get('userId'))
+  try {
+    return c.json(await revealSearch(c.env, c.get('userId'), await readJson(c, JSON_BODY_LIMITS.small)))
+  } finally {
+    release()
+  }
+})
+aiKitRoutes.post('/search/check', async (c) => {
+  const release = acquireSlot(c.get('userId'))
+  try {
+    const body = await readJson<{ capability?: unknown; provider?: unknown }>(c, JSON_BODY_LIMITS.small)
+    return c.json(await checkSearch(c.env, c.get('userId'), body.capability, body.provider, c.req.raw.signal))
+  } finally {
+    release()
+  }
+})
+aiKitRoutes.post('/search/query', async (c) => {
+  const release = acquireSlot(c.get('userId'))
+  try {
+    const body = await readJson<{ query?: unknown }>(c, JSON_BODY_LIMITS.small)
+    if (typeof body.query !== 'string') throw new KitFailure('bad_request', 'invalid query')
+    return c.json(await searchWeb(c.env, c.get('userId'), body.query, c.req.raw.signal))
+  } finally {
+    release()
+  }
+})
+aiKitRoutes.post('/search/fetch', async (c) => {
+  const release = acquireSlot(c.get('userId'))
+  try {
+    const body = await readJson<{ url?: unknown }>(c, JSON_BODY_LIMITS.small)
+    if (typeof body.url !== 'string') throw new KitFailure('bad_request', 'invalid url')
+    return c.json(await fetchPage(c.env, c.get('userId'), body.url, c.req.raw.signal))
+  } finally {
+    release()
+  }
+})
 aiKitRoutes.get('/model-options', async (c) => {
   const filter = parseBody(ModelFilterSchema, c.req.query())
   return c.json(await modelOptions(c.env.DB, c.get('userId'), filter))

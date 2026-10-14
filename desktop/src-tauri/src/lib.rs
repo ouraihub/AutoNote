@@ -456,6 +456,16 @@ pub fn run() {
             return;
         }
     };
+    let search = match aether_search::Store::open(
+        &data_dir.join("search-config.db"),
+        aether_chat::AddressPolicy::default(),
+    ) {
+        Ok(store) => store,
+        Err(_) => {
+            eprintln!("AutoNote could not start: search store unavailable");
+            return;
+        }
+    };
     let host_library = Arc::new(OnceLock::new());
     let chat_store: Arc<LazyChatStore> = Arc::new(LazyChatStore {
         root: data_dir.clone(),
@@ -491,6 +501,7 @@ pub fn run() {
     }
     let aether = match tauri_plugin_aether::Builder::new(host, logs.clone())
         .providers(plugin_store)
+        .search(search)
         .chat(tauri_plugin_aether::ChatConfig::default(), Some(chat_store))
         .mcp_server(aether_server)
         .build()
@@ -508,6 +519,7 @@ pub fn run() {
             tray::show(app)
         }))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {

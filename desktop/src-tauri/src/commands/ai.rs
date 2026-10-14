@@ -203,7 +203,7 @@ mod tests {
         let library_path = dir.path().join("library.db");
         let library = Library::open(&library_path).unwrap();
         let model =
-            |id: &str, model_type, type_source, context_window, can_vision| providers::Model {
+            |id: &str, model_type, type_source, context_window, can_vision| providers::ModelSave {
                 id: id.to_owned(),
                 model_type,
                 type_source,
@@ -211,6 +211,8 @@ mod tests {
                 can_vision,
                 max_output: None,
                 supports_tools: None,
+                reasoning: None,
+                native_web_search: false,
             };
         let saved = store
             .save(providers::ProviderSave {

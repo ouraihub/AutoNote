@@ -1,5 +1,6 @@
 import type { MessageKey } from './en-US'
 export const ZH_CN_MESSAGES = {
+  'ai.search_title': '网络搜索',
   'settings.transfer_export_completed': '导出完成',
   'settings.transfer_conflict': '笔记已存在时',
   'settings.transfer_skip': '跳过已有笔记',
