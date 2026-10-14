@@ -135,6 +135,34 @@ fn note_scope_authorization_survives_null_context() {
     );
 }
 
+#[test]
+fn writing_rejects_every_reply_graph_action() {
+    let (_dir, _host, note, model) = fixture("http://127.0.0.1:9");
+    let mut req = request(&note, &model);
+    req.purpose = "writing".into();
+    req.scope = Some(format!("note:{note}:writing"));
+    req.input = json!({"action":"polish", "noteId":note, "selectedText":"x", "beforeText":"", "afterText":"", "cursorOffset":0, "language":"en-US", "title":"Plan"}).to_string();
+    assert!(validate_writing(&req).is_ok());
+    for field in [
+        "replyToId",
+        "retryTurnId",
+        "translateTurnId",
+        "targetLanguage",
+    ] {
+        let mut candidate = req.clone();
+        match field {
+            "replyToId" => candidate.reply_to_id = Some("turn".into()),
+            "retryTurnId" => candidate.retry_turn_id = Some("turn".into()),
+            "translateTurnId" => candidate.translate_turn_id = Some("turn".into()),
+            _ => candidate.target_language = Some("French".into()),
+        }
+        assert_eq!(
+            validate_writing(&candidate).unwrap_err().details().reason(),
+            Some("invalid_writing_scope")
+        );
+    }
+}
+
 struct NoTools;
 impl ToolExecutor for NoTools {
     fn authorize(

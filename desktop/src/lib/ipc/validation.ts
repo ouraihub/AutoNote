@@ -190,6 +190,9 @@ export function validateResponse(command: keyof CommandArgs, value: unknown): vo
     case 'ai_roles_set':
       valid = Array.isArray(value) && value.every(aiRoleBinding)
       break
+    case 'ai_reply_export':
+      valid = record(value) && typeof value.saved === 'boolean'
+      break
     case 'mcp_status':
     case 'mcp_start':
     case 'mcp_stop':

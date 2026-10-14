@@ -96,6 +96,10 @@ fn validate_writing(
     if req.scope.as_deref() != Some(expected_scope.as_str())
         || req.conversation_id.is_some()
         || req.regenerate
+        || req.reply_to_id.is_some()
+        || req.retry_turn_id.is_some()
+        || req.translate_turn_id.is_some()
+        || req.target_language.is_some()
     {
         return Err(tauri_plugin_aether::KitError::bad_request(
             "scope",
@@ -192,21 +196,56 @@ impl tauri_plugin_aether::ConversationStore for LazyChatStore {
     fn load(&self, id: &str) -> Result<aether_chat::Conversation, tauri_plugin_aether::KitError> {
         self.get()?.load(id)
     }
+    fn begin_action(
+        &self,
+        conversation_id: Option<&str>,
+        scope: Option<&str>,
+        input: &str,
+        parent_id: Option<&str>,
+        retry_id: Option<&str>,
+        translation_id: Option<&str>,
+        target_language: Option<&str>,
+    ) -> Result<aether_chat::TurnHandle, tauri_plugin_aether::KitError> {
+        if scope.is_some_and(|scope| scope.ends_with(":writing")) {
+            if conversation_id.is_some()
+                || parent_id.is_some()
+                || retry_id.is_some()
+                || translation_id.is_some()
+                || target_language.is_some()
+            {
+                return Err(tauri_plugin_aether::KitError::bad_request(
+                    "action",
+                    "writing_unsupported",
+                ));
+            }
+            let id = self.writing.fetch_add(1, Ordering::Relaxed).to_string();
+            return Ok(aether_chat::TurnHandle {
+                conversation_id: format!("writing:{id}"),
+                turn_id: id.clone(),
+                input: input.to_owned(),
+                parent_id: None,
+                question_id: id,
+                supersedes_id: None,
+                kind: "reply".into(),
+            });
+        }
+        self.get()?.begin_action(
+            conversation_id,
+            scope,
+            input,
+            parent_id,
+            retry_id,
+            translation_id,
+            target_language,
+        )
+    }
     fn begin_turn(
         &self,
         conversation_id: Option<&str>,
         scope: Option<&str>,
         input: &str,
     ) -> Result<aether_chat::TurnHandle, tauri_plugin_aether::KitError> {
-        if scope.is_some_and(|scope| scope.ends_with(":writing")) {
-            let id = self.writing.fetch_add(1, Ordering::Relaxed).to_string();
-            return Ok(aether_chat::TurnHandle {
-                conversation_id: format!("writing:{id}"),
-                turn_id: id,
-                input: input.to_owned(),
-            });
-        }
-        self.get()?.begin_turn(conversation_id, scope, input)
+        self.begin_action(conversation_id, scope, input, None, None, None, None)
     }
     fn regenerate(
         &self,
@@ -233,6 +272,37 @@ impl tauri_plugin_aether::ConversationStore for LazyChatStore {
         title: &str,
     ) -> Result<aether_chat::ConversationSummary, tauri_plugin_aether::KitError> {
         self.get()?.rename(id, title)
+    }
+    fn edit_turn(
+        &self,
+        conversation_id: &str,
+        turn_id: &str,
+        text: &str,
+        expected_text: &str,
+    ) -> Result<aether_chat::Conversation, tauri_plugin_aether::KitError> {
+        self.get()?
+            .edit_turn(conversation_id, turn_id, text, expected_text)
+    }
+    fn remove_turn(
+        &self,
+        conversation_id: &str,
+        turn_id: &str,
+    ) -> Result<aether_chat::Conversation, tauri_plugin_aether::KitError> {
+        self.get()?.remove_turn(conversation_id, turn_id)
+    }
+    fn fork(
+        &self,
+        conversation_id: &str,
+        turn_id: &str,
+    ) -> Result<aether_chat::Conversation, tauri_plugin_aether::KitError> {
+        self.get()?.fork(conversation_id, turn_id)
+    }
+    fn select_turn(
+        &self,
+        conversation_id: &str,
+        turn_id: &str,
+    ) -> Result<aether_chat::Conversation, tauri_plugin_aether::KitError> {
+        self.get()?.select_turn(conversation_id, turn_id)
     }
 }
 
@@ -662,6 +732,7 @@ pub fn run() {
             commands::ai::ai_endpoint_key_reveal,
             commands::ai::ai_roles_get,
             commands::ai::ai_roles_set,
+            commands::ai::ai_reply_export,
             commands::transfer::transfer_export,
             commands::transfer::transfer_import,
             commands::transfer::transfer_cancel,

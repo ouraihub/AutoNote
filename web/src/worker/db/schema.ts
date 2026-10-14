@@ -597,6 +597,26 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE ai_chat_turns ADD COLUMN endpoint_id TEXT`,
     ],
   },
+  {
+    version: 17,
+    statements: [
+      `ALTER TABLE ai_chat_conversations ADD COLUMN selected_turn_id TEXT`,
+      `ALTER TABLE ai_chat_conversations ADD COLUMN revision TEXT NOT NULL DEFAULT ''`,
+      `ALTER TABLE ai_chat_turns ADD COLUMN parent_id TEXT`,
+      `ALTER TABLE ai_chat_turns ADD COLUMN question_id TEXT NOT NULL DEFAULT ''`,
+      `ALTER TABLE ai_chat_turns ADD COLUMN supersedes_id TEXT`,
+      `ALTER TABLE ai_chat_turns ADD COLUMN kind TEXT NOT NULL DEFAULT 'reply' CHECK(kind IN ('reply','translation'))`,
+      `UPDATE ai_chat_turns SET question_id = id, parent_id = (
+        SELECT previous.id FROM ai_chat_turns previous
+        WHERE previous.conversation_id = ai_chat_turns.conversation_id AND previous.user_id = ai_chat_turns.user_id
+          AND previous.seq < ai_chat_turns.seq ORDER BY previous.seq DESC LIMIT 1
+      )`,
+      `UPDATE ai_chat_conversations SET selected_turn_id = (
+        SELECT id FROM ai_chat_turns WHERE conversation_id = ai_chat_conversations.id
+          AND user_id = ai_chat_conversations.user_id AND status = 'completed' ORDER BY seq DESC LIMIT 1
+      )`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -649,8 +669,8 @@ const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ai_endpoints: ['id', 'user_id', 'provider_id', 'slug', 'base_url', 'protocol', 'key_ciphertext', 'position'],
   ai_models: ['user_id', 'endpoint_id', 'model_id', 'model_type', 'type_source', 'context_window', 'can_vision', 'position', 'max_output', 'supports_tools', 'reasoning'],
   ai_roles: ['user_id', 'role', 'endpoint_id', 'model_id'],
-  ai_chat_conversations: ['id', 'user_id', 'title', 'scope', 'created_at', 'updated_at'],
-  ai_chat_turns: ['id', 'user_id', 'conversation_id', 'seq', 'status', 'input', 'messages', 'model_id', 'endpoint_id', 'error_code', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'reasoning_tokens', 'reasoning_effort', 'reasoning_text', 'context_usage', 'created_at'],
+  ai_chat_conversations: ['id', 'user_id', 'title', 'scope', 'created_at', 'updated_at', 'selected_turn_id', 'revision'],
+  ai_chat_turns: ['id', 'user_id', 'conversation_id', 'seq', 'status', 'input', 'messages', 'model_id', 'endpoint_id', 'error_code', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'reasoning_tokens', 'reasoning_effort', 'reasoning_text', 'context_usage', 'created_at', 'parent_id', 'question_id', 'supersedes_id', 'kind'],
 } as const
 
 const REQUIRED_TABLES = [

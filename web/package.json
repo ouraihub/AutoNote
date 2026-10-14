@@ -36,7 +36,7 @@
     "@autonote/shared": "workspace:*",
     "@cloudflare/workers-oauth-provider": "0.10.2",
     "@modelcontextprotocol/server": "2.0.0",
-    "@ouraihub/aether-ui": "github:ouraihub/Aether#6e25fd13d1b21a72b7f54017590c30da23ef02b0&path:packages/ui",
+    "@ouraihub/aether-ui": "github:ouraihub/Aether#6218e3a39fe08c0faee3118f24eb9efec1a636c2&path:packages/ui",
     "agents": "0.20.1",
     "aws4fetch": "1.0.20",
     "client-zip": "2.5.0",

@@ -64,6 +64,7 @@ export interface CommandArgs {
   ai_endpoint_key_reveal: { id: string }
   ai_roles_get: Empty
   ai_roles_set: { role: AiRole; binding: ModelRef | null }
+  ai_reply_export: { markdown: string }
   mcp_start: Empty
   mcp_stop: Empty
   mcp_set_port: { port: number }
@@ -137,6 +138,7 @@ export interface CommandResults {
   ai_endpoint_key_reveal: { key: string }
   ai_roles_get: AiRoleBinding[]
   ai_roles_set: AiRoleBinding[]
+  ai_reply_export: { saved: boolean }
   mcp_start: McpLocalStatus
   mcp_stop: McpLocalStatus
   mcp_set_port: McpLocalStatus

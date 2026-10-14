@@ -1,11 +1,11 @@
 import { expect, test } from 'vitest'
-import type { RunEvent, RunRequest } from '@ouraihub/aether-ui/ports'
+import type { Conversation, RunEvent, RunRequest } from '@ouraihub/aether-ui/ports'
 import { MemoryTabBus } from '../tab-bus'
 import { HttpTransport } from '../transport'
 import { createHttpKitPorts } from './kit'
 
 const request: RunRequest = { purpose: 'chat', skills: [], input: '你好', regenerate: false, language: 'zh-CN' }
-const accepted = 'data: {"kind":"accepted","runId":"r1","conversationId":"c1"}\n\n'
+const accepted = 'data: {"kind":"accepted","runId":"r1","conversationId":"c1","turnId":"t1"}\n\n'
 
 function ports(handler: (request: Request) => Response | Promise<Response>) {
   const requests: Request[] = []
@@ -91,7 +91,7 @@ test('run resolves on accepted, then delivers events in order with one end', asy
     stream([bytes.slice(0, split), bytes.slice(split), 'data: {"kind":"text_delta","text":"late"}\n\n', end]),
   )
   const { events, onEvent, ended } = collect()
-  await expect(chat.run(request, onEvent)).resolves.toEqual({ runId: 'r1', conversationId: 'c1' })
+  await expect(chat.run(request, onEvent)).resolves.toEqual({ runId: 'r1', conversationId: 'c1', turnId: 't1' })
   await ended
   expect(events).toEqual([
     { kind: 'text_delta', text: '汉字' },
@@ -154,4 +154,38 @@ test('history and model options send query strings; approve and aborted probe re
   await expect(
     providers.probe({ kind: 'saved', endpointId: 'e' }, { signal: controller.signal }),
   ).rejects.toMatchObject({ code: 'cancelled' })
+})
+
+test('history actions forward exact IDs, methods and edit CAS body', async () => {
+  const conversation: Conversation = {
+    summary: { id: 'c 1', title: 'Question', scope: null, createdAt: 0, updatedAt: 0, selectedTurnId: 't/1' },
+    turns: [],
+  }
+  const { history, requests } = ports(() => Response.json(conversation))
+  await expect(history.editTurn('c 1', 't/1', 'new', 'old')).resolves.toEqual(conversation)
+  await expect(history.removeTurn('c 1', 't/1')).resolves.toEqual(conversation)
+  await expect(history.fork('c 1', 't/1')).resolves.toEqual(conversation)
+  await expect(history.selectTurn('c 1', 't/1')).resolves.toEqual(conversation)
+  expect(requests.map((item) => [item.method, new URL(item.url).pathname])).toEqual([
+    ['PATCH', '/api/ai/kit/conversations/c%201/turns/t%2F1'],
+    ['DELETE', '/api/ai/kit/conversations/c%201/turns/t%2F1'],
+    ['POST', '/api/ai/kit/conversations/c%201/fork'],
+    ['PUT', '/api/ai/kit/conversations/c%201/selection'],
+  ])
+  await expect(requests[0]!.json()).resolves.toEqual({ text: 'new', expectedText: 'old' })
+  await expect(requests[2]!.json()).resolves.toEqual({ turnId: 't/1' })
+  await expect(requests[3]!.json()).resolves.toEqual({ turnId: 't/1' })
+})
+
+test('run forwards retry, model, selected ancestry and translation fields unchanged', async () => {
+  const { chat, requests } = ports(() => stream([accepted, 'data: {"kind":"end","status":"completed"}\n\n']))
+  const retry = { ...request, conversationId: 'c1', retryTurnId: 't1', model: { endpointId: 'e2', modelId: 'm2' } }
+  await chat.run(retry, () => {})
+  const translation = { ...request, conversationId: 'c1', translateTurnId: 't1', targetLanguage: 'French' }
+  await chat.run(translation, () => {})
+  const continuation = { ...request, conversationId: 'c1', replyToId: 't1' }
+  await chat.run(continuation, () => {})
+  await expect(requests[0]!.json()).resolves.toEqual(retry)
+  await expect(requests[1]!.json()).resolves.toEqual(translation)
+  await expect(requests[2]!.json()).resolves.toEqual(continuation)
 })

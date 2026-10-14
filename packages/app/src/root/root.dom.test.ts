@@ -8,6 +8,8 @@ import type { Logger } from '../log/logger'
 import type { PrefsStore } from '../platform/prefs'
 import type { Notifier } from '../platform/notifier'
 import { mountApp, type AppDeps } from './index'
+import AssistSaveHarness from '../features/shell/AssistSaveHarness.svelte'
+import { Sparkles } from '@lucide/svelte'
 
 const ID = '00000000000000000000000001'
 const logger: Logger = { debug() {}, info() {}, warn() {}, error() {} }
@@ -271,4 +273,41 @@ test('initial navigation waits for bootstrap and newer navigation replaces a que
   await handle.openNote(ID)
   await waitFor(() => expect(element.querySelector('.cm-editor')).toBeTruthy())
   await handle.destroy()
+})
+
+test('saving an assistant reply creates an independent note and preserves the original', async () => {
+  const setup = fixture('Original note')
+  const original = await setup.backend.notes.get(ID)
+  const savedId = '00000000000000000000000002'
+  const saved: Note[] = []
+  setup.backend.notes.create = async (body) => {
+    const note = { ...makeNote(body.title ?? ''), id: savedId, content: body.content ?? '' }
+    saved.push(note)
+    setup.feed.emit({ kind: 'library', payload: { ...snapshot(note), cursor: 2, full: false } })
+    return note
+  }
+  setup.backend.notes.list = async () => ({ notes: [original, ...saved], total: 1 + saved.length, nextCursor: null })
+  setup.backend.notes.get = async (id) => saved.find((note) => note.id === id) ?? original
+  const deps = {
+    ...setup.deps,
+    extensions: {
+      ...setup.deps.extensions,
+      workspacePanel: { titleKey: 'chat.title', icon: Sparkles, component: AssistSaveHarness },
+    },
+  } satisfies AppDeps
+  const node = target()
+  const app = mountApp(node, deps)
+  try {
+    await waitFor(() => expect(within(node).getByRole('option', { name: 'Original note' })).toBeTruthy())
+    await fireEvent.click(within(node).getByRole('option', { name: 'Original note' }))
+    await fireEvent.click(await within(node).findByRole('button', { name: 'AI 对话' }))
+    await fireEvent.click(await within(node).findByRole('button', { name: '保存' }))
+    await waitFor(() => expect(saved[0]?.content).toBe('# Saved reply\n\n- body\n- retained'))
+    expect(saved[0]?.title).toBe('Saved reply')
+    expect(saved[0]?.id).not.toBe(original.id)
+    expect(original.content).toBe('')
+    expect(await within(node).findByRole('option', { name: 'Saved reply' })).toBeTruthy()
+  } finally {
+    await app.destroy()
+  }
 })

@@ -1,6 +1,10 @@
 import { readFileSync } from 'node:fs'
 import { createServer, request as httpsRequest } from 'node:https'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Conversation } from '@ouraihub/aether-ui/ports'
+import { initializeDatabase } from '../src/worker/db/schema'
+import { beginAction, loadConversation } from '../src/worker/ai/history'
+import { executeRun, prepareRun, RunRequestSchema } from '../src/worker/ai/runs'
 import { inferModel } from '../src/worker/ai/infer'
 import { SseParser } from '../src/worker/ai/protocol'
 import { chatModel, createHarness, fixture, frames, streamOf } from './support/ai-kit-harness'
@@ -205,7 +209,7 @@ const textStream = (text: string) =>
     ),
   )
 
-type ConversationDto = { summary: { id: string; title: string; scope: string | null }; turns: { status: string; input: string; text: string; modelId: string | null; errorCode: string | null }[] }
+type ConversationDto = Conversation
 
 describe('run and history routes', () => {
   it('rejects a run without a model before acceptance and writes no turn', async () => {
@@ -248,9 +252,10 @@ describe('run and history routes', () => {
     const loaded = await h.json<ConversationDto>('user-a', 'GET', `/conversations/${conversationId}`)
     expect(loaded.body.turns).toMatchObject([
       { id: expect.any(String), status: 'completed', input: 'Line one\r\nline two that is long enough to be cut at forty chars', text: 'Hi!', modelId: 'm1', errorCode: null },
+      { id: expect.any(String), status: 'completed', input: 'Second', text: 'Hi!', modelId: 'm1', errorCode: null },
       { id: expect.any(String), status: 'completed', input: 'Second', text: 'Again', modelId: 'm1', errorCode: null },
     ])
-    expect(await h.env.DB.prepare('SELECT COUNT(*) AS n FROM ai_chat_turns').first('n')).toBe(2)
+    expect(await h.env.DB.prepare('SELECT COUNT(*) AS n FROM ai_chat_turns').first('n')).toBe(3)
 
     expect((await h.json('user-a', 'PATCH', `/conversations/${conversationId}`, { title: '   ' })).body).toMatchObject({ error: { details: { field: 'title', reason: 'empty' } } })
     expect((await h.json('user-a', 'PATCH', `/conversations/${conversationId}`, { title: ' Renamed ' })).body).toMatchObject({ id: conversationId, title: 'Renamed' })
@@ -259,6 +264,226 @@ describe('run and history routes', () => {
     expect(JSON.parse((await run(h, { input: 'x', conversationId, scope: 'global' }, 'user-b')).text)).toMatchObject({ error: { code: 'not_found', details: { entity: 'conversation' } } })
     expect((await h.json('user-a', 'DELETE', `/conversations/${conversationId}`)).body).toEqual({ ok: true })
     expect(await h.env.DB.prepare('SELECT COUNT(*) AS n FROM ai_chat_turns').first('n')).toBe(0)
+  })
+
+  it('allows only one mutation from a shared snapshot and deletes only the unselected terminal candidate', async () => {
+    const h = await createHarness(), { endpointId } = await saveProvider(h), model = { endpointId, modelId: 'm1' }
+    fetchMock.mockImplementation(async () => textStream('Original'))
+    const first = await run(h, { model }), id = String(first.events[0]!.conversationId), sourceId = String(first.events[0]!.turnId)
+    const retry = await run(h, { model, conversationId: id, retryTurnId: sourceId, input: '' }), retryId = String(retry.events[0]!.turnId)
+    await h.json('user-a', 'PUT', `/conversations/${id}/selection`, { turnId: retryId })
+    expect(await h.json('user-a', 'DELETE', `/conversations/${id}/turns/${retryId}`)).toMatchObject({ status: 409 })
+    await h.json('user-a', 'PUT', `/conversations/${id}/selection`, { turnId: sourceId })
+    const removed = await h.json<Conversation>('user-a', 'DELETE', `/conversations/${id}/turns/${retryId}`)
+    expect(removed.body.turns.map((turn) => turn.id)).toEqual([sourceId])
+    const snapshot = await loadConversation(h.env.DB, 'user-a', id)
+    const outcomes = await Promise.allSettled([
+      beginAction(h.env.DB, 'user-a', snapshot, null, 'A', sourceId, null, false),
+      beginAction(h.env.DB, 'user-a', snapshot, null, 'B', sourceId, null, false),
+    ])
+    expect(outcomes.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+    expect(outcomes.find((result) => result.status === 'rejected')).toMatchObject({ reason: { code: 'conflict' } })
+    expect((await h.json<Conversation>('user-a', 'GET', `/conversations/${id}`)).body.turns).toHaveLength(2)
+    const running = await loadConversation(h.env.DB, 'user-a', id)
+    await expect(beginAction(h.env.DB, 'user-a', running, null, 'C', sourceId, null, false)).rejects.toMatchObject({ code: 'conflict' })
+    expect(await h.json('user-a', 'POST', `/conversations/${id}/fork`, { turnId: sourceId })).toMatchObject({ status: 409 })
+    expect(await h.json('user-a', 'DELETE', `/conversations/${id}`)).toMatchObject({ status: 409 })
+  })
+
+  it('does not emit End until the finished turn is readable by history', async () => {
+    const h = await createHarness(), { endpointId } = await saveProvider(h)
+    fetchMock.mockImplementation(async () => textStream('Stored before end'))
+    const prepared = await prepareRun(h.env, 'user-a', RunRequestSchema.parse({ purpose: 'chat', model: { endpointId, modelId: 'm1' }, skills: [], input: 'Q', regenerate: false, language: 'en-US' }))
+    const reached = Promise.withResolvers<void>(), release = Promise.withResolvers<void>(), db = h.env.DB
+    h.env.DB = {
+      prepare: db.prepare.bind(db), exec: db.exec.bind(db),
+      batch: async (statements) => { reached.resolve(); await release.promise; return db.batch(statements) },
+    } as D1Database
+    const events: { kind: string }[] = []
+    const execution = executeRun(h.env, 'user-a', prepared, new AbortController().signal, (event) => events.push(event))
+    await reached.promise
+    expect(events.some((event) => event.kind === 'end')).toBe(false)
+    expect((await loadConversation(db, 'user-a', prepared.turn!.conversationId)).turns[0]!.status).toBe('running')
+    release.resolve()
+    await execution
+    expect(events.at(-1)).toMatchObject({ kind: 'end', status: 'completed' })
+    expect((await loadConversation(db, 'user-a', prepared.turn!.conversationId)).turns[0]).toMatchObject({ status: 'completed', messages: [{ assistant: { text: 'Stored before end' } }] })
+  })
+
+  it('preserves candidates, chosen ancestry, source model, translation chains and exact branch copies', async () => {
+    const h = await createHarness(), original = await saveProvider(h), alternate = await saveProvider(h)
+    const model = { endpointId: original.endpointId, modelId: 'm1' }, otherModel = { endpointId: alternate.endpointId, modelId: 'm2' }
+    await h.json('user-a', 'PUT', '/providers', { id: alternate.providerId, name: 'Acme', endpoints: [
+      { id: alternate.endpointId, slug: 'main', baseUrl: 'https://api.example.com', protocol: 'openai-chat', models: [chatModel('m1'), chatModel('m2')] },
+    ] })
+    await h.env.DB.prepare("INSERT INTO ai_roles (user_id, role, endpoint_id, model_id) VALUES ('user-a', 'chat', ?1, 'm1')").bind(alternate.endpointId).run()
+    fetchMock.mockImplementation(async () => textStream('Original'))
+    const first = await run(h, { model, input: 'Question', scope: 'global' })
+    const conversationId = String(first.events[0]!.conversationId), sourceId = String(first.events[0]!.turnId)
+    fetchMock.mockImplementation(async () => textStream('Alternative'))
+    const retried = await run(h, { conversationId, scope: 'global', retryTurnId: sourceId, input: 'ignored' })
+    const retryId = String(retried.events[0]!.turnId)
+    let loaded = (await h.json<Conversation>('user-a', 'GET', `/conversations/${conversationId}`)).body
+    expect(loaded.summary.selectedTurnId).toBe(sourceId)
+    expect(loaded.turns).toMatchObject([
+      { id: sourceId, parentId: null, questionId: sourceId, supersedesId: null, kind: 'reply', text: 'Original', endpointId: model.endpointId },
+      { id: retryId, parentId: null, questionId: sourceId, supersedesId: sourceId, kind: 'reply', input: 'Question', text: 'Alternative', endpointId: model.endpointId },
+    ])
+    expect(JSON.parse(String(fetchMock.mock.calls[1]![1]?.body)).messages.slice(1)).toEqual([{ role: 'user', content: 'Question' }])
+    const selected = await h.json<Conversation>('user-a', 'PUT', `/conversations/${conversationId}/selection`, { turnId: retryId })
+    expect(selected.body.summary).toMatchObject({ id: conversationId, selectedTurnId: retryId })
+    fetchMock.mockImplementation(async () => textStream('Next'))
+    const next = await run(h, { model, conversationId, scope: 'global', input: 'Next question' })
+    const nextId = String(next.events[0]!.turnId)
+    expect(JSON.parse(String(fetchMock.mock.calls[2]![1]?.body)).messages.slice(1)).toEqual([
+      { role: 'user', content: 'Question' }, { role: 'assistant', content: 'Alternative' }, { role: 'user', content: 'Next question' },
+    ])
+    const swapped = await run(h, { model: otherModel, conversationId, scope: 'global', retryTurnId: nextId, input: '' })
+    const swappedId = String(swapped.events[0]!.turnId)
+    loaded = (await h.json<Conversation>('user-a', 'GET', `/conversations/${conversationId}`)).body
+    expect(loaded.turns.at(-1)).toMatchObject({ endpointId: alternate.endpointId, modelId: 'm2', questionId: nextId, supersedesId: nextId, parentId: retryId })
+    expect(loaded.summary.selectedTurnId).toBe(nextId)
+    fetchMock.mockImplementation(async () => textStream('Traduit'))
+    const translated = await run(h, { conversationId, scope: 'global', translateTurnId: swappedId, targetLanguage: ' French ', input: '' })
+    const translatedId = String(translated.events[0]!.turnId)
+    loaded = (await h.json<Conversation>('user-a', 'GET', `/conversations/${conversationId}`)).body
+    const instruction = 'Translate the following reply into French. Return only the translation, preserving Markdown formatting.\n\nNext'
+    expect(loaded.turns.at(-1)).toMatchObject({ id: translatedId, parentId: swappedId, questionId: translatedId, kind: 'translation', input: instruction, endpointId: alternate.endpointId })
+    const translatedPrompt = JSON.parse(String(fetchMock.mock.calls[4]![1]?.body)).messages
+    expect(translatedPrompt[0]).toMatchObject({ role: 'system', content: expect.stringContaining("AutoNote's note assistant") })
+    expect(translatedPrompt.slice(1)).toEqual([
+      { role: 'user', content: 'Question' }, { role: 'assistant', content: 'Alternative' },
+      { role: 'user', content: 'Next question' }, { role: 'assistant', content: 'Next' }, { role: 'user', content: instruction },
+    ])
+    const forked = await h.json<Conversation>('user-a', 'POST', `/conversations/${conversationId}/fork`, { turnId: translatedId })
+    expect(forked.body.summary.id).not.toBe(conversationId)
+    expect(forked.body.summary.scope).toBe('global')
+    expect(forked.body.turns.map((turn) => turn.text)).toEqual(['Alternative', 'Next', 'Traduit'])
+    expect(forked.body.turns.every((turn) => !loaded.turns.some((source) => source.id === turn.id || source.questionId === turn.questionId))).toBe(true)
+    expect(forked.body.turns.map((turn) => turn.parentId)).toEqual([null, forked.body.turns[0]!.id, forked.body.turns[1]!.id])
+    expect(forked.body.summary.selectedTurnId).toBe(forked.body.turns[2]!.id)
+    expect(forked.body.turns.every((turn) => turn.supersedesId === null)).toBe(true)
+    const translatedRetry = await run(h, { conversationId, scope: 'global', retryTurnId: translatedId, input: '' })
+    const afterTranslationRetry = (await h.json<Conversation>('user-a', 'GET', `/conversations/${conversationId}`)).body
+    expect(afterTranslationRetry.turns.at(-1)).toMatchObject({ id: String(translatedRetry.events[0]!.turnId), kind: 'translation', questionId: translatedId, parentId: swappedId, supersedesId: translatedId, input: instruction })
+    expect(afterTranslationRetry.summary.selectedTurnId).toBe(translatedId)
+    await h.json('user-a', 'DELETE', `/providers/${original.providerId}`)
+    expect(JSON.parse((await run(h, { conversationId, scope: 'global', retryTurnId: sourceId, input: '' })).text)).toMatchObject({ error: { code: 'needs_config' } })
+    expect((await run(h, { model: otherModel, conversationId, scope: 'global', retryTurnId: sourceId, input: '' })).events.at(-1)).toMatchObject({ status: 'completed' })
+  })
+
+  it('guards edit CAS, dependents, selection, running sources and cross-user access without falsifying usage', async () => {
+    const h = await createHarness(), { endpointId } = await saveProvider(h), model = { endpointId, modelId: 'm1' }
+    fetchMock.mockImplementation(async () => textStream('Original'))
+    const first = await run(h, { model, input: 'Question' })
+    const conversationId = String(first.events[0]!.conversationId), sourceId = String(first.events[0]!.turnId)
+    const retry = await run(h, { model, conversationId, retryTurnId: sourceId, input: '' })
+    const retryId = String(retry.events[0]!.turnId), base = `/conversations/${conversationId}`
+    for (const [method, path, body] of [
+      ['PATCH', `${base}/turns/${retryId}`, { text: 'Edited', expectedText: 'Original' }], ['DELETE', `${base}/turns/${retryId}`, undefined],
+      ['POST', `${base}/fork`, { turnId: retryId }], ['PUT', `${base}/selection`, { turnId: retryId }],
+    ] as const) expect(await h.json('user-b', method, path, body)).toMatchObject({ status: 404 })
+    expect(await h.json('user-a', 'PATCH', `${base}/turns/${sourceId}`, { text: 'x', expectedText: 'Original' })).toMatchObject({ status: 409 })
+    expect(await h.json('user-a', 'PATCH', `${base}/turns/${retryId}`, { text: 'x', expectedText: 'outdated' })).toMatchObject({ status: 409 })
+    for (const text of [' ', 'x'.repeat(24_001)]) expect(await h.json('user-a', 'PATCH', `${base}/turns/${retryId}`, { text, expectedText: 'Original' })).toMatchObject({ status: 400 })
+    await h.env.DB.prepare("UPDATE ai_chat_turns SET reasoning_text = 'Reason', messages = ?1 WHERE id = ?2").bind(JSON.stringify([{ assistant: { text: 'Original', tool_calls: [], reasoning: [{ protocol: 'openai-chat', endpointId, modelId: 'm1', value: 'Reason' }] } }]), retryId).run()
+    const edited = await h.json<Conversation>('user-a', 'PATCH', `${base}/turns/${retryId}`, { text: '**Edited**', expectedText: 'Original' })
+    expect(edited.body.turns.at(-1)).toMatchObject({ text: '**Edited**', usage: { inputTokens: 3, outputTokens: 2 }, contextUsage: null, reasoningText: '', modelId: 'm1', input: 'Question' })
+    expect(await h.env.DB.prepare('SELECT messages FROM ai_chat_turns WHERE id = ?1').bind(retryId).first('messages')).toBe(JSON.stringify([{ assistant: { text: '**Edited**', tool_calls: [] } }]))
+    expect(await h.json('user-a', 'PATCH', `${base}/turns/${retryId}`, { text: 'x', expectedText: 'Original' })).toMatchObject({ status: 409 })
+    expect(await h.json('user-a', 'DELETE', `${base}/turns/${sourceId}`)).toMatchObject({ status: 409 })
+    const removed = await h.json<Conversation>('user-a', 'DELETE', `${base}/turns/${retryId}`)
+    expect(removed.body.turns.map((turn) => turn.id)).toEqual([sourceId])
+    const child = await run(h, { model, conversationId, input: 'Child' })
+    const childId = String(child.events[0]!.turnId)
+    expect(await h.json('user-a', 'DELETE', `${base}/turns/${sourceId}`)).toMatchObject({ status: 409 })
+    await h.env.DB.prepare("UPDATE ai_chat_turns SET status = 'running' WHERE id = ?1").bind(sourceId).run()
+    for (const [method, path, body] of [
+      ['PATCH', `${base}/turns/${childId}`, { text: 'x', expectedText: 'Original' }], ['DELETE', `${base}/turns/${childId}`, undefined],
+      ['POST', `${base}/fork`, { turnId: childId }], ['PUT', `${base}/selection`, { turnId: childId }],
+    ] as const) expect(await h.json('user-a', method, path, body)).toMatchObject({ status: 409 })
+  })
+
+  it('rejects failed or cancelled normal parents without writes but still retries terminal failed sources', async () => {
+    const h = await createHarness(), { endpointId } = await saveProvider(h), model = { endpointId, modelId: 'm1' }
+    fetchMock.mockImplementation(async () => textStream('Original'))
+    const first = await run(h, { model }), conversationId = String(first.events[0]!.conversationId), turnId = String(first.events[0]!.turnId)
+    for (const status of ['failed', 'cancelled']) {
+      await h.env.DB.prepare('UPDATE ai_chat_turns SET status = ?1 WHERE id = ?2').bind(status, turnId).run()
+      const before = await loadConversation(h.env.DB, 'user-a', conversationId)
+      for (const fields of [{ replyToId: turnId }, {}]) {
+        expect(JSON.parse((await run(h, { model, conversationId, input: 'Next', ...fields })).text)).toMatchObject({ error: { code: 'conflict', details: { reason: 'turn_not_completed' } } })
+        expect(await loadConversation(h.env.DB, 'user-a', conversationId)).toEqual(before)
+      }
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const retried = await run(h, { conversationId, retryTurnId: turnId, input: '' })
+    expect(retried.events.at(-1)).toMatchObject({ kind: 'end', status: 'completed' })
+    expect((await loadConversation(h.env.DB, 'user-a', conversationId)).turns).toHaveLength(2)
+    for (const status of ['failed', 'cancelled']) {
+      await h.env.DB.prepare('UPDATE ai_chat_turns SET status = ?1 WHERE id = ?2').bind(status, turnId).run()
+      const translated = await run(h, { conversationId, translateTurnId: turnId, targetLanguage: 'French', input: '' })
+      expect(translated.events.at(-1)).toMatchObject({ kind: 'end', status: 'completed' })
+      const prompt = JSON.parse(String(fetchMock.mock.calls.at(-1)![1]?.body)).messages.at(-1).content
+      expect(prompt).toBe('Translate the following reply into French. Return only the translation, preserving Markdown formatting.\n\nOriginal')
+    }
+    await h.env.DB.prepare("UPDATE ai_chat_turns SET messages = '[]' WHERE id = ?1").bind(turnId).run()
+    const beforeEmpty = await loadConversation(h.env.DB, 'user-a', conversationId)
+    expect(JSON.parse((await run(h, { conversationId, translateTurnId: turnId, targetLanguage: 'French', input: '' })).text)).toMatchObject({ error: { code: 'bad_request', details: { field: 'translateTurnId', reason: 'empty_reply' } } })
+    expect(await loadConversation(h.env.DB, 'user-a', conversationId)).toEqual(beforeEmpty)
+  })
+
+  it('rejects invalid combinations, missing/cyclic/foreign ancestry and graph fields on writing', async () => {
+    const h = await createHarness(), { endpointId } = await saveProvider(h), model = { endpointId, modelId: 'm1' }
+    fetchMock.mockImplementation(async () => textStream('ok'))
+    const first = await run(h, { model }), foreign = await run(h, { model })
+    const conversationId = String(first.events[0]!.conversationId), turnId = String(first.events[0]!.turnId), base = { model, conversationId, input: '' }
+    for (const fields of [
+      { retryTurnId: turnId, translateTurnId: turnId, targetLanguage: 'French' }, { retryTurnId: turnId, regenerate: true },
+      { translateTurnId: turnId, targetLanguage: 'French', regenerate: true }, { translateTurnId: turnId },
+      { translateTurnId: turnId, targetLanguage: ' ' }, { translateTurnId: turnId, targetLanguage: 'x'.repeat(81) },
+      { retryTurnId: turnId, webSearch: true }, { retryTurnId: turnId, replyToId: turnId }, { retryTurnId: 'x'.repeat(129) },
+    ]) expect((await run(h, { ...base, ...fields })).response.status).toBe(400)
+    for (const id of ['missing', String(foreign.events[0]!.turnId)]) {
+      expect((await run(h, { ...base, retryTurnId: id })).response.status).toBe(404)
+      expect((await run(h, { ...base, replyToId: id, input: 'Next' })).response.status).toBe(404)
+      expect(await h.json('user-a', 'PUT', `/conversations/${conversationId}/selection`, { turnId: id })).toMatchObject({ status: 404 })
+    }
+    await h.env.DB.prepare('UPDATE ai_chat_turns SET parent_id = id WHERE id = ?1').bind(turnId).run()
+    expect((await run(h, { ...base, retryTurnId: turnId })).response.status).toBe(409)
+    await h.env.DB.prepare('UPDATE ai_chat_turns SET parent_id = ?1 WHERE id = ?2').bind(String(foreign.events[0]!.turnId), turnId).run()
+    expect((await run(h, { ...base, retryTurnId: turnId })).response.status).toBe(404)
+    vi.setSystemTime(clock += 120_000)
+    for (const field of ['replyToId', 'retryTurnId', 'translateTurnId', 'targetLanguage']) expect(JSON.parse((await run(h, { model, purpose: 'writing', input: '{}', [field]: null })).text)).toMatchObject({ error: { code: 'bad_request', details: { reason: 'writing_actions' } } })
+    await h.env.DB.prepare('UPDATE ai_chat_turns SET parent_id = NULL, messages = ?1 WHERE id = ?2').bind(JSON.stringify([{ assistant: { text: 'x'.repeat(100_000), tool_calls: [] } }]), turnId).run()
+    expect(JSON.parse((await run(h, { ...base, translateTurnId: turnId, targetLanguage: 'French' })).text)).toMatchObject({ error: { code: 'bad_request', details: { field: 'input', reason: 'too_long', limit: 100_000 } } })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('preserves old linear data through migration and reloads selected ancestry after restart', async () => {
+    const h = await createHarness(), { endpointId } = await saveProvider(h), model = { endpointId, modelId: 'm1' }
+    fetchMock.mockImplementation(async () => textStream('Preserved'))
+    const first = await run(h, { model, input: 'First', scope: 'global' }), conversationId = String(first.events[0]!.conversationId)
+    await run(h, { model, conversationId, scope: 'global', input: 'Second' })
+    const before = (await h.json<Conversation>('user-a', 'GET', `/conversations/${conversationId}`)).body
+    await h.env.DB.exec("DELETE FROM schema_migrations WHERE version = 17; DELETE FROM app_meta WHERE key = 'database-state-v1'")
+    for (const column of ['parent_id', 'question_id', 'supersedes_id', 'kind']) await h.env.DB.exec(`ALTER TABLE ai_chat_turns DROP COLUMN ${column}`)
+    for (const column of ['selected_turn_id', 'revision']) await h.env.DB.exec(`ALTER TABLE ai_chat_conversations DROP COLUMN ${column}`)
+    const old = h.env.DB
+    h.env.DB = { prepare: old.prepare.bind(old), batch: old.batch.bind(old), exec: old.exec.bind(old) } as D1Database
+    await initializeDatabase(h.env)
+    const restored = (await h.json<Conversation>('user-a', 'GET', `/conversations/${conversationId}`)).body
+    expect(restored).toEqual(before)
+    expect(restored.turns.map((turn) => turn.parentId)).toEqual([null, restored.turns[0]!.id])
+    await h.json('user-a', 'PUT', `/conversations/${conversationId}/selection`, { turnId: restored.turns[0]!.id })
+    const restarted = h.env.DB
+    h.env.DB = { prepare: restarted.prepare.bind(restarted), batch: restarted.batch.bind(restarted), exec: restarted.exec.bind(restarted) } as D1Database
+    await initializeDatabase(h.env)
+    await run(h, { model, conversationId, scope: 'global', input: 'After restart' })
+    expect(JSON.parse(String(fetchMock.mock.calls[2]![1]?.body)).messages.slice(1)).toEqual([
+      { role: 'user', content: 'First' }, { role: 'assistant', content: 'Preserved' }, { role: 'user', content: 'After restart' },
+    ])
+    expect((await h.json<Conversation>('user-a', 'GET', `/conversations/${conversationId}`)).body.turns).toHaveLength(3)
   })
 
   it('drops note payload on first and continuing chat in actual loopback requests without losing history', async () => {
@@ -319,6 +544,23 @@ describe('run and history routes', () => {
       expect(loaded.body.summary.scope).toBe('note:n1')
       expect(loaded.body.turns.map((turn) => turn.input)).toEqual(['First without payload', 'With payload', 'Continue without payload'])
       expect(await h.env.DB.prepare("SELECT content FROM notes WHERE id = 'n1'").first('content')).toBe(marker)
+      const sourceId = String(included.events[0]!.turnId)
+      const retried = await run(h, { conversationId, scope: 'note:n1', retryTurnId: sourceId, input: '', context: null })
+      const retryId = String(retried.events[0]!.turnId)
+      expect(retried.events.at(-1)).toMatchObject({ status: 'completed' })
+      expect(seen[3]!.messages.slice(1)).toEqual([
+        { role: 'user', content: 'First without payload' }, { role: 'assistant', content: 'Loopback reply' }, { role: 'user', content: 'With payload' },
+      ])
+      expect(JSON.stringify(seen[3])).not.toContain(marker)
+      await h.json('user-a', 'PUT', `/conversations/${conversationId}/selection`, { turnId: retryId })
+      const translated = await run(h, { conversationId, scope: 'note:n1', translateTurnId: retryId, targetLanguage: 'French', input: '', context: { kind: 'autonote-note', id: 'n1' } })
+      expect(translated.events.at(-1)).toMatchObject({ status: 'completed' })
+      expect(JSON.stringify(seen[4])).toContain(marker)
+      expect(seen[4]!.messages.at(-2)).toEqual({ role: 'assistant', content: 'Loopback reply' })
+      expect(seen[4]!.messages.at(-1)?.content).toBe('Translate the following reply into French. Return only the translation, preserving Markdown formatting.\n\nLoopback reply')
+      const final = (await h.json<Conversation>('user-a', 'GET', `/conversations/${conversationId}`)).body
+      expect(final.turns).toHaveLength(5)
+      expect(final.turns[3]).toMatchObject({ parentId: String(first.events[0]!.turnId), supersedesId: sourceId, questionId: sourceId })
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
     }

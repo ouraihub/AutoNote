@@ -249,6 +249,7 @@ export interface AiHostPort {
   setRole(role: AiRole, binding: ModelRef | null, options?: CallOptions): Promise<AiRoleBinding[]>
   readonly revealNeedsPassword: boolean
   revealKey(endpointId: string, currentPassword: string | null, options?: CallOptions): Promise<string>
+  exportMarkdown?(markdown: string): Promise<void>
 }
 
 export interface Backend {

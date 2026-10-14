@@ -22,6 +22,11 @@
     if (ui.insertAtCursor) return ui.insertAtCursor(text)
     if (note) notes.editContent(note.id, `${note.content}${note.content.endsWith('\n') ? '\n' : '\n\n'}${text}`)
   }
+  async function saveNote(markdown: string): Promise<void> {
+    const first = markdown.split(/\r?\n/).find((line) => line.trim()) ?? ''
+    const title = [...first.replace(/^\s{0,3}#{1,6}\s+/, '').trim()].slice(0, 80).join('')
+    await notes.create({ title, content: markdown })
+  }
   const close = (): void => ui.toggleAssist(false)
 </script>
 
@@ -39,6 +44,6 @@
       ? 'app-viewport-fixed fixed inset-0 z-[220] flex flex-col bg-[var(--bg-base)] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]'
       : 'flex w-[360px] shrink-0 flex-col border-l border-[var(--border-subtle)] bg-[var(--bg-base)]'}
   >
-    <Panel {note} {insert} openSettings={(id) => ui.openSettings(id)} onClose={close} />
+    <Panel {note} {insert} {saveNote} openSettings={(id) => ui.openSettings(id)} onClose={close} />
   </aside>
 {/if}

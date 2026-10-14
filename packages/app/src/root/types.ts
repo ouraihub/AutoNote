@@ -28,6 +28,7 @@ export interface HostPanel {
 export interface WorkspacePanelProps {
   note: { id: string; title: string; content: string } | null
   insert(text: string): void
+  saveNote(markdown: string): Promise<void>
   openSettings(sectionId: string): void
   onClose(): void
 }

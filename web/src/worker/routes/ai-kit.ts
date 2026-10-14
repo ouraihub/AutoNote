@@ -5,7 +5,7 @@ import type { AppBindings } from '../env'
 import { ApiError, errorResponse } from '../lib/errors'
 import { JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
-import { deleteConversation, listConversations, loadConversation, renameConversation, toWire } from '../ai/history'
+import { deleteConversation, editTurn, forkConversation, listConversations, loadConversation, removeTurn, renameConversation, selectTurn, toWire } from '../ai/history'
 import { HTTP_STATUS, KitFailure, acquireSlot, checkLength, parseBody } from '../ai/kit'
 import { ModelFilterSchema, ProbeTargetSchema, ProviderSaveSchema, listProviders, modelOptions, probe, removeProvider, saveProvider } from '../ai/providers'
 import { RunRequestSchema, executeRun, prepareRun } from '../ai/runs'
@@ -13,6 +13,8 @@ import { check as checkSearch, fetchPage, getSettings as searchSettings, reveal 
 import { z } from 'zod'
 
 const RenameSchema = z.strictObject({ title: z.string() })
+const TurnSchema = z.strictObject({ turnId: z.string().trim().min(1).max(128) })
+const EditSchema = z.strictObject({ text: z.string(), expectedText: z.string() })
 
 export const aiKitRoutes = new Hono<AppBindings>()
 
@@ -149,7 +151,7 @@ aiKitRoutes.post('/runs', async (c) => {
       cancel.abort()
     }
   }
-  send({ kind: 'accepted', runId: prepared.runId, conversationId: prepared.turn?.conversationId ?? null })
+  send({ kind: 'accepted', runId: prepared.runId, conversationId: prepared.turn?.conversationId ?? null, turnId: prepared.turn?.turnId ?? null })
   const task = executeRun(c.env, userId, prepared, cancel.signal, (event: RunEvent) => {
     send(event)
     if (event.kind === 'end' && open) {
@@ -172,19 +174,41 @@ aiKitRoutes.get('/conversations', async (c) => {
 })
 aiKitRoutes.get('/conversations/:id', async (c) => {
   const id = c.req.param('id')
-  checkLength('id', id, 64)
+  checkLength('id', id, 128)
   return c.json(toWire(await loadConversation(c.env.DB, c.get('userId'), id)))
 })
 aiKitRoutes.delete('/conversations/:id', async (c) => {
   const id = c.req.param('id')
-  checkLength('id', id, 64)
+  checkLength('id', id, 128)
   await deleteConversation(c.env.DB, c.get('userId'), id)
   return c.json({ ok: true as const })
 })
 aiKitRoutes.patch('/conversations/:id', async (c) => {
   const id = c.req.param('id')
-  checkLength('id', id, 64)
+  checkLength('id', id, 128)
   const { title } = parseBody(RenameSchema, await readJson(c, JSON_BODY_LIMITS.small))
   checkLength('title', title, 200)
   return c.json(await renameConversation(c.env.DB, c.get('userId'), id, title))
+})
+
+aiKitRoutes.patch('/conversations/:id/turns/:turnId', async (c) => {
+  const { text, expectedText } = parseBody(EditSchema, await readJson(c, JSON_BODY_LIMITS.note))
+  checkLength('id', c.req.param('id'), 128)
+  checkLength('turnId', c.req.param('turnId'), 128)
+  return c.json(await editTurn(c.env.DB, c.get('userId'), c.req.param('id'), c.req.param('turnId'), text, expectedText))
+})
+aiKitRoutes.delete('/conversations/:id/turns/:turnId', async (c) => {
+  checkLength('id', c.req.param('id'), 128)
+  checkLength('turnId', c.req.param('turnId'), 128)
+  return c.json(await removeTurn(c.env.DB, c.get('userId'), c.req.param('id'), c.req.param('turnId')))
+})
+aiKitRoutes.post('/conversations/:id/fork', async (c) => {
+  const { turnId } = parseBody(TurnSchema, await readJson(c, JSON_BODY_LIMITS.small))
+  checkLength('id', c.req.param('id'), 128)
+  return c.json(await forkConversation(c.env.DB, c.get('userId'), c.req.param('id'), turnId))
+})
+aiKitRoutes.put('/conversations/:id/selection', async (c) => {
+  const { turnId } = parseBody(TurnSchema, await readJson(c, JSON_BODY_LIMITS.small))
+  checkLength('id', c.req.param('id'), 128)
+  return c.json(await selectTurn(c.env.DB, c.get('userId'), c.req.param('id'), turnId))
 })

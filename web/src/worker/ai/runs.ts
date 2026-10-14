@@ -3,7 +3,7 @@ import type { KitError, ModelRef, RunEvent, ContextUsage, ReasoningEffort } from
 import { search as searchWeb, getPreferences } from './search'
 import type { Env } from '../env'
 import { newId } from '../lib/id'
-import { beginTurn, finishTurn, loadConversation, regenerateTurn, trimHistory, type StoredConversation, type TurnHandle } from './history'
+import { actionSource, beginAction, finishTurn, historyPath, loadConversation, selectedHead, translationInput, trimHistory, type StoredConversation, type TurnHandle } from './history'
 import {
   KitFailure,
   addressAllowed,
@@ -47,6 +47,10 @@ export const RunRequestSchema = z.strictObject({
   conversationId: z.string().nullable().default(null),
   scope: z.string().nullable().default(null),
   regenerate: z.boolean(),
+  replyToId: z.string().nullable().optional(),
+  retryTurnId: z.string().nullable().optional(),
+  translateTurnId: z.string().nullable().optional(),
+  targetLanguage: z.string().nullable().optional(),
   webSearch: z.boolean().optional().default(false),
   reasoningEffort: z.enum(['default', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']).default('default'),
   language: z.string(),
@@ -120,6 +124,7 @@ async function selectModel(
   let conversation: StoredConversation | null = null
   if (req.purpose !== 'chat' && req.purpose !== 'writing') throw badRequest('purpose', 'unsupported')
   if (req.purpose === 'writing' && req.webSearch) throw badRequest('webSearch', 'unsupported')
+  if (req.purpose === 'writing' && ['replyToId', 'retryTurnId', 'translateTurnId', 'targetLanguage'].some((field) => req[field as keyof RunRequestInput] !== undefined)) throw badRequest('purpose', 'writing_actions')
   if (req.purpose === 'writing') {
     const noteId = validateWriting(req)
     if (!req.context) throw badRequest('context', 'required')
@@ -140,7 +145,14 @@ async function selectModel(
   const options = await modelOptions(env.DB, userId, { modelType: 'chat' })
   const valid = (model: ModelRef | null | undefined): model is ModelRef =>
     !!model && options.some((option) => option.endpointId === model.endpointId && option.modelId === model.modelId)
-  if (req.purpose === 'chat' && valid(req.model)) return { model: req.model, conversation }
+  if (req.purpose === 'chat') {
+    const source = conversation ? actionSource(conversation, req.retryTurnId ?? null, req.translateTurnId ?? null, req.regenerate) : null
+    const chosen = req.model ?? (source ? source.endpointId && source.modelId ? { endpointId: source.endpointId, modelId: source.modelId } : null : undefined)
+    if (chosen !== undefined) {
+      if (!valid(chosen)) throw needsConfig('model')
+      return { model: chosen, conversation }
+    }
+  }
   const { results } = await env.DB.prepare('SELECT role, endpoint_id AS endpointId, model_id AS modelId FROM ai_roles WHERE user_id = ?1')
     .bind(userId)
     .all<{ role: string; endpointId: string | null; modelId: string | null }>()
@@ -164,11 +176,19 @@ function truncate(text: string, limit: number): string {
 
 export async function prepareRun(env: Env, userId: string, req: RunRequestInput): Promise<PreparedRun> {
   checkLength('input', req.input, 100_000)
-  checkLength('conversationId', req.conversationId, 64)
+  checkLength('conversationId', req.conversationId, 128)
   checkLength('scope', req.scope, 200)
+  for (const field of ['replyToId', 'retryTurnId', 'translateTurnId'] as const) {
+    checkLength(field, req[field], 128)
+    if (req[field] !== undefined && req[field] !== null && !req[field]!.trim()) throw badRequest(field, 'empty')
+  }
+  const retry = req.retryTurnId != null, translation = req.translateTurnId != null
+  if ((retry && translation) || (req.regenerate && (retry || translation)) || ((retry || translation || req.regenerate) && req.replyToId != null) || ((retry || translation) && req.webSearch)) throw badRequest('action', 'incompatible')
+  if ((retry || translation || req.regenerate || req.replyToId != null) && req.conversationId === null) throw badRequest('conversationId', 'required')
+  const targetLanguage = req.targetLanguage?.trim() ?? ''
+  if (translation ? !targetLanguage || charCount(targetLanguage) > 80 : req.targetLanguage != null) throw badRequest('targetLanguage', 'invalid')
   if (req.skills.length > 20) throw badRequest('skills', 'too_many', 20)
-  if (req.regenerate && req.conversationId === null) throw badRequest('regenerate', 'no_conversation')
-  if (!req.regenerate && !req.input.trim()) throw badRequest('input', 'empty')
+  if (!retry && !translation && !req.regenerate && !req.input.trim()) throw badRequest('input', 'empty')
   if (req.skills.length) throw unsupported('skills')
 
   const { model, conversation } = await selectModel(env, userId, req)
@@ -199,14 +219,11 @@ export async function prepareRun(env: Env, userId: string, req: RunRequestInput)
   }
   const system = parts.join('\n\n')
 
-  let turns = conversation?.turns ?? []
-  let input = req.input
-  if (req.regenerate) {
-    const last = turns.at(-1)
-    if (!last) throw notFound('turn')
-    turns = turns.slice(0, -1)
-    input = last.input
-  }
+  const source = conversation ? actionSource(conversation, req.retryTurnId ?? null, req.translateTurnId ?? null, req.regenerate) : null
+  const parentId = source ? translation ? source.id : source.parentId : req.replyToId ?? (conversation ? selectedHead(conversation) : null)
+  const turns = conversation ? historyPath(conversation.turns, parentId) : []
+  const input = source ? translation ? translationInput(source, targetLanguage) : source.input : req.input
+  checkLength('input', input, 100_000)
   const used = Math.ceil((charCount(input) + rawChars) / 3)
   const history = trimHistory(turns, Math.max(0, contextWindow - maxOutput - used))
 
@@ -221,9 +238,7 @@ export async function prepareRun(env: Env, userId: string, req: RunRequestInput)
   const nativeWebSearch = req.purpose === 'chat' && req.webSearch && connection.nativeWebSearch && (await getPreferences(env, userId)).modelToolsPreferred
   let turn: TurnHandle | null = null
   if (req.purpose !== 'writing') {
-    turn = req.regenerate && req.conversationId
-      ? await regenerateTurn(env.DB, userId, req.conversationId)
-      : await beginTurn(env.DB, userId, req.conversationId, req.scope, input)
+    turn = await beginAction(env.DB, userId, conversation, req.scope, input, parentId, source, translation)
   }
   return { runId: newId(), connection, system, history, input, maxOutput, turn, webSearch: req.purpose === 'chat' && req.webSearch && !nativeWebSearch, nativeWebSearch, reasoningEffort: req.reasoningEffort, reasoningBudget }
 }
@@ -291,7 +306,9 @@ export async function executeRun(
     endpointId: run.connection.endpointId,
     reasoningEffort: run.reasoningEffort,
     reasoningText: state.reasoningText,
-  }).catch((error: unknown) => console.warn('[autonote] AI turn finish failed', error))
+  }).catch((error: unknown) => {
+    end = { kind: 'end', status: 'failed', error: internal(error).toJSON() }
+  })
   emit(end)
 }
 

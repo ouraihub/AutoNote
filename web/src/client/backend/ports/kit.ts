@@ -45,7 +45,12 @@ const ErrorBody = z.object({
   error: z.object({ code: KitCode, message: z.string(), details: z.record(z.string(), z.unknown()).optional() }),
 })
 const Frame = z.looseObject({ kind: z.string() })
-const Accepted = z.object({ kind: z.literal('accepted'), runId: z.string(), conversationId: z.string().nullable() })
+const Accepted = z.object({
+  kind: z.literal('accepted'),
+  runId: z.string(),
+  conversationId: z.string().nullable(),
+  turnId: z.string().nullable(),
+})
 
 const AUTONOTE_CODES: Readonly<Record<string, KitErrorCode>> = {
   unauthenticated: 'unauthorized',
@@ -145,7 +150,7 @@ async function run(
             : { kind: 'end', status: 'failed', error: { code: 'network', message: 'Run stream ended without end' } }),
       ),
     )
-  return { runId: accepted.runId, conversationId: accepted.conversationId }
+  return { runId: accepted.runId, conversationId: accepted.conversationId, turnId: accepted.turnId }
 }
 
 export function createHttpKitPorts(transport: Transport): KitPorts {
@@ -262,6 +267,29 @@ export function createHttpKitPorts(transport: Transport): KitPorts {
             method: 'PATCH',
             path: `${BASE}/conversations/${encodeURIComponent(id)}`,
             body: { title },
+          }),
+        editTurn: (id, turnId, text, expectedText) =>
+          call<Conversation>(transport, {
+            method: 'PATCH',
+            path: `${BASE}/conversations/${encodeURIComponent(id)}/turns/${encodeURIComponent(turnId)}`,
+            body: { text, expectedText },
+          }),
+        removeTurn: (id, turnId) =>
+          call<Conversation>(transport, {
+            method: 'DELETE',
+            path: `${BASE}/conversations/${encodeURIComponent(id)}/turns/${encodeURIComponent(turnId)}`,
+          }),
+        fork: (id, turnId) =>
+          call<Conversation>(transport, {
+            method: 'POST',
+            path: `${BASE}/conversations/${encodeURIComponent(id)}/fork`,
+            body: { turnId },
+          }),
+        selectTurn: (id, turnId) =>
+          call<Conversation>(transport, {
+            method: 'PUT',
+            path: `${BASE}/conversations/${encodeURIComponent(id)}/selection`,
+            body: { turnId },
           }),
       },
     },

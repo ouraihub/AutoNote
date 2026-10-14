@@ -4,6 +4,8 @@ use note_core::ai::{AiModelRef, AiRole, AiRoleRow, AiRoleSettings};
 use note_core::{AppError, ErrorCode, parse_input};
 use serde::Serialize;
 use serde_json::Value;
+use std::io::Write;
+use tauri_plugin_dialog::DialogExt;
 
 use super::run;
 use crate::AppContext;
@@ -188,6 +190,65 @@ pub async fn ai_roles_set(
     })
     .await?;
     role_dtos(&context).await
+}
+
+#[derive(Serialize)]
+pub struct ReplyExport {
+    saved: bool,
+}
+
+#[tauri::command]
+pub async fn ai_reply_export(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    markdown: String,
+) -> Result<ReplyExport, AppError> {
+    if window.label() != "main" {
+        return Err(AppError::new(
+            ErrorCode::Forbidden,
+            "Export is restricted to the main window",
+        ));
+    }
+    if markdown.len() > 400_000 {
+        return Err(AppError::new(
+            ErrorCode::PayloadTooLarge,
+            "Reply is too large",
+        ));
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(path) = app
+            .dialog()
+            .file()
+            .add_filter("Markdown", &["md"])
+            .set_file_name("reply.md")
+            .blocking_save_file()
+        else {
+            return Ok(ReplyExport { saved: false });
+        };
+        let path = path
+            .into_path()
+            .map_err(|_| internal("Invalid save selection"))?;
+        let target = note_core::transfer::AuthorizedOutput::open(&path).map_err(AppError::from)?;
+        let mut random = [0_u8; 16];
+        getrandom::fill(&mut random).map_err(|_| internal("Export identifier unavailable"))?;
+        let nonce = note_core::id::encode_id(0, &random);
+        let (partial, mut file) = target.partial(&nonce).map_err(AppError::from)?;
+        let result = file
+            .write_all(markdown.as_bytes())
+            .and_then(|()| file.sync_all());
+        drop(file);
+        if let Err(error) = result {
+            target.remove(&partial).map_err(AppError::from)?;
+            return Err(AppError::from(note_core::Error::from(error)));
+        }
+        if let Err(error) = target.publish(&partial) {
+            target.remove(&partial).map_err(AppError::from)?;
+            return Err(AppError::from(error));
+        }
+        Ok(ReplyExport { saved: true })
+    })
+    .await
+    .map_err(|_| internal("Reply export task failed"))?
 }
 
 #[cfg(test)]
