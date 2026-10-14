@@ -16,6 +16,7 @@
     session: SessionState
     i18n: I18nState
     epoch?: number
+    settingsSection?: string
     settings: SettingsState
     notes: NotesState
     notifier: Notifier
@@ -30,7 +31,7 @@
     setSettings(props.settings)
     setNotes(props.notes)
     setNotifier(props.notifier)
-    setUi({ openPanel() {} } as unknown as UiState)
+    setUi({ openPanel() {}, settingsSection: props.settingsSection ?? null } as unknown as UiState)
   }
   provide()
 </script>

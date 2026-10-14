@@ -69,6 +69,21 @@ describe('settings dialog', () => {
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
   })
 
+  test('opens requested host section on mount but resets it after account change', async () => {
+    const initial = {
+      ...props,
+      settingsSection: 'host',
+      epoch: 1,
+      extensions: [{ id: 'host', order: 0, titleKey: 'settings.sync', canShow: () => true, component: TestSection }],
+    }
+    const view = render(SettingsPanelHarness, { props: initial })
+    expect(await screen.findByText('Version history')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Sync' }).getAttribute('aria-current')).toBe('page')
+    await view.rerender({ ...initial, epoch: 2 })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Appearance' }).getAttribute('aria-current')).toBe('page'))
+    expect(screen.queryByText('Version history')).toBeNull()
+  })
+
   test('closing dismisses host account content', async () => {
     const onClose = vi.fn()
     const view = render(SettingsPanelHarness, {
