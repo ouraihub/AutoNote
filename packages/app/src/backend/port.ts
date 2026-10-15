@@ -235,7 +235,7 @@ export interface UpdatePort {
   check(options?: CallOptions): Promise<UpdateCheckResponse>
 }
 
-export type AiRole = 'chat' | 'writing'
+export type AiRole = 'chat' | 'writing' | 'painting'
 
 export interface AiRoleBinding {
   role: AiRole

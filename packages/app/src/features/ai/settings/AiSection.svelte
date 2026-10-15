@@ -19,6 +19,7 @@
   const uid = $props.id()
   let roles = $state<AiRoleBinding[]>([])
   let endpoints = $state<{ id: string; label: string }[]>([])
+  let providerRevision = $state(0)
   let endpointId = $state('')
   let password = $state('')
   let revealed = $state<string | null>(null)
@@ -27,6 +28,7 @@
   const errorText = $derived(error ? i18n.t(error) : '')
   const chatRole = $derived(roles.find((role) => role.role === 'chat'))
   const writingRole = $derived(roles.find((role) => role.role === 'writing'))
+  const paintingRole = $derived(roles.find((role) => role.role === 'painting'))
 
   async function attempt(event: string, action: () => Promise<void>): Promise<void> {
     busy = true
@@ -55,6 +57,16 @@
       if (aiHost) roles = await aiHost.setRole(role, binding)
     })
 
+  function providersChanged(): void {
+    revealed = null
+    password = ''
+    void loadEndpoints()
+    void attempt('ai.roles.load_failed', async () => {
+      if (aiHost) roles = await aiHost.roles()
+      providerRevision++
+    })
+  }
+
   onMount(() => {
     void attempt('ai.roles.load_failed', async () => {
       if (aiHost) roles = await aiHost.roles()
@@ -70,40 +82,57 @@
 
 {#if aiHost}
   <div class="space-y-6">
-    <ProvidersSettings />
+    <ProvidersSettings onchanged={providersChanged} />
 
-    <section aria-labelledby={`${uid}-roles`}>
-      <h3 id={`${uid}-roles`} class="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
-        {i18n.t('ai.roles')}
-      </h3>
-      <SettingRow title={i18n.t('ai.role_chat')} description={i18n.t('ai.role_chat_desc')}>
-        <div class="w-[260px]">
-          <ModelSelect
-            value={chatRole?.binding ?? null}
-            filter={{ modelType: 'chat' }}
-            placeholder={i18n.t('ai.role_none')}
-            onchange={(model) => void setRole('chat', model)}
-          />
-        </div>
-      </SettingRow>
-      <SettingRow title={i18n.t('ai.role_writing')} description={i18n.t('ai.role_writing_desc')}>
-        <div class="flex w-[260px] flex-col items-stretch gap-1">
-          <ModelSelect
-            value={writingRole?.isFallback ? null : (writingRole?.binding ?? null)}
-            filter={{ modelType: 'chat' }}
-            placeholder={writingRole?.isFallback && writingRole.binding
-              ? i18n.t('ai.role_follow_chat_current', { label: writingRole.binding.label })
-              : i18n.t('ai.role_follow_chat')}
-            onchange={(model) => void setRole('writing', model)}
-          />
-          {#if writingRole?.binding && !writingRole.isFallback}
-            <Button size="sm" variant="ghost" disabled={busy} onclick={() => void setRole('writing', null)}
-              >{i18n.t('ai.role_follow_chat')}</Button
-            >
-          {/if}
-        </div>
-      </SettingRow>
-    </section>
+    {#key providerRevision}
+      <section aria-labelledby={`${uid}-roles`}>
+        <h3 id={`${uid}-roles`} class="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+          {i18n.t('ai.roles')}
+        </h3>
+        <SettingRow title={i18n.t('ai.role_chat')} description={i18n.t('ai.role_chat_desc')}>
+          <div class="w-[260px]">
+            <ModelSelect
+              value={chatRole?.binding ?? null}
+              filter={{ modelType: 'chat' }}
+              placeholder={i18n.t('ai.role_none')}
+              onchange={(model) => void setRole('chat', model)}
+            />
+          </div>
+        </SettingRow>
+        <SettingRow title={i18n.t('ai.role_writing')} description={i18n.t('ai.role_writing_desc')}>
+          <div class="flex w-[260px] flex-col items-stretch gap-1">
+            <ModelSelect
+              value={writingRole?.isFallback ? null : (writingRole?.binding ?? null)}
+              filter={{ modelType: 'chat' }}
+              placeholder={writingRole?.isFallback && writingRole.binding
+                ? i18n.t('ai.role_follow_chat_current', { label: writingRole.binding.label })
+                : i18n.t('ai.role_follow_chat')}
+              onchange={(model) => void setRole('writing', model)}
+            />
+            {#if writingRole?.binding && !writingRole.isFallback}
+              <Button size="sm" variant="ghost" disabled={busy} onclick={() => void setRole('writing', null)}
+                >{i18n.t('ai.role_follow_chat')}</Button
+              >
+            {/if}
+          </div>
+        </SettingRow>
+        <SettingRow title={i18n.t('ai.role_painting')} description={i18n.t('ai.role_painting_desc')}>
+          <div class="flex w-[260px] flex-col items-stretch gap-1">
+            <ModelSelect
+              value={paintingRole?.binding ?? null}
+              filter={{ modelType: 'image' }}
+              placeholder={i18n.t('ai.role_none')}
+              onchange={(model) => void setRole('painting', model)}
+            />
+            {#if paintingRole?.binding}
+              <Button size="sm" variant="ghost" disabled={busy} onclick={() => void setRole('painting', null)}
+                >{i18n.t('ai.role_clear')}</Button
+              >
+            {/if}
+          </div>
+        </SettingRow>
+      </section>
+    {/key}
 
     <section aria-labelledby={`${uid}-key`}>
       <h3 id={`${uid}-key`} class="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">

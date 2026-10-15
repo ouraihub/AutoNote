@@ -2,6 +2,8 @@ import type { Conversation, ConversationSummary, EndStatus, TurnStatus, ContextU
 import { newId } from '../lib/id'
 import { badRequest, charCount, conflict, notFound } from './kit'
 import type { StoredMessage, Usage } from './protocol'
+import type { ImageRow } from './images'
+import { copyImages, imageRefs } from './images'
 
 const STALE_RUNNING_MS = 15 * 60_000
 const SUMMARY = 'id, title, scope, created_at AS createdAt, updated_at AS updatedAt, selected_turn_id AS selectedTurnId'
@@ -22,6 +24,10 @@ export interface StoredTurn {
   reasoningText: string
   usage: Usage
   contextUsage: ContextUsage | null
+  /** User input images; the only ones replayed to models. */
+  images: ImageRow[]
+  /** Images `generate_image` produced in this turn (docs/20 §3). */
+  generated: ImageRow[]
 }
 
 export interface StoredConversation {
@@ -58,7 +64,7 @@ export async function listConversations(db: D1Database, userId: string, scope: s
 }
 
 export async function loadConversation(db: D1Database, userId: string, id: string): Promise<StoredConversation> {
-  const [summaries, rows] = await db.batch([
+  const [summaries, rows, imageRows] = await db.batch([
     db.prepare(`SELECT ${SUMMARY}, revision FROM ai_chat_conversations WHERE id = ?1 AND user_id = ?2`).bind(id, userId),
     db.prepare(
       `SELECT id, parent_id AS parentId, question_id AS questionId, supersedes_id AS supersedesId, kind,
@@ -67,9 +73,15 @@ export async function loadConversation(db: D1Database, userId: string, id: strin
         input_tokens AS inputTokens, output_tokens AS outputTokens, cache_read_tokens AS cacheReadTokens, cache_write_tokens AS cacheWriteTokens, reasoning_tokens AS reasoningTokens
         FROM ai_chat_turns WHERE conversation_id = ?1 AND user_id = ?2 ORDER BY seq`,
     ).bind(id, userId),
+    db.prepare(
+      `SELECT i.turn_id AS turnId, i.idx, i.mime, i.object_key AS objectKey, i.kind FROM ai_turn_images i
+       JOIN ai_chat_turns t ON t.id = i.turn_id AND t.user_id = i.user_id
+       WHERE t.conversation_id = ?1 AND i.user_id = ?2 ORDER BY i.turn_id, i.idx`,
+    ).bind(id, userId),
   ])
+  const images = imageRows!.results as ImageRow[]
   const summary = summaries!.results[0] as (ConversationSummary & { revision: string }) | undefined
-  const results = rows!.results as (Omit<StoredTurn, 'messages' | 'usage' | 'contextUsage'> & Usage & { messages: string; createdAt: number; contextUsage: string | null })[]
+  const results = rows!.results as (Omit<StoredTurn, 'messages' | 'usage' | 'contextUsage' | 'images' | 'generated'> & Usage & { messages: string; createdAt: number; contextUsage: string | null })[]
   if (!summary) throw notFound('conversation')
   const stale = Date.now() - STALE_RUNNING_MS
   const { revision, ...wireSummary } = summary
@@ -78,6 +90,8 @@ export async function loadConversation(db: D1Database, userId: string, id: strin
     revision,
     turns: results.map(({ createdAt, messages, contextUsage, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, reasoningTokens, ...turn }) => ({
       ...turn,
+      images: images.filter((image) => image.turnId === turn.id && image.kind === 'input'),
+      generated: images.filter((image) => image.turnId === turn.id && image.kind === 'generated'),
       reasoningEffort: turn.reasoningEffort ?? 'default',
       reasoningText: turn.reasoningText ?? '',
       usage: { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, reasoningTokens },
@@ -107,6 +121,8 @@ export function toWire({ summary, turns }: StoredConversation): Conversation {
       reasoningText: turn.reasoningText,
       usage: turn.usage,
       contextUsage: turn.contextUsage,
+      images: imageRefs(summary.id, turn.id, turn.images),
+      generated: imageRefs(summary.id, turn.id, turn.generated),
     })),
   }
 }
@@ -157,11 +173,11 @@ export function trimHistory(turns: readonly StoredTurn[], maxTokens: number): St
   for (const turn of [...turns].reverse()) {
     if (turn.status !== 'completed') continue
     chars += charCount(turn.input)
-    for (const message of turn.messages) chars += charCount('user' in message ? message.user : JSON.stringify(message.assistant))
+    for (const message of turn.messages) chars += charCount('user' in message ? message.user : JSON.stringify('tool' in message ? message.tool : message.assistant))
     if (Math.ceil(chars / 3) > maxTokens) break
     kept.push(turn)
   }
-  return kept.reverse().flatMap((turn) => [{ user: turn.input }, ...turn.messages])
+  return kept.reverse().flatMap((turn) => [{ user: turn.input, turnId: turn.id }, ...turn.messages])
 }
 
 const IDLE = `NOT EXISTS (SELECT 1 FROM ai_chat_turns WHERE conversation_id = ?2 AND user_id = ?3 AND status = 'running' AND created_at >= ?5)`
@@ -294,6 +310,7 @@ export async function forkConversation(db: D1Database, userId: string, id: strin
   ]
   const results = await db.batch(statements)
   if (results.some((result) => !result.meta.changes)) throw conflict('conversation_changed_or_running')
+  await copyImages(db, userId, path.map((turn) => [turn.id, ids.get(turn.id)!] as const))
   return toWire(await loadConversation(db, userId, forkId))
 }
 

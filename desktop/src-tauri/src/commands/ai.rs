@@ -71,20 +71,20 @@ fn effective_roles(
     settings: &AiRoleSettings,
     options: &[providers::ModelOption],
 ) -> Vec<AiRoleRow> {
-    let valid = |binding: &Option<AiModelRef>| {
+    let valid = |binding: &Option<AiModelRef>, kind: providers::ModelType| {
         binding
             .as_ref()
             .filter(|reference| {
                 options.iter().any(|option| {
                     option.endpoint_id == reference.endpoint_id
                         && option.model_id == reference.model_id
-                        && option.model_type == providers::ModelType::Chat
+                        && option.model_type == kind
                 })
             })
             .cloned()
     };
-    let chat = valid(&settings.chat);
-    let writing = valid(&settings.writing);
+    let chat = valid(&settings.chat, providers::ModelType::Chat);
+    let writing = valid(&settings.writing, providers::ModelType::Chat);
     let is_fallback = writing.is_none() && chat.is_some();
     vec![
         AiRoleRow {
@@ -96,6 +96,11 @@ fn effective_roles(
             role: AiRole::Writing,
             binding: writing.or(chat),
             is_fallback,
+        },
+        AiRoleRow {
+            role: AiRole::Painting,
+            binding: valid(&settings.painting, providers::ModelType::Image),
+            is_fallback: false,
         },
     ]
 }
@@ -173,10 +178,15 @@ pub async fn ai_roles_set(
                 option.endpoint_id == reference.endpoint_id && option.model_id == reference.model_id
             })
             .ok_or_else(|| AppError::new(ErrorCode::NotFound, "Model not found"))?;
-        if option.model_type != providers::ModelType::Chat {
+        let wanted = if role == AiRole::Painting {
+            providers::ModelType::Image
+        } else {
+            providers::ModelType::Chat
+        };
+        if option.model_type != wanted {
             return Err(AppError::from(note_core::Error::invalid(
                 "binding",
-                "model is not a chat model",
+                "model type does not match the role",
             )));
         }
     }
@@ -185,6 +195,7 @@ pub async fn ai_roles_set(
         match role {
             AiRole::Chat => settings.chat = binding,
             AiRole::Writing => settings.writing = binding,
+            AiRole::Painting => settings.painting = binding,
         }
         library.ai_role_settings_save(&settings)
     })
@@ -315,10 +326,15 @@ mod tests {
         let mut settings = AiRoleSettings {
             chat: Some(reference.clone()),
             writing: None,
+            painting: Some(reference.clone()),
         };
         let rows = effective_roles(&settings, &options);
         assert_eq!(rows[1].binding, Some(reference.clone()));
         assert!(rows[1].is_fallback);
+        assert_eq!(
+            rows[2].binding, None,
+            "a chat model is not a painting model"
+        );
         settings.writing = Some(reference.clone());
         assert!(!effective_roles(&settings, &options)[1].is_fallback);
         settings.writing.as_mut().unwrap().model_id = "emb".to_owned();

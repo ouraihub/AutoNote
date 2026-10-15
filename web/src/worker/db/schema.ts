@@ -2,6 +2,14 @@
 import type { DatabaseState, Env } from '../env'
 import { getMeta, setMeta } from './metadata'
 
+const AI_TURN_IMAGES = [
+  `CREATE TABLE IF NOT EXISTS ai_turn_images (
+    user_id TEXT NOT NULL, turn_id TEXT NOT NULL, idx INTEGER NOT NULL,
+    mime TEXT NOT NULL, object_key TEXT, created_at INTEGER NOT NULL,
+    PRIMARY KEY(user_id, turn_id, idx)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_turn_images_object ON ai_turn_images(object_key, created_at)`,
+]
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS app_meta (
@@ -354,7 +362,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     PRIMARY KEY(user_id, endpoint_id, model_id)
   )`,
   `CREATE TABLE IF NOT EXISTS ai_roles (
-    user_id TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('chat','writing')),
+    user_id TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('chat','writing','painting')),
     endpoint_id TEXT, model_id TEXT, PRIMARY KEY(user_id, role)
   )`,
   `CREATE TABLE IF NOT EXISTS ai_chat_conversations (
@@ -370,6 +378,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     input_tokens INTEGER, output_tokens INTEGER, created_at INTEGER NOT NULL,
     UNIQUE(conversation_id, seq)
   )`,
+  ...AI_TURN_IMAGES,
   `CREATE TABLE IF NOT EXISTS ai_search_provider_configs (
     user_id TEXT NOT NULL, capability TEXT NOT NULL CHECK (capability IN ('search', 'fetch')),
     provider TEXT NOT NULL, base_url TEXT, basic_username TEXT, PRIMARY KEY(user_id, capability, provider)
@@ -617,6 +626,36 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       )`,
     ],
   },
+  {
+    version: 18,
+    skipIfColumnExists: { table: 'ai_models', column: 'native_web_search' },
+    statements: [
+      `ALTER TABLE ai_models ADD COLUMN native_web_search INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    version: 19,
+    statements: AI_TURN_IMAGES,
+  },
+  {
+    version: 20,
+    statements: [
+      `CREATE TABLE ai_roles_v20 (
+        user_id TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('chat','writing','painting')),
+        endpoint_id TEXT, model_id TEXT, PRIMARY KEY(user_id, role)
+      )`,
+      `INSERT INTO ai_roles_v20 (user_id, role, endpoint_id, model_id) SELECT user_id, role, endpoint_id, model_id FROM ai_roles`,
+      `DROP TABLE ai_roles`,
+      `ALTER TABLE ai_roles_v20 RENAME TO ai_roles`,
+    ],
+  },
+  {
+    version: 21,
+    skipIfColumnExists: { table: 'ai_turn_images', column: 'kind' },
+    statements: [
+      `ALTER TABLE ai_turn_images ADD COLUMN kind TEXT NOT NULL DEFAULT 'input' CHECK(kind IN ('input','generated'))`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -667,10 +706,11 @@ const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   fts_index_queue: ['user_id', 'note_id', 'kind', 'created_at'],
   ai_providers: ['id', 'user_id', 'name', 'position', 'created_at', 'updated_at'],
   ai_endpoints: ['id', 'user_id', 'provider_id', 'slug', 'base_url', 'protocol', 'key_ciphertext', 'position'],
-  ai_models: ['user_id', 'endpoint_id', 'model_id', 'model_type', 'type_source', 'context_window', 'can_vision', 'position', 'max_output', 'supports_tools', 'reasoning'],
+  ai_models: ['user_id', 'endpoint_id', 'model_id', 'model_type', 'type_source', 'context_window', 'can_vision', 'position', 'max_output', 'supports_tools', 'reasoning', 'native_web_search'],
   ai_roles: ['user_id', 'role', 'endpoint_id', 'model_id'],
   ai_chat_conversations: ['id', 'user_id', 'title', 'scope', 'created_at', 'updated_at', 'selected_turn_id', 'revision'],
   ai_chat_turns: ['id', 'user_id', 'conversation_id', 'seq', 'status', 'input', 'messages', 'model_id', 'endpoint_id', 'error_code', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'reasoning_tokens', 'reasoning_effort', 'reasoning_text', 'context_usage', 'created_at', 'parent_id', 'question_id', 'supersedes_id', 'kind'],
+  ai_turn_images: ['user_id', 'turn_id', 'idx', 'mime', 'object_key', 'created_at', 'kind'],
 } as const
 
 const REQUIRED_TABLES = [
@@ -708,6 +748,7 @@ const REQUIRED_TABLES = [
   'ai_roles',
   'ai_chat_conversations',
   'ai_chat_turns',
+  'ai_turn_images',
   'ai_search_provider_configs',
   'ai_search_defaults',
   'ai_search_keys',
@@ -759,6 +800,7 @@ const REQUIRED_INDEXES = [
   'idx_ai_endpoints_user',
   'idx_ai_chat_conversations_user',
   'idx_ai_search_keys_scope',
+  'idx_ai_turn_images_object',
 ] as const
 
 

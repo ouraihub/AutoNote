@@ -3,6 +3,7 @@ import type { Protocol } from '@ouraihub/aether-ui/ports'
 import { chatModel, createHarness, frames } from './support/ai-kit-harness'
 import { initializeDatabase } from '../src/worker/db/schema'
 import type { Env } from '../src/worker/env'
+import { inferReasoning } from '../src/worker/ai/infer'
 
 const upstream = vi.fn<typeof fetch>()
 beforeEach(() => vi.stubGlobal('fetch', upstream))
@@ -123,5 +124,37 @@ describe('reasoning and usage', () => {
     const row = await fresh.prepare('SELECT messages, input_tokens AS inputTokens, output_tokens AS outputTokens, context_usage AS contextUsage FROM ai_chat_turns WHERE conversation_id = ?1').bind(id).first<{ messages: string; inputTokens: number; outputTokens: number; contextUsage: string | null }>()
     expect(row).toMatchObject({ inputTokens: 12, outputTokens: 3, contextUsage: null })
     expect(JSON.parse(row?.messages ?? '[]')).toEqual([{ assistant: { text: 'Old answer', tool_calls: [] } }])
+  })
+
+  it('recognizes saved models automatically and applies effort only on the current run', async () => {
+    const h = await createHarness()
+    const saved = await h.json<{ endpoints: { id: string; models: { reasoning: unknown }[] }[] }[]>('user-a', 'PUT', '/providers', {
+      name: 'Automatic', endpoints: [{ slug: 'main', baseUrl: 'https://example.com', protocol: 'anthropic-messages', apiKey: 'test-key', models: [chatModel('claude-sonnet-5-5')] }],
+    })
+    const expected = { dialect: 'anthropic-adaptive', efforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'] }
+    expect(saved.body[0]!.endpoints[0]!.models[0]!.reasoning).toEqual(expected)
+    expect(await h.json('user-a', 'GET', '/model-options')).toMatchObject({ status: 200, body: [{ reasoning: expected }] })
+    upstream.mockImplementation(async () => sse({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'Answer' } }, { type: 'message_stop' }))
+    for (const effort of ['default', 'high']) {
+      const response = await h.call('user-a', 'POST', '/runs', { purpose: 'chat', skills: [], input: effort, regenerate: false, language: 'en-US', model: { endpointId: saved.body[0]!.endpoints[0]!.id, modelId: 'claude-sonnet-5-5' }, reasoningEffort: effort })
+      expect(frames(await response.text()).at(-1)).toMatchObject({ status: 'completed' })
+      await h.settle()
+    }
+    const bodies = upstream.mock.calls.map((call) => JSON.parse(String(call[1]?.body)))
+    expect(bodies[0].thinking).toBeUndefined()
+    expect(bodies[1]).toMatchObject({ thinking: { type: 'adaptive' }, output_config: { effort: 'high' } })
+    expect(await h.env.DB.prepare('SELECT reasoning FROM ai_models').first('reasoning')).toBeNull()
+  })
+
+  it('does not infer unsupported protocols or model families and bounds legacy budgets', () => {
+    expect(inferReasoning('anthropic/claude-opus-5-5', 'anthropic-messages', 8192)?.efforts).not.toContain('none')
+    expect(inferReasoning('claude-sonnet-5-5', 'openai-chat', 8192)).toBeNull()
+    expect(inferReasoning('claude-3-5-sonnet', 'anthropic-messages', 8192)).toBeNull()
+    expect(inferReasoning('unknown', 'openai-chat', 8192)).toBeNull()
+    expect(inferReasoning('o1-mini', 'openai-chat', 8192)).toBeNull()
+    expect(inferReasoning('gpt-5-chat-latest', 'openai-chat', 8192)).toBeNull()
+    expect(inferReasoning('gpt-5.2', 'openai-responses', 8192)?.efforts).toContain('xhigh')
+    expect(inferReasoning('claude-sonnet-4-5', 'anthropic-messages', 4096)?.budgetTokens).toBe(4095)
+    expect(inferReasoning('claude-sonnet-4-5', 'anthropic-messages', 1024)).toBeNull()
   })
 })

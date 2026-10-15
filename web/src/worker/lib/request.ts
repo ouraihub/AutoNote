@@ -8,6 +8,7 @@ export const JSON_BODY_LIMITS = {
   backup: 32 * 1024,
   profile: 256 * 1024,
   note: LIMITS.contentMaxBytes * 6 + 64 * 1024,
+  run: 24 * 1024 * 1024,
 } as const
 
 export const FORM_BODY_LIMITS = {

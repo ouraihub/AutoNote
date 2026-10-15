@@ -16,7 +16,7 @@ import type {
 import type { Env } from '../env'
 import { decryptAiKey, encryptAiKey } from '../lib/crypto'
 import { newId } from '../lib/id'
-import { inferModel } from './infer'
+import { inferModel, inferReasoning } from './infer'
 import {
   addressAllowed,
   apiBase,
@@ -115,6 +115,7 @@ export interface Connection {
   supportsTools: boolean | null
   reasoning: ReasoningConfig | null
   nativeWebSearch: boolean
+  canVision: boolean
 }
 
 interface EndpointRow {
@@ -189,7 +190,7 @@ export async function listProviders(env: Env, userId: string): Promise<Provider[
               maxOutput: model.maxOutput,
               canVision: model.canVision !== 0,
               supportsTools: flag(model.supportsTools),
-              reasoning: storedReasoning(model.reasoning),
+              reasoning: storedReasoning(model.reasoning) ?? (model.modelType === 'chat' ? inferReasoning(model.id, row.protocol, model.maxOutput) : null),
               nativeWebSearch: model.nativeWebSearch !== 0,
             })),
         },
@@ -330,7 +331,7 @@ export async function removeProvider(env: Env, userId: string, id: string): Prom
 export async function modelOptions(db: D1Database, userId: string, filter: ModelFilter): Promise<ModelOption[]> {
   const { results } = await db
     .prepare(
-      `SELECT p.name AS provider, e.slug, m.endpoint_id AS endpointId, m.model_id AS modelId, m.model_type AS modelType, m.supports_tools AS supportsTools, m.context_window AS contextWindow, m.reasoning, m.native_web_search AS nativeWebSearch
+      `SELECT p.name AS provider, e.slug, e.protocol, m.endpoint_id AS endpointId, m.model_id AS modelId, m.model_type AS modelType, m.supports_tools AS supportsTools, m.context_window AS contextWindow, m.max_output AS maxOutput, m.reasoning, m.native_web_search AS nativeWebSearch, m.can_vision AS canVision
        FROM ai_models m
        JOIN ai_endpoints e ON e.id = m.endpoint_id AND e.user_id = m.user_id
        JOIN ai_providers p ON p.id = e.provider_id AND p.user_id = m.user_id
@@ -338,7 +339,7 @@ export async function modelOptions(db: D1Database, userId: string, filter: Model
        ORDER BY p.position, p.id, e.position, m.position`,
     )
     .bind(userId)
-    .all<{ provider: string; slug: string; endpointId: string; modelId: string; modelType: ModelType; supportsTools: number | null; contextWindow: number | null; reasoning: string | null; nativeWebSearch: number }>()
+    .all<{ provider: string; slug: string; protocol: Protocol; endpointId: string; modelId: string; modelType: ModelType; supportsTools: number | null; contextWindow: number | null; maxOutput: number | null; reasoning: string | null; nativeWebSearch: number; canVision: number }>()
   return results
     .filter(
       (row) =>
@@ -352,15 +353,16 @@ export async function modelOptions(db: D1Database, userId: string, filter: Model
       modelType: row.modelType,
       supportsTools: flag(row.supportsTools),
       contextWindow: row.contextWindow,
-      reasoning: storedReasoning(row.reasoning),
+      reasoning: storedReasoning(row.reasoning) ?? (row.modelType === 'chat' ? inferReasoning(row.modelId, row.protocol, row.maxOutput) : null),
       nativeWebSearch: row.nativeWebSearch !== 0,
+      canVision: row.canVision !== 0,
     }))
 }
 
 export async function resolveModel(env: Env, userId: string, model: ModelRef): Promise<Connection> {
   const row = await env.DB.prepare(
     `SELECT e.id AS endpointId, e.base_url AS baseUrl, e.protocol, e.key_ciphertext AS keyCiphertext,
-       m.context_window AS contextWindow, m.max_output AS maxOutput, m.supports_tools AS supportsTools, m.reasoning, m.native_web_search AS nativeWebSearch
+       m.model_type AS modelType, m.context_window AS contextWindow, m.max_output AS maxOutput, m.supports_tools AS supportsTools, m.reasoning, m.native_web_search AS nativeWebSearch, m.can_vision AS canVision
      FROM ai_models m JOIN ai_endpoints e ON e.id = m.endpoint_id AND e.user_id = m.user_id
      WHERE m.user_id = ?1 AND m.endpoint_id = ?2 AND m.model_id = ?3`,
   )
@@ -370,11 +372,13 @@ export async function resolveModel(env: Env, userId: string, model: ModelRef): P
       baseUrl: string
       protocol: Protocol
       keyCiphertext: string | null
+      modelType: ModelType
       contextWindow: number | null
       maxOutput: number | null
       supportsTools: number | null
       reasoning: string | null
       nativeWebSearch: number
+      canVision: number
     }>()
   if (!row) throw notFound('model')
   return {
@@ -383,11 +387,12 @@ export async function resolveModel(env: Env, userId: string, model: ModelRef): P
     apiKey: await openKey(env, row.endpointId, row.keyCiphertext),
     modelId: model.modelId,
     endpointId: row.endpointId,
-    reasoning: storedReasoning(row.reasoning),
+    reasoning: storedReasoning(row.reasoning) ?? (row.modelType === 'chat' ? inferReasoning(model.modelId, row.protocol, row.maxOutput) : null),
     contextWindow: row.contextWindow,
     maxOutput: row.maxOutput,
     supportsTools: flag(row.supportsTools),
     nativeWebSearch: row.nativeWebSearch !== 0,
+    canVision: row.canVision !== 0,
   }
 }
 
@@ -472,7 +477,7 @@ export async function probe(env: Env, userId: string, target: ProbeTargetInput, 
         maxOutput: inferred.maxOutput,
         canVision: inferred.canVision,
         supportsTools: inferred.supportsTools,
-        reasoning: null,
+        reasoning: inferred.modelType === 'chat' ? inferReasoning(id, protocol, inferred.maxOutput) : null,
         nativeWebSearch: false,
       }
     }),

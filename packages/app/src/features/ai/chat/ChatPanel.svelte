@@ -14,13 +14,14 @@
     const [roles, last] = await Promise.all([aiHost?.roles().catch(() => []) ?? [], prefs.load(key).catch(() => null)])
     const binding = roles.find((role) => role.role === 'chat')?.binding
     const model: ModelRef | null = binding ? { endpointId: binding.endpointId, modelId: binding.modelId } : null
-    return { key, model, conversationId: typeof last === 'string' ? last : null }
+    const painting = Boolean(roles.find((role) => role.role === 'painting')?.binding)
+    return { key, model, painting, conversationId: typeof last === 'string' ? last : null }
   })
 </script>
 
 {#if aiHost}
   {#key scope}
-    {#await ready then { key, model, conversationId }}
+    {#await ready then { key, model, painting, conversationId }}
       <div class="flex min-h-0 flex-1 flex-col p-3">
         <ChatPanel
           {model}
@@ -33,6 +34,7 @@
           onOpenSettings={() => openSettings('ai')}
           onConversationChange={(id) => void (id ? prefs.save(key, id) : prefs.remove(key)).catch(() => {})}
           {onClose}
+          paintingModel={painting}
         />
       </div>
     {/await}

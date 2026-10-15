@@ -173,7 +173,7 @@ const mcpPreferences = (value: unknown): boolean =>
   integer(value.updatedAt)
 const aiRoleBinding = (value: unknown): boolean =>
   record(value) &&
-  (value.role === 'chat' || value.role === 'writing') &&
+  (value.role === 'chat' || value.role === 'writing' || value.role === 'painting') &&
   typeof value.isFallback === 'boolean' &&
   (value.binding === null ||
     (record(value.binding) &&

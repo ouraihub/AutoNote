@@ -13,6 +13,8 @@ use crate::write::WriteOrigin;
 pub enum AiRole {
     Chat,
     Writing,
+    /// Image model called by the `generate_image` tool.
+    Painting,
 }
 
 /// Reference to a saved model.
@@ -37,6 +39,8 @@ pub struct AiRoleRow {
 pub struct AiRoleSettings {
     pub chat: Option<AiModelRef>,
     pub writing: Option<AiModelRef>,
+    #[serde(default)]
+    pub painting: Option<AiModelRef>,
 }
 
 impl Library {

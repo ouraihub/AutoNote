@@ -21,8 +21,26 @@ const vault = {
   }),
 }
 
-export async function createHarness() {
-  const env = { DB: createD1(), CREDENTIAL_VAULT: vault } as unknown as Env
+export interface Harness {
+  env: Env
+  call: (user: string, method: string, path: string, body?: unknown, signal?: AbortSignal) => Promise<Response>
+  json: <T = unknown>(user: string, method: string, path: string, body?: unknown) => Promise<{ status: number; body: T }>
+  settle: () => Promise<void>
+  /** In-memory R2 objects backing `env.FILES`. */
+  objects: Map<string, Uint8Array>
+}
+
+export async function createHarness(): Promise<Harness> {
+  const objects = new Map<string, Uint8Array>()
+  const FILES = {
+    put: async (key: string, value: Uint8Array) => { objects.set(key, new Uint8Array(value)) },
+    get: async (key: string) => {
+      const bytes = objects.get(key)
+      return bytes ? { body: new Blob([bytes]).stream(), arrayBuffer: async () => bytes.slice().buffer } : null
+    },
+    delete: async (key: string) => { objects.delete(key) },
+  }
+  const env = { DB: createD1(), CREDENTIAL_VAULT: vault, FILES } as unknown as Env
   await initializeDatabase(env)
   const app = new Hono<AppBindings>()
   app.use('*', async (c, next) => {
@@ -53,7 +71,7 @@ export async function createHarness() {
   const settle = async () => {
     while (pending.length) await pending.shift()
   }
-  return { env, call, json, settle }
+  return { env, call, json, settle, objects }
 }
 
 export function frames(text: string): Record<string, unknown>[] {

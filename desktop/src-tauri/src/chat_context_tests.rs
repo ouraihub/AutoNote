@@ -300,6 +300,7 @@ fn dropped_context_reaches_loopback_without_note_body_and_preserves_history() {
                         system,
                         history,
                         input: req.input.clone(),
+                        images: Vec::new(),
                         tools: Vec::new(),
                         budget,
                         reasoning_effort: Default::default(),

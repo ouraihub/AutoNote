@@ -20,8 +20,10 @@ import {
   unsupported,
   upstreamFailure,
 } from './kit'
-import { PROTOCOL_PATH, Decoder, SseParser, authHeaders, requestBody, type StoredMessage, type Usage, type ReasoningBlock } from './protocol'
+import { PROTOCOL_PATH, Decoder, SseParser, authHeaders, requestBody, type ImagePart, type StoredMessage, type ToolCall, type ToolSpec, type Usage, type ReasoningBlock } from './protocol'
 import { modelOptions, resolveModel, type Connection } from './providers'
+import { ImagesSchema, checkImages, copyImages, loadImages, saveGenerated, saveImages } from './images'
+import { GENERATE_IMAGE, GENERATE_IMAGE_SPEC, generateImage } from './painting'
 
 const NOTE_MAX_CHARS = 24_000
 const NOTE_TITLE_MAX_CHARS = 200
@@ -30,6 +32,9 @@ const WRITING_TOTAL_MAX_BYTES = 80_000
 const CONTEXT_CHARS = 24_000
 const TRUNCATED = '…(truncated)'
 export const TIMEOUTS = { firstByteMs: 120_000, idleMs: 60_000 }
+const MAX_ROUNDS = 4
+const MAX_PAINTINGS = 2
+const TRUNCATED_NOTE = '上一条回复被截断，工具参数不完整，已全部作废，请重新发起、参数写短一些。'
 const ERROR_BODY_BYTES = 8 * 1024
 
 const WRITING_PROMPT =
@@ -54,6 +59,8 @@ export const RunRequestSchema = z.strictObject({
   webSearch: z.boolean().optional().default(false),
   reasoningEffort: z.enum(['default', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']).default('default'),
   language: z.string(),
+  images: ImagesSchema,
+  generateImage: z.boolean().optional().default(false),
 })
 export type RunRequestInput = z.infer<typeof RunRequestSchema>
 
@@ -74,12 +81,16 @@ export interface PreparedRun {
   system: string
   history: StoredMessage[]
   input: string
+  images: ImagePart[]
   maxOutput: number
   turn: TurnHandle | null
   webSearch: boolean
   nativeWebSearch: boolean
   reasoningEffort: ReasoningEffort
   reasoningBudget: number | null
+  /** Host tools offered this run; currently only `generate_image` (docs/20). */
+  tools: ToolSpec[]
+  painting: Connection | null
 }
 
 const bytes = (value: string): number => new TextEncoder().encode(value).length
@@ -184,6 +195,9 @@ export async function prepareRun(env: Env, userId: string, req: RunRequestInput)
   }
   const retry = req.retryTurnId != null, translation = req.translateTurnId != null
   if ((retry && translation) || (req.regenerate && (retry || translation)) || ((retry || translation || req.regenerate) && req.replyToId != null) || ((retry || translation) && req.webSearch)) throw badRequest('action', 'incompatible')
+  if (req.generateImage && req.purpose !== 'chat') throw badRequest('generateImage', 'chat_only')
+  if (req.images.length && (retry || translation || req.regenerate)) throw badRequest('images', 'action_conflict')
+  checkImages(req.images)
   if ((retry || translation || req.regenerate || req.replyToId != null) && req.conversationId === null) throw badRequest('conversationId', 'required')
   const targetLanguage = req.targetLanguage?.trim() ?? ''
   if (translation ? !targetLanguage || charCount(targetLanguage) > 80 : req.targetLanguage != null) throw badRequest('targetLanguage', 'invalid')
@@ -193,6 +207,8 @@ export async function prepareRun(env: Env, userId: string, req: RunRequestInput)
 
   const { model, conversation } = await selectModel(env, userId, req)
   const connection = await resolveModel(env, userId, model)
+  if (req.generateImage && connection.supportsTools === false) throw badRequest('generateImage', 'tools_unsupported')
+  const painting = req.generateImage ? await paintingModel(env, userId) : null
   const maxOutput = connection.maxOutput ?? 4096
   let reasoningBudget: number | null = null
   if (req.reasoningEffort !== 'default') {
@@ -224,8 +240,17 @@ export async function prepareRun(env: Env, userId: string, req: RunRequestInput)
   const turns = conversation ? historyPath(conversation.turns, parentId) : []
   const input = source ? translation ? translationInput(source, targetLanguage) : source.input : req.input
   checkLength('input', input, 100_000)
+  const images = source ? translation ? [] : await loadImages(env, source.images) : req.images
+  if (images.length && !connection.canVision) throw badRequest('images', 'vision_unsupported')
   const used = Math.ceil((charCount(input) + rawChars) / 3)
   const history = trimHistory(turns, Math.max(0, contextWindow - maxOutput - used))
+  for (const message of history) {
+    if (!('user' in message)) continue
+    const rows = turns.find((turn) => turn.id === message.turnId)?.images ?? []
+    delete message.turnId
+    const parts = connection.canVision && rows.length ? await loadImages(env, rows) : []
+    if (parts.length) message.images = parts
+  }
 
   if (!connection.apiKey && !isLoopback(parseTarget(connection.baseUrl))) throw needsConfig('missing_key')
   if (Math.ceil((charCount(system) + charCount(input)) / 3) + maxOutput > contextWindow) {
@@ -239,8 +264,20 @@ export async function prepareRun(env: Env, userId: string, req: RunRequestInput)
   let turn: TurnHandle | null = null
   if (req.purpose !== 'writing') {
     turn = await beginAction(env.DB, userId, conversation, req.scope, input, parentId, source, translation)
+    if (source && !translation) await copyImages(env.DB, userId, [[source.id, turn.turnId]], 'input')
+    else if (!source) await saveImages(env, userId, turn.turnId, req.images)
   }
-  return { runId: newId(), connection, system, history, input, maxOutput, turn, webSearch: req.purpose === 'chat' && req.webSearch && !nativeWebSearch, nativeWebSearch, reasoningEffort: req.reasoningEffort, reasoningBudget }
+  return { runId: newId(), connection, system, history, input, images, maxOutput, turn, webSearch: req.purpose === 'chat' && req.webSearch && !nativeWebSearch, nativeWebSearch, reasoningEffort: req.reasoningEffort, reasoningBudget, tools: painting ? [GENERATE_IMAGE_SPEC] : [], painting }
+}
+
+/** The `painting` role's image model; unbound or deleted → `needs_config{painting_model}`. */
+async function paintingModel(env: Env, userId: string): Promise<Connection> {
+  const row = await env.DB.prepare("SELECT endpoint_id AS endpointId, model_id AS modelId FROM ai_roles WHERE user_id = ?1 AND role = 'painting'")
+    .bind(userId)
+    .first<{ endpointId: string | null; modelId: string | null }>()
+  const options = row?.endpointId && row.modelId ? await modelOptions(env.DB, userId, { modelType: 'image' }) : []
+  if (!row?.endpointId || !row.modelId || !options.some((option) => option.endpointId === row.endpointId && option.modelId === row.modelId)) throw needsConfig('painting_model')
+  return resolveModel(env, userId, { endpointId: row.endpointId, modelId: row.modelId })
 }
 
 export async function executeRun(
@@ -252,6 +289,14 @@ export async function executeRun(
 ): Promise<void> {
   const usage: Usage = { inputTokens: null, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null, reasoningTokens: null }
   const state = { text: '', reasoningText: '', reasoning: [] as ReasoningBlock[], requestChars: 0 }
+  // Messages this run produced after the user input: assistant rounds and tool results (same shape as desktop).
+  const messages: StoredMessage[] = []
+  const flush = (calls: ToolCall[] = []): void => {
+    if (calls.length || state.text || state.reasoning.length) messages.push({ assistant: { text: state.text, tool_calls: calls, ...(state.reasoning.length ? { reasoning: state.reasoning } : {}) } })
+    state.text = ''
+    state.reasoning = []
+  }
+  let exhausted = false
   let contextUsage: ContextUsage = { tokens: null, contextWindow: run.connection.contextWindow, source: 'unknown', endpointId: run.connection.endpointId, modelId: run.connection.modelId }
   emit({ kind: 'context', usage: contextUsage })
   let end: Extract<RunEvent, { kind: 'end' }>
@@ -274,17 +319,43 @@ export async function executeRun(
       run.system += prefix + truncate(searchContext, Math.min(CONTEXT_CHARS, available)) + suffix
       const room = Math.max(0, window - run.maxOutput - Math.ceil((charCount(run.system) + charCount(run.input)) / 3))
       // Preserve complete recent turns; search output takes room previously available to history.
-      while (Math.ceil(charCount(JSON.stringify(run.history)) / 3) > room && run.history.length) {
+      while (Math.ceil(charCount(JSON.stringify(run.history, (key, value: unknown) => (key === 'images' ? undefined : value))) / 3) > room && run.history.length) {
         const next = run.history.findIndex((message, index) => index > 0 && 'user' in message)
         run.history.splice(0, next < 0 ? run.history.length : next)
       }
     }
-    emit({ kind: 'round_start', round: 1 })
-    await streamRound(run, signal, usage, state, emit)
-    // ponytail: characters/3 estimates unknown tokenizers; replace with per-model tokenizer only when available.
-    const reportedInput = usage.inputTokens, reportedOutput = usage.outputTokens
-    contextUsage = { ...contextUsage, source: reportedInput !== null && reportedOutput !== null ? 'reported' : 'estimated', tokens: reportedInput !== null && reportedOutput !== null ? Math.min(0xffff_ffff, reportedInput + reportedOutput) : Math.ceil(state.requestChars / 3) + (reportedOutput ?? Math.ceil(charCount(state.text + state.reasoningText) / 3)) }
-    end = { kind: 'end', status: 'completed' }
+    const painted = { count: 0 }
+    exhausted = true
+    for (let round = 1; round <= MAX_ROUNDS; round++) {
+      if (signal.aborted) throw cancelled()
+      emit({ kind: 'round_start', round })
+      const roundUsage: Usage = { inputTokens: null, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null, reasoningTokens: null }
+      let result: { calls: ToolCall[]; truncated: boolean }
+      try {
+        result = await streamRound(run, messages, signal, roundUsage, state, emit)
+      } finally {
+        for (const key of Object.keys(usage) as (keyof Usage)[]) {
+          const a = usage[key], b = roundUsage[key]
+          usage[key] = a === null ? b : b === null ? a : Math.min(0xffff_ffff, a + b)
+        }
+      }
+      // ponytail: characters/3 estimates unknown tokenizers; replace with per-model tokenizer only when available.
+      const reportedInput = roundUsage.inputTokens, reportedOutput = roundUsage.outputTokens
+      contextUsage = { ...contextUsage, source: reportedInput !== null && reportedOutput !== null ? 'reported' : 'estimated', tokens: reportedInput !== null && reportedOutput !== null ? Math.min(0xffff_ffff, reportedInput + reportedOutput) : Math.ceil(state.requestChars / 3) + (reportedOutput ?? Math.ceil(charCount(state.text + state.reasoningText) / 3)) }
+      if (!result.calls.length) { exhausted = false; break }
+      if (result.truncated) {
+        // Arguments may be cut off: execute none of them.
+        flush()
+        messages.push({ user: TRUNCATED_NOTE })
+        continue
+      }
+      flush(result.calls)
+      for (const call of result.calls) {
+        if (signal.aborted) throw cancelled()
+        messages.push({ tool: { call_id: call.id, text: await runTool(env, userId, run, call, painted, signal, emit) } })
+      }
+    }
+    end = { kind: 'end', status: 'completed', ...(exhausted ? { exhausted: true } : {}) }
   } catch (error) {
     if (signal.aborted || (error instanceof KitFailure && error.code === 'cancelled')) end = { kind: 'end', status: 'cancelled' }
     else {
@@ -295,7 +366,7 @@ export async function executeRun(
   emit({ kind: 'usage', ...usage })
   emit({ kind: 'context', usage: contextUsage })
   if (!run.turn) { emit(end); return }
-  const messages: StoredMessage[] = state.text || state.reasoning.length ? [{ assistant: { text: state.text, tool_calls: [], ...(state.reasoning.length ? { reasoning: state.reasoning } : {}) } }] : []
+  flush()
   await finishTurn(env.DB, userId, run.turn, {
     status: end.status,
     messages,
@@ -325,13 +396,14 @@ function withTimeout<T>(promise: Promise<T>, ms: number, reason: string, onTimeo
 
 async function streamRound(
   run: PreparedRun,
+  turn: readonly StoredMessage[],
   signal: AbortSignal,
   usage: Usage,
   state: { text: string; reasoningText: string; reasoning: ReasoningBlock[]; requestChars: number },
   emit: (event: RunEvent) => void,
-): Promise<void> {
+): Promise<{ calls: ToolCall[]; truncated: boolean }> {
   const { connection } = run
-  const encoded = requestBody({ protocol: connection.protocol, endpointId: connection.endpointId, model: connection.modelId, system: run.system, history: run.history, input: run.input, maxOutput: run.maxOutput, reasoningEffort: run.reasoningEffort, reasoning: connection.reasoning, reasoningBudget: run.reasoningBudget, nativeWebSearch: run.nativeWebSearch })
+  const encoded = requestBody({ protocol: connection.protocol, endpointId: connection.endpointId, model: connection.modelId, system: run.system, history: run.history, input: run.input, images: run.images, maxOutput: run.maxOutput, reasoningEffort: run.reasoningEffort, reasoning: connection.reasoning, reasoningBudget: run.reasoningBudget, nativeWebSearch: run.nativeWebSearch, tools: run.tools, turn })
   const body = JSON.stringify(encoded)
   state.requestChars = charCount(body)
   const known = connection.apiKey ? [connection.apiKey] : []
@@ -406,7 +478,39 @@ async function streamRound(
       state.reasoning = decoder.reasoning
     }
     if (!decoder.done) throw new KitFailure('network', 'stream ended early', { reason: 'incomplete_stream' })
+    const calls = decoder.toolCalls()
+    return { calls, truncated: decoder.truncated || calls.some((call) => call.args === null) }
   } finally {
     signal.removeEventListener('abort', onCancel)
   }
+}
+
+/** One host tool call: emits `tool_call`/`tool_result` and returns the text fed back to the model. */
+async function runTool(env: Env, userId: string, run: PreparedRun, call: ToolCall, painted: { count: number }, signal: AbortSignal, emit: (event: RunEvent) => void): Promise<string> {
+  if (!run.tools.some((tool) => tool.name === call.name) || !run.painting || call.name !== GENERATE_IMAGE) return `error unknown_tool: no tool named ${JSON.stringify(call.name)} in this run`
+  emit({ kind: 'tool_call', callId: call.id, name: call.name, source: 'host' })
+  const fail = (code: string, message: string): string => {
+    const text = `error ${code}: ${message}`
+    emit({ kind: 'tool_result', callId: call.id, outcome: 'error', summary: text })
+    return text
+  }
+  if (painted.count++ >= MAX_PAINTINGS) return fail('limit', `At most ${MAX_PAINTINGS} images per reply.`)
+  let image: ImagePart
+  try {
+    image = await generateImage(env.DB, run.painting, call.args ?? {}, signal)
+  } catch (error) {
+    if (signal.aborted) {
+      emit({ kind: 'tool_result', callId: call.id, outcome: 'unknown', summary: 'cancelled' })
+      throw cancelled()
+    }
+    const failure = error instanceof KitFailure ? error : internal(error)
+    return fail(failure.code, failure.message)
+  }
+  const url = `data:${image.mime};base64,${image.data}`
+  if (run.turn) {
+    await saveGenerated(env, userId, run.turn.turnId, image).catch((error: unknown) => console.warn('[autonote] generated image not stored', error))
+  }
+  const text = 'Generated 1 image; it is already shown to the user.'
+  emit({ kind: 'tool_result', callId: call.id, outcome: 'ok', summary: text, payload: { images: [{ mime: image.mime, url }] } })
+  return text
 }

@@ -8,7 +8,7 @@ import { readJson } from '../lib/request'
 import { requireCurrentPassword } from '../lib/reauth'
 import { requireAuth } from '../middleware/auth'
 
-const ROLES = ['chat', 'writing'] as const
+const ROLES = ['chat', 'writing', 'painting'] as const
 type Role = (typeof ROLES)[number]
 const RoleBody = z.strictObject({
   role: z.enum(ROLES),
@@ -46,10 +46,10 @@ aiRoutes.put('/roles', async (c) => {
   if (!parsed.success) throw ApiError.badRequest('Invalid role binding')
   const { role, binding } = parsed.data
   if (binding) {
-    const saved = await c.env.DB.prepare("SELECT 1 FROM ai_models WHERE user_id = ?1 AND endpoint_id = ?2 AND model_id = ?3 AND model_type = 'chat'")
-      .bind(userId, binding.endpointId, binding.modelId)
+    const saved = await c.env.DB.prepare('SELECT 1 FROM ai_models WHERE user_id = ?1 AND endpoint_id = ?2 AND model_id = ?3 AND model_type = ?4')
+      .bind(userId, binding.endpointId, binding.modelId, role === 'painting' ? 'image' : 'chat')
       .first()
-    if (!saved) throw ApiError.badRequest('Binding must reference a saved chat model')
+    if (!saved) throw ApiError.badRequest(role === 'painting' ? 'Binding must reference a saved image model' : 'Binding must reference a saved chat model')
     await c.env.DB.prepare('INSERT INTO ai_roles (user_id,role,endpoint_id,model_id) VALUES (?1,?2,?3,?4) ON CONFLICT(user_id,role) DO UPDATE SET endpoint_id=?3, model_id=?4')
       .bind(userId, role, binding.endpointId, binding.modelId)
       .run()

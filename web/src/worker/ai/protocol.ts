@@ -2,7 +2,15 @@ import type { Protocol, TokenUsage, ReasoningEffort, ReasoningConfig } from '@ou
 import { at } from './kit'
 
 export interface ReasoningBlock { protocol: Protocol; endpointId: string | null; modelId: string | null; value: unknown }
-export type StoredMessage = { user: string } | { assistant: { text: string; tool_calls: never[]; reasoning?: ReasoningBlock[] } }
+export interface ImagePart { mime: string; data: string }
+export interface ImageRef { mime: string; url: string | null }
+export interface ToolCall { id: string; name: string; args: Record<string, unknown> | null }
+export interface ToolSpec { name: string; description: string; parameters: Record<string, unknown> }
+/** Same JSON shape as Aether `Message` (externally tagged, snake_case fields). */
+export type StoredMessage =
+  | { user: string; images?: ImagePart[]; turnId?: string }
+  | { assistant: { text: string; tool_calls: ToolCall[]; reasoning?: ReasoningBlock[] } }
+  | { tool: { call_id: string; text: string } }
 export type Usage = TokenUsage
 
 export interface SseEvent {
@@ -89,6 +97,8 @@ export class Decoder {
   private blocks = new Map<number, Record<string, unknown>>()
   private baseInput: number | null = null
   private chatReasoning = ''
+  /** Streaming calls; key is the anthropic block index, openai-chat `index`, or responses `item_id`. */
+  private calls: { key: unknown; id: string; name: string; args: string }[] = []
   constructor(private readonly protocol: Protocol, private readonly endpointId: string | null = null, private readonly modelId: string | null = null) {}
 
   private keep(value: unknown): void {
@@ -97,6 +107,24 @@ export class Decoder {
     const existing = id == null ? -1 : this.reasoning.findIndex((item) => at(item.value, 'id') === id)
     if (existing < 0) this.reasoning.push(block)
     else this.reasoning[existing] = block
+  }
+
+  private start(key: unknown, id: unknown, name: unknown): void {
+    this.calls.push({ key, id: typeof id === 'string' ? id : '', name: typeof name === 'string' ? name : '', args: '' })
+  }
+
+  private append(key: unknown, fragment: unknown): void {
+    const call = this.calls.find((item) => item.key === key)
+    if (call && typeof fragment === 'string') call.args += fragment
+  }
+
+  /** Calls in stream order; arguments that are not a JSON object come back as `null`. */
+  toolCalls(): ToolCall[] {
+    return this.calls.map(({ id, name, args }) => {
+      let parsed: unknown = null
+      try { parsed = JSON.parse(args || '{}') } catch { /* stays null */ }
+      return { id, name, args: parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null }
+    })
   }
 
   event(data: string, usage: Usage): Decoded {
@@ -118,6 +146,7 @@ export class Decoder {
         const block = at(v, 'content_block')
         if (at(block, 'type') === 'web_search_tool_result' && at(block, 'content', 'type') === 'web_search_tool_result_error') return { error: 'native web search failed' }
         const index = tokens(at(v, 'index'))
+        if (at(block, 'type') === 'tool_use') this.start(index, at(block, 'id'), at(block, 'name'))
         if (index !== null && block && typeof block === 'object' && (at(block, 'type') === 'thinking' || at(block, 'type') === 'redacted_thinking')) {
           this.blocks.set(index, { ...block })
           const initial = at(block, 'thinking')
@@ -127,6 +156,7 @@ export class Decoder {
         const delta = at(v, 'delta')
         if (at(delta, 'type') === 'text_delta') return text(at(delta, 'text'))
         if (at(delta, 'type') === 'citations_delta') return citation(at(delta, 'citation'))
+        if (at(delta, 'type') === 'input_json_delta') { this.append(tokens(at(v, 'index')), at(delta, 'partial_json')); return null }
         const block = this.blocks.get(Number(at(v, 'index')))
         if (block && at(delta, 'type') === 'thinking_delta') {
           const fragment = at(delta, 'thinking')
@@ -159,11 +189,20 @@ export class Decoder {
         this.done = true; this.truncated = finish === 'length'
         if (this.chatReasoning) { this.keep(this.chatReasoning); this.chatReasoning = '' }
       }
+      const deltas = at(v, 'choices', 0, 'delta', 'tool_calls')
+      if (Array.isArray(deltas)) for (const delta of deltas) {
+        const key = at(delta, 'index')
+        if (!this.calls.some((item) => item.key === key)) this.start(key, at(delta, 'id'), at(delta, 'function', 'name'))
+        this.append(key, at(delta, 'function', 'arguments'))
+      }
       const thinking = at(v, 'choices', 0, 'delta', 'reasoning_content')
       if (typeof thinking === 'string' && thinking) { this.chatReasoning += thinking; return { reasoning: thinking } }
       return text(at(v, 'choices', 0, 'delta', 'content'))
     }
     if (kind === 'response.output_item.done' && at(v, 'item', 'type') === 'reasoning') this.keep(at(v, 'item'))
+    // `call_id` (not the item id) is what `function_call_output` must echo.
+    if (kind === 'response.output_item.added' && at(v, 'item', 'type') === 'function_call') this.start(at(v, 'item', 'id'), at(v, 'item', 'call_id'), at(v, 'item', 'name'))
+    if (kind === 'response.function_call_arguments.delta') this.append(at(v, 'item_id'), at(v, 'delta'))
     if (kind === 'response.reasoning_summary_text.delta') {
       const fragment = at(v, 'delta')
       if (typeof fragment === 'string') return { reasoning: fragment }
@@ -208,30 +247,67 @@ export interface ModelRequest {
   system: string
   history: readonly StoredMessage[]
   input: string
+  images?: readonly ImagePart[]
   maxOutput: number
   endpointId: string
   reasoningEffort: ReasoningEffort
   reasoning: ReasoningConfig | null
   reasoningBudget: number | null
   nativeWebSearch?: boolean
+  /** Host tools offered this round. */
+  tools?: readonly ToolSpec[]
+  /** Messages this run already produced after `input` (assistant tool calls and their results). */
+  turn?: readonly StoredMessage[]
+}
+
+function userContent(protocol: Protocol, text: string, images: readonly ImagePart[] | undefined): unknown {
+  if (!images?.length) return text
+  const url = (image: ImagePart): string => `data:${image.mime};base64,${image.data}`
+  if (protocol === 'anthropic-messages') return [...images.map((image) => ({ type: 'image', source: { type: 'base64', media_type: image.mime, data: image.data } })), { type: 'text', text }]
+  if (protocol === 'openai-chat') return [{ type: 'text', text }, ...images.map((image) => ({ type: 'image_url', image_url: { url: url(image) } }))]
+  return [{ type: 'input_text', text }, ...images.map((image) => ({ type: 'input_image', image_url: url(image) }))]
 }
 
 export function requestBody(request: ModelRequest): Record<string, unknown> {
   const messages: Record<string, unknown>[] = []
-  for (const message of request.history) {
-    if ('user' in message) { messages.push({ role: 'user', content: message.user }); continue }
+  const anthropic = request.protocol === 'anthropic-messages', responses = request.protocol === 'openai-responses'
+  const encode = (message: StoredMessage): void => {
+    if ('user' in message) { messages.push({ role: 'user', content: userContent(request.protocol, message.user, message.images) }); return }
+    if ('tool' in message) {
+      const { call_id, text } = message.tool
+      if (responses) { messages.push({ type: 'function_call_output', call_id, output: text }); return }
+      if (!anthropic) { messages.push({ role: 'tool', tool_call_id: call_id, content: text }); return }
+      // Consecutive results answer one assistant message: one user message of `tool_result` blocks.
+      const block = { type: 'tool_result', tool_use_id: call_id, content: text }
+      const last = messages.at(-1)
+      if (last?.role === 'user' && Array.isArray(last.content) && last.content.every((item) => at(item, 'type') === 'tool_result')) last.content.push(block)
+      else messages.push({ role: 'user', content: [block] })
+      return
+    }
     const assistant = message.assistant
+    const calls = assistant.tool_calls ?? []
     const reasoning = (assistant.reasoning ?? []).filter((block) => block.protocol === request.protocol && block.endpointId === request.endpointId && block.modelId === request.model)
-    if (request.protocol === 'anthropic-messages') {
+    if (anthropic) {
       const blocks = reasoning.flatMap((block) => block.value && typeof block.value === 'object' ? [block.value] : [])
       if (assistant.text) blocks.push({ type: 'text', text: assistant.text })
+      for (const call of calls) blocks.push({ type: 'tool_use', id: call.id, name: call.name, input: call.args ?? {} })
       if (blocks.length) messages.push({ role: 'assistant', content: blocks })
-    } else {
-      if (request.protocol === 'openai-responses') for (const block of reasoning) if (block.value && typeof block.value === 'object') messages.push(block.value as Record<string, unknown>)
-      if (assistant.text) messages.push({ role: 'assistant', content: assistant.text, ...(request.protocol === 'openai-chat' && reasoning.length ? { reasoning_content: reasoning.map((block) => typeof block.value === 'string' ? block.value : '').join('') } : {}) })
+    } else if (responses) {
+      for (const block of reasoning) if (block.value && typeof block.value === 'object') messages.push(block.value as Record<string, unknown>)
+      if (assistant.text) messages.push({ role: 'assistant', content: assistant.text })
+      for (const call of calls) messages.push({ type: 'function_call', call_id: call.id, name: call.name, arguments: JSON.stringify(call.args ?? {}) })
+    } else if (assistant.text || calls.length) {
+      messages.push({
+        role: 'assistant',
+        content: assistant.text,
+        ...(reasoning.length ? { reasoning_content: reasoning.map((block) => typeof block.value === 'string' ? block.value : '').join('') } : {}),
+        ...(calls.length ? { tool_calls: calls.map((call) => ({ id: call.id, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args ?? {}) } })) } : {}),
+      })
     }
   }
-  messages.push({ role: 'user', content: request.input })
+  for (const message of request.history) encode(message)
+  encode({ user: request.input, ...(request.images ? { images: [...request.images] } : {}) })
+  for (const message of request.turn ?? []) encode(message)
   const { model, system, maxOutput, reasoningEffort: effort } = request
   let body: Record<string, unknown>
   if (request.protocol === 'anthropic-messages') {
@@ -245,9 +321,12 @@ export function requestBody(request: ModelRequest): Record<string, unknown> {
   } else {
     body = { model, max_output_tokens: maxOutput, stream: true, input: messages, store: false, include: ['reasoning.encrypted_content'], ...(system ? { instructions: system } : {}), ...(effort === 'default' ? {} : { reasoning: { effort, summary: 'auto' } }) }
   }
+  const tools: Record<string, unknown>[] = (request.tools ?? []).map(({ name, description, parameters }) =>
+    anthropic ? { name, description, input_schema: parameters } : responses ? { type: 'function', name, description, parameters } : { type: 'function', function: { name, description, parameters } })
   if (request.nativeWebSearch) {
     if (request.protocol === 'openai-chat') throw new Error('Native search is unsupported on Chat Completions')
-    body.tools = request.protocol === 'anthropic-messages' ? [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }] : [{ type: 'web_search' }]
+    tools.push(anthropic ? { type: 'web_search_20250305', name: 'web_search', max_uses: 5 } : { type: 'web_search' })
   }
+  if (tools.length) body.tools = tools
   return body
 }

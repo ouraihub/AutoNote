@@ -9,6 +9,7 @@ import { deleteConversation, editTurn, forkConversation, listConversations, load
 import { HTTP_STATUS, KitFailure, acquireSlot, checkLength, parseBody } from '../ai/kit'
 import { ModelFilterSchema, ProbeTargetSchema, ProviderSaveSchema, listProviders, modelOptions, probe, removeProvider, saveProvider } from '../ai/providers'
 import { RunRequestSchema, executeRun, prepareRun } from '../ai/runs'
+import { forgetImages, readImage } from '../ai/images'
 import { check as checkSearch, fetchPage, getSettings as searchSettings, reveal as revealSearch, saveProvider as saveSearchProvider, search as searchWeb, setDefault as setSearchDefault, savePreferences, saveKey, removeKey } from '../ai/search'
 import { z } from 'zod'
 
@@ -121,7 +122,7 @@ aiKitRoutes.post('/probe', async (c) => {
 })
 
 aiKitRoutes.post('/runs', async (c) => {
-  const req = parseBody(RunRequestSchema, await readJson(c, JSON_BODY_LIMITS.note))
+  const req = parseBody(RunRequestSchema, await readJson(c, JSON_BODY_LIMITS.run))
   const userId = c.get('userId')
   const release = acquireSlot(userId)
   const prepared = await prepareRun(c.env, userId, req).catch((error: unknown) => {
@@ -180,7 +181,9 @@ aiKitRoutes.get('/conversations/:id', async (c) => {
 aiKitRoutes.delete('/conversations/:id', async (c) => {
   const id = c.req.param('id')
   checkLength('id', id, 128)
+  const turnIds = (await loadConversation(c.env.DB, c.get('userId'), id)).turns.map((turn) => turn.id)
   await deleteConversation(c.env.DB, c.get('userId'), id)
+  await forgetImages(c.env, c.get('userId'), turnIds)
   return c.json({ ok: true as const })
 })
 aiKitRoutes.patch('/conversations/:id', async (c) => {
@@ -200,7 +203,16 @@ aiKitRoutes.patch('/conversations/:id/turns/:turnId', async (c) => {
 aiKitRoutes.delete('/conversations/:id/turns/:turnId', async (c) => {
   checkLength('id', c.req.param('id'), 128)
   checkLength('turnId', c.req.param('turnId'), 128)
-  return c.json(await removeTurn(c.env.DB, c.get('userId'), c.req.param('id'), c.req.param('turnId')))
+  const result = await removeTurn(c.env.DB, c.get('userId'), c.req.param('id'), c.req.param('turnId'))
+  await forgetImages(c.env, c.get('userId'), [c.req.param('turnId')])
+  return c.json(result)
+})
+aiKitRoutes.get('/conversations/:id/turns/:turnId/images/:idx', async (c) => {
+  checkLength('id', c.req.param('id'), 128)
+  checkLength('turnId', c.req.param('turnId'), 128)
+  const idx = Number(c.req.param('idx'))
+  if (!Number.isInteger(idx) || idx < 0 || idx > 3) throw new KitFailure('not_found', 'image', { entity: 'image' })
+  return readImage(c.env, c.get('userId'), c.req.param('id'), c.req.param('turnId'), idx)
 })
 aiKitRoutes.post('/conversations/:id/fork', async (c) => {
   const { turnId } = parseBody(TurnSchema, await readJson(c, JSON_BODY_LIMITS.small))
