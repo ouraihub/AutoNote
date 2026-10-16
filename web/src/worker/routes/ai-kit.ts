@@ -230,8 +230,10 @@ aiKitRoutes.patch('/conversations/:id/turns/:turnId', async (c) => {
 aiKitRoutes.delete('/conversations/:id/turns/:turnId', async (c) => {
   checkLength('id', c.req.param('id'), 128)
   checkLength('turnId', c.req.param('turnId'), 128)
+  const before = (await loadConversation(c.env.DB, c.get('userId'), c.req.param('id'))).turns.map((turn) => turn.id)
   const result = await removeTurn(c.env.DB, c.get('userId'), c.req.param('id'), c.req.param('turnId'))
-  await forgetImages(c.env, c.get('userId'), [c.req.param('turnId')])
+  // Translations of the removed reply go with it.
+  await forgetImages(c.env, c.get('userId'), before.filter((turnId) => !result.turns.some((turn) => turn.id === turnId)))
   return c.json(result)
 })
 aiKitRoutes.get('/conversations/:id/turns/:turnId/images/:idx', async (c) => {

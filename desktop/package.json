@@ -28,7 +28,7 @@
   },
   "dependencies": {
     "@autonote/app": "workspace:*",
-    "@ouraihub/aether-ui": "github:ouraihub/Aether#d7c022aa47a1b24137bbe8bc9f365429ab884ff8&path:packages/ui",
+    "@ouraihub/aether-ui": "github:ouraihub/Aether#2dabfbe507e14169582d474e3b3f6816ce2b5357&path:packages/ui",
     "@tauri-apps/api": "2.11.1"
   },
   "devDependencies": {

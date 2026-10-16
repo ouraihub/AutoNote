@@ -257,17 +257,40 @@ export async function editTurn(db: D1Database, userId: string, id: string, turnI
 
 export async function removeTurn(db: D1Database, userId: string, id: string, turnId: string): Promise<Conversation> {
   const conversation = await loadConversation(db, userId, id)
-  historyPath(conversation.turns, turnId)
-  if (conversation.summary.selectedTurnId === turnId) throw conflict('turn_selected')
-  if (conversation.turns.some((candidate) => candidate.parentId === turnId || candidate.supersedesId === turnId)) throw conflict('turn_has_dependents')
-  const token = newId()
-  const [guard, removed] = await db.batch([
+  const turn = historyPath(conversation.turns, turnId).at(-1)!
+  if (turn.status === 'running') throw conflict('turn_running')
+  const { turns } = conversation, at = turns.indexOf(turn)
+  // Translations only make sense next to their source; turns are seq-ordered, so one pass also catches translations of translations.
+  const removed = new Set([turnId])
+  for (const candidate of turns) if (candidate.kind === 'translation' && candidate.parentId !== null && removed.has(candidate.parentId)) removed.add(candidate.id)
+  const successor = turns.find((candidate, index) => index > at && candidate.kind === 'reply' && candidate.questionId === turn.questionId)
+    ?? turns.findLast((candidate, index) => index < at && candidate.kind === 'reply' && candidate.questionId === turn.questionId)
+  const successorId = successor?.id ?? turn.parentId
+  const remaining = turns.filter((candidate) => !removed.has(candidate.id))
+    .map((candidate) => (candidate.parentId !== null && removed.has(candidate.parentId) ? { ...candidate, parentId: successorId } : candidate))
+  let selected = conversation.summary.selectedTurnId
+  if (selected !== null && removed.has(selected)) {
+    // Newest leaf under the successor (docs/35 §3.3 step 4).
+    let next = successorId !== null ? remaining.find((candidate) => candidate.id === successorId) : remaining.findLast((candidate) => candidate.kind === 'reply' && candidate.parentId === null)
+    selected = null
+    while (next) {
+      const head: string = next.id
+      selected = head
+      next = remaining.findLast((candidate) => candidate.kind === 'reply' && candidate.parentId === head)
+    }
+  }
+  const token = newId(), ids = JSON.stringify([...removed])
+  const owned = 'conversation_id = ?2 AND user_id = ?3 AND EXISTS (SELECT 1 FROM ai_chat_conversations WHERE id = ?2 AND user_id = ?3 AND revision = ?4)'
+  // Reparent before deleting so no row ever points at a deleted turn.
+  const [guard, , , deleted] = await db.batch([
     mutationGuard(db, userId, conversation, token),
-    db.prepare(`DELETE FROM ai_chat_turns WHERE id = ?1 AND conversation_id = ?2 AND user_id = ?3 AND EXISTS (
-      SELECT 1 FROM ai_chat_conversations WHERE id = ?2 AND user_id = ?3 AND revision = ?4
-    )`).bind(turnId, id, userId, token),
+    db.prepare(`UPDATE ai_chat_turns SET parent_id = ?1 WHERE parent_id IN (SELECT value FROM json_each(?5)) AND ${owned}`).bind(successorId, id, userId, token, ids),
+    db.prepare(`UPDATE ai_chat_turns SET supersedes_id = CASE WHEN id = ?1 THEN NULL ELSE ?1 END WHERE supersedes_id = ?5 AND ${owned}`)
+      .bind(successor?.id ?? null, id, userId, token, turnId),
+    db.prepare(`DELETE FROM ai_chat_turns WHERE id IN (SELECT value FROM json_each(?1)) AND ${owned}`).bind(ids, id, userId, token),
+    db.prepare('UPDATE ai_chat_conversations SET selected_turn_id = ?1 WHERE id = ?2 AND user_id = ?3 AND revision = ?4').bind(selected, id, userId, token),
   ])
-  if (!guard?.meta.changes || !removed?.meta.changes) throw conflict('conversation_changed_or_running')
+  if (!guard?.meta.changes || !deleted?.meta.changes) throw conflict('conversation_changed_or_running')
   return toWire(await loadConversation(db, userId, id))
 }
 

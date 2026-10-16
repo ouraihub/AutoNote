@@ -498,7 +498,7 @@ describe('run and history routes', () => {
     expect(await h.env.DB.prepare('SELECT COUNT(*) AS n FROM ai_chat_turns').first('n')).toBe(0)
   })
 
-  it('allows only one mutation from a shared snapshot and deletes only the unselected terminal candidate', async () => {
+  it('allows only one mutation from a shared snapshot and moves the context off a deleted selected candidate', async () => {
     const h = await createHarness(),
       { endpointId } = await saveProvider(h),
       model = { endpointId, modelId: 'm1' }
@@ -509,10 +509,9 @@ describe('run and history routes', () => {
     const retry = await run(h, { model, conversationId: id, retryTurnId: sourceId, input: '' }),
       retryId = String(retry.events[0]!.turnId)
     await h.json('user-a', 'PUT', `/conversations/${id}/selection`, { turnId: retryId })
-    expect(await h.json('user-a', 'DELETE', `/conversations/${id}/turns/${retryId}`)).toMatchObject({ status: 409 })
-    await h.json('user-a', 'PUT', `/conversations/${id}/selection`, { turnId: sourceId })
     const removed = await h.json<Conversation>('user-a', 'DELETE', `/conversations/${id}/turns/${retryId}`)
     expect(removed.body.turns.map((turn) => turn.id)).toEqual([sourceId])
+    expect(removed.body.summary.selectedTurnId).toBe(sourceId)
     const snapshot = await loadConversation(h.env.DB, 'user-a', id)
     const outcomes = await Promise.allSettled([
       beginAction(h.env.DB, 'user-a', snapshot, null, 'A', sourceId, null, false),
@@ -785,12 +784,10 @@ describe('run and history routes', () => {
     expect(
       await h.json('user-a', 'PATCH', `${base}/turns/${retryId}`, { text: 'x', expectedText: 'Original' }),
     ).toMatchObject({ status: 409 })
-    expect(await h.json('user-a', 'DELETE', `${base}/turns/${sourceId}`)).toMatchObject({ status: 409 })
     const removed = await h.json<Conversation>('user-a', 'DELETE', `${base}/turns/${retryId}`)
     expect(removed.body.turns.map((turn) => turn.id)).toEqual([sourceId])
     const child = await run(h, { model, conversationId, input: 'Child' })
     const childId = String(child.events[0]!.turnId)
-    expect(await h.json('user-a', 'DELETE', `${base}/turns/${sourceId}`)).toMatchObject({ status: 409 })
     await h.env.DB.prepare("UPDATE ai_chat_turns SET status = 'running' WHERE id = ?1").bind(sourceId).run()
     for (const [method, path, body] of [
       ['PATCH', `${base}/turns/${childId}`, { text: 'x', expectedText: 'Original' }],
@@ -799,6 +796,34 @@ describe('run and history routes', () => {
       ['PUT', `${base}/selection`, { turnId: childId }],
     ] as const)
       expect(await h.json('user-a', method, path, body)).toMatchObject({ status: 409 })
+  })
+
+  it('deletes any idle reply, reparents later turns, drops translations and moves the context to the newest leaf', async () => {
+    const h = await createHarness(),
+      { endpointId } = await saveProvider(h),
+      model = { endpointId, modelId: 'm1' }
+    fetchMock.mockImplementation(async () => textStream('Original'))
+    const first = await run(h, { model, input: 'Q1' })
+    const conversationId = String(first.events[0]!.conversationId),
+      aId = String(first.events[0]!.turnId),
+      base = `/conversations/${conversationId}`
+    const bId = String((await run(h, { model, conversationId, input: 'Q2' })).events[0]!.turnId)
+    const cId = String((await run(h, { model, conversationId, input: 'Q3' })).events[0]!.turnId)
+    const reparented = (await h.json<Conversation>('user-a', 'DELETE', `${base}/turns/${bId}`)).body
+    expect(reparented.turns.map((turn) => [turn.id, turn.parentId])).toEqual([[aId, null], [cId, aId]])
+    expect(reparented.summary.selectedTurnId).toBe(cId)
+    const retryId = String((await run(h, { model, conversationId, retryTurnId: cId, input: '' })).events[0]!.turnId)
+    const candidate = (await h.json<Conversation>('user-a', 'DELETE', `${base}/turns/${cId}`)).body
+    expect(candidate.summary.selectedTurnId).toBe(retryId)
+    expect(candidate.turns.at(-1)).toMatchObject({ id: retryId, parentId: aId, supersedesId: null })
+    const only = (await h.json<Conversation>('user-a', 'DELETE', `${base}/turns/${retryId}`)).body
+    expect(only.turns.map((turn) => turn.id)).toEqual([aId])
+    expect(only.summary.selectedTurnId).toBe(aId)
+    await run(h, { model, conversationId, translateTurnId: aId, targetLanguage: 'French', input: '' })
+    expect((await loadConversation(h.env.DB, 'user-a', conversationId)).turns).toHaveLength(2)
+    const empty = (await h.json<Conversation>('user-a', 'DELETE', `${base}/turns/${aId}`)).body
+    expect(empty.turns).toEqual([])
+    expect(empty.summary.selectedTurnId).toBeNull()
   })
 
   it('rejects failed or cancelled normal parents without writes but still retries terminal failed sources', async () => {
