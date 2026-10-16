@@ -7,7 +7,7 @@ import { JSON_BODY_LIMITS, readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
 import { deleteConversation, editTurn, forkConversation, listConversations, loadConversation, removeTurn, renameConversation, selectTurn, toWire } from '../ai/history'
 import { HTTP_STATUS, KitFailure, acquireSlot, checkLength, parseBody } from '../ai/kit'
-import { ModelFilterSchema, ProbeTargetSchema, ProviderSaveSchema, listProviders, modelOptions, probe, removeProvider, saveProvider } from '../ai/providers'
+import { EndpointKeySaveSchema, ModelFilterSchema, ProbeTargetSchema, ProviderSaveSchema, listProviders, modelOptions, probe, removeKey as removeEndpointKey, removeProvider, revealKey, saveKey as saveEndpointKey, saveProvider, setProviderEnabled } from '../ai/providers'
 import { RunRequestSchema, executeRun, prepareRun } from '../ai/runs'
 import { forgetImages, readImage } from '../ai/images'
 import { check as checkSearch, fetchPage, getSettings as searchSettings, reveal as revealSearch, saveProvider as saveSearchProvider, search as searchWeb, setDefault as setSearchDefault, savePreferences, saveKey, removeKey } from '../ai/search'
@@ -35,7 +35,34 @@ aiKitRoutes.put('/providers', async (c) => {
   const input = parseBody(ProviderSaveSchema, await readJson(c, JSON_BODY_LIMITS.profile))
   return c.json(await saveProvider(c.env, c.get('userId'), input))
 })
+aiKitRoutes.patch('/providers/:id/enabled', async (c) => {
+  const body = await readJson<{ enabled?: unknown }>(c, JSON_BODY_LIMITS.small)
+  if (typeof body.enabled !== 'boolean') throw new KitFailure('bad_request', 'enabled must be boolean')
+  return c.json(await setProviderEnabled(c.env, c.get('userId'), c.req.param('id'), body.enabled))
+})
 aiKitRoutes.delete('/providers/:id', async (c) => c.json(await removeProvider(c.env, c.get('userId'), c.req.param('id'))))
+aiKitRoutes.put('/endpoint-keys', async (c) => {
+  const release = acquireSlot(c.get('userId'))
+  try {
+    const input = parseBody(EndpointKeySaveSchema, await readJson(c, JSON_BODY_LIMITS.small))
+    return c.json(await saveEndpointKey(c.env, c.get('userId'), input))
+  } finally { release() }
+})
+aiKitRoutes.delete('/endpoint-keys/:keyId', async (c) => {
+  const release = acquireSlot(c.get('userId'))
+  try {
+    const body = await readJson<{ endpointId?: unknown }>(c, JSON_BODY_LIMITS.small)
+    if (typeof body.endpointId !== 'string') throw new KitFailure('bad_request', 'endpointId must be string')
+    return c.json(await removeEndpointKey(c.env, c.get('userId'), body.endpointId, c.req.param('keyId')))
+  } finally { release() }
+})
+aiKitRoutes.post('/endpoint-keys/:keyId/reveal', async (c) => {
+  const release = acquireSlot(c.get('userId'))
+  try {
+    const body = await readJson<{ currentPassword?: unknown }>(c, JSON_BODY_LIMITS.small)
+    return c.json({ key: await revealKey(c.env, c.get('userId'), c.req.param('keyId'), body.currentPassword) })
+  } finally { release() }
+})
 aiKitRoutes.get('/search/settings', async (c) => c.json(await searchSettings(c.env, c.get('userId'), c.req.query('capability'))))
 aiKitRoutes.put('/search/providers', async (c) => {
   const release = acquireSlot(c.get('userId'))

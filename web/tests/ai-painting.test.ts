@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { chatModel, createHarness, fixture, frames, streamOf, type Harness } from './support/ai-kit-harness'
+import { addKey, chatModel, createHarness, fixture, frames, streamOf, type Harness } from './support/ai-kit-harness'
 
 const KEY = 'sk-test-abcdefghijklmnop'
 const PNG = 'iVBORw0KGgo='
@@ -40,9 +40,10 @@ async function setup(protocol: Protocol, { bind = true, supportsTools = null as 
   const h = await createHarness()
   const { body } = await h.json<{ endpoints: { id: string }[] }[]>('user-a', 'PUT', '/providers', {
     name: 'P',
-    endpoints: [{ slug: 'main', baseUrl: 'https://api.example.com', protocol, apiKey: KEY, models: [{ ...chatModel('m1'), supportsTools }, { ...chatModel('img1'), modelType: 'image' }] }],
+    endpoints: [{ slug: 'main', baseUrl: 'https://api.example.com', protocol, models: [{ ...chatModel('m1'), supportsTools }, { ...chatModel('img1'), modelType: 'image' }] }],
   })
   const endpointId = body[0]!.endpoints[0]!.id
+  await addKey(h, 'user-a', endpointId, KEY)
   if (bind) await h.env.DB.prepare("INSERT INTO ai_roles (user_id, role, endpoint_id, model_id) VALUES ('user-a', 'painting', ?1, 'img1')").bind(endpointId).run()
   return { h, model: { endpointId, modelId: 'm1' } }
 }

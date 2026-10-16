@@ -2,7 +2,7 @@
 import { KitFailure, addressAllowed, at, badRequest, cancelled, parseTarget, readUpTo, upstreamFailure } from './kit'
 import { MAX_IMAGE_BYTES, encode } from './images'
 import type { ImagePart, ToolSpec } from './protocol'
-import type { Connection } from './providers'
+import { withKeys, type Connection } from './providers'
 
 export const GENERATE_IMAGE = 'generate_image'
 const SIZES = ['1024x1024', '1024x1536', '1536x1024'] as const
@@ -41,7 +41,7 @@ export async function generateImage(db: D1Database, painting: Connection, args: 
   if (!prompt || [...prompt].length > 4000) throw badRequest('prompt', 'invalid')
   const size = args.size == null ? SIZES[0] : SIZES.find((item) => item === args.size)
   if (!size) throw badRequest('size', 'invalid')
-  const known = painting.apiKey ? [painting.apiKey] : []
+  const known = painting.apiKeys
   const timeout = AbortSignal.timeout(TIMEOUT_MS)
   const call = async (url: URL, init: RequestInit): Promise<Response> => {
     try {
@@ -52,15 +52,19 @@ export async function generateImage(db: D1Database, painting: Connection, args: 
       throw new KitFailure('network', 'painting model unreachable')
     }
   }
-  const response = await call(await allowed(db, `${painting.baseUrl}/images/generations`), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', ...(painting.apiKey ? { authorization: `Bearer ${painting.apiKey}` } : {}) },
-    // No `response_format`: gpt-image-* rejects it (always b64); others may answer `url`, handled below.
-    body: JSON.stringify({ model: painting.modelId, prompt, size, n: 1 }),
+  const target = await allowed(db, `${painting.baseUrl}/images/generations`)
+  const { response, text, overflow } = await withKeys(painting.apiKeys, async (key) => {
+    const response = await call(target, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(key ? { authorization: `Bearer ${key}` } : {}) },
+      // No `response_format`: gpt-image-* rejects it (always b64); others may answer `url`, handled below.
+      body: JSON.stringify({ model: painting.modelId, prompt, size, n: 1 }),
+    })
+    const { bytes: raw, overflow } = await readUpTo(response.body, RESPONSE_BYTES)
+    const text = new TextDecoder().decode(raw)
+    if (!response.ok) throw upstreamFailure(response.status, text, known)
+    return { response, text, overflow }
   })
-  const { bytes: raw, overflow } = await readUpTo(response.body, RESPONSE_BYTES)
-  const text = new TextDecoder().decode(raw)
-  if (!response.ok) throw upstreamFailure(response.status, text, known)
   if (overflow) throw badRequest('images', 'size', MAX_IMAGE_BYTES)
   let body: unknown = null
   try { body = JSON.parse(text) } catch { /* no image below */ }

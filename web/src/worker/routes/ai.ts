@@ -1,11 +1,9 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import type { AppBindings } from '../env'
-import { decryptAiKey } from '../lib/crypto'
 import { ApiError } from '../lib/errors'
 import { isValidId } from '../lib/id'
 import { readJson } from '../lib/request'
-import { requireCurrentPassword } from '../lib/reauth'
 import { requireAuth } from '../middleware/auth'
 
 const ROLES = ['chat', 'writing', 'painting'] as const
@@ -22,21 +20,6 @@ aiRoutes.use('*', requireAuth)
 aiRoutes.use('*', async (c, next) => {
   if (c.get('user').role !== 'owner') throw ApiError.forbidden('AI is available to the owner only')
   await next()
-})
-
-aiRoutes.post('/endpoints/:id/key', async (c) => {
-  const id = c.req.param('id')
-  const userId = c.get('userId')
-  const endpoint = await c.env.DB.prepare('SELECT key_ciphertext AS keyCiphertext FROM ai_endpoints WHERE id = ?1 AND user_id = ?2')
-    .bind(id, userId)
-    .first<{ keyCiphertext: string | null }>()
-  if (!endpoint) throw ApiError.notFound('Endpoint not found')
-  const body = await readJson<{ currentPassword?: unknown }>(c, 4096)
-  await requireCurrentPassword(c.env.DB, userId, body.currentPassword)
-  if (!endpoint.keyCiphertext) throw ApiError.notFound('API key not configured')
-  const key = await decryptAiKey(c.env, id, endpoint.keyCiphertext)
-  if (!key) throw ApiError.conflict('Stored API key is unavailable')
-  return c.json({ key })
 })
 
 aiRoutes.get('/roles', async (c) => listRoles(c.env.DB, c.get('userId')))

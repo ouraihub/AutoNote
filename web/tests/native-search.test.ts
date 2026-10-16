@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { chatModel, createHarness, frames } from './support/ai-kit-harness'
+import { addKey, chatModel, createHarness, frames } from './support/ai-kit-harness'
 import { initializeDatabase } from '../src/worker/db/schema'
 
 afterEach(() => vi.unstubAllGlobals())
@@ -13,13 +13,13 @@ test('native preference selects declared server tool, keeps citations, and disab
         slug: 'main',
         baseUrl: 'https://example.com/v1',
         protocol: 'openai-responses',
-        apiKey: 'model-key',
         models: [{ ...chatModel('native'), nativeWebSearch: true }],
       },
     ],
   })
   expect(saved.status).toBe(200)
   const model = { endpointId: saved.body[0]!.endpoints[0]!.id, modelId: 'native' }
+  await addKey(h, 'user-a', model.endpointId, 'model-key')
   const prefs = { maxResults: 5, compression: 'none', cutoffLimit: 2000, blacklist: [], modelToolsPreferred: true }
   expect((await h.json('user-a', 'PUT', '/search/preferences', prefs)).status).toBe(200)
   const calls: Record<string, unknown>[] = []
@@ -71,7 +71,6 @@ test('unsupported models use external search despite preference; Chat protocol c
     slug: 'main',
     baseUrl: 'https://example.com/v1',
     protocol: 'openai-chat',
-    apiKey: 'model-key',
     models: [{ ...chatModel('plain'), nativeWebSearch: true }],
   }
   expect((await h.json('user-a', 'PUT', '/providers', { name: 'Plain', endpoints: [endpoint] })).status).toBe(400)
@@ -80,6 +79,7 @@ test('unsupported models use external search despite preference; Chat protocol c
     endpoints: [{ ...endpoint, models: [chatModel('plain')] }],
   })
   const model = { endpointId: saved.body[0]!.endpoints[0]!.id, modelId: 'plain' }
+  await addKey(h, 'user-a', model.endpointId, 'model-key')
   await h.json('user-a', 'PUT', '/search/preferences', {
     maxResults: 5,
     compression: 'none',
@@ -124,22 +124,24 @@ test('upgrades existing model configuration without losing credentials or search
   const h = await createHarness()
   const input = {
     name: 'Existing',
-    endpoints: [{ slug: 'main', baseUrl: 'https://example.com/v1', protocol: 'openai-responses', apiKey: 'retain-key', models: [chatModel('existing')] }],
+    endpoints: [{ slug: 'main', baseUrl: 'https://example.com/v1', protocol: 'openai-responses', models: [chatModel('existing')] }],
   }
   const saved = await h.json<{ id: string; endpoints: { id: string }[] }[]>('user-a', 'PUT', '/providers', input)
   const provider = saved.body[0]!
   const endpoint = provider.endpoints[0]!
+  await addKey(h, 'user-a', endpoint.id, 'retain-key')
   await h.env.DB.exec("ALTER TABLE ai_models DROP COLUMN native_web_search; DELETE FROM schema_migrations WHERE version = 18; UPDATE app_meta SET value = '{\"schema\":\"before-native-search\",\"ftsEnabled\":true}' WHERE key = 'database-state-v1'")
   const old = h.env.DB
   h.env.DB = { prepare: old.prepare.bind(old), batch: old.batch.bind(old), exec: old.exec.bind(old) } as D1Database
   await initializeDatabase(h.env)
-  expect(await h.json('user-a', 'GET', '/providers')).toMatchObject({ status: 200, body: [{ id: provider.id, endpoints: [{ id: endpoint.id, hasKey: true, models: [{ id: 'existing', nativeWebSearch: false }] }] }] })
-  const updated = { ...input, id: provider.id, endpoints: [{ ...input.endpoints[0]!, id: endpoint.id, apiKey: undefined, models: [{ ...chatModel('existing'), nativeWebSearch: true }] }] }
-  expect(await h.json('user-a', 'PUT', '/providers', updated)).toMatchObject({ status: 200, body: [{ endpoints: [{ hasKey: true, models: [{ nativeWebSearch: true }] }] }] })
+  const key = { readable: true, masked: 'reta**-key' }
+  expect(await h.json('user-a', 'GET', '/providers')).toMatchObject({ status: 200, body: [{ id: provider.id, endpoints: [{ id: endpoint.id, keys: [key], models: [{ id: 'existing', nativeWebSearch: false }] }] }] })
+  const updated = { ...input, id: provider.id, endpoints: [{ ...input.endpoints[0]!, id: endpoint.id, models: [{ ...chatModel('existing'), nativeWebSearch: true }] }] }
+  expect(await h.json('user-a', 'PUT', '/providers', updated)).toMatchObject({ status: 200, body: [{ endpoints: [{ models: [{ nativeWebSearch: true }] }] }] })
   expect(await h.json('user-a', 'GET', '/model-options')).toMatchObject({ status: 200, body: [{ modelId: 'existing', nativeWebSearch: true }] })
   expect(await h.json('user-a', 'GET', '/search/settings?capability=search')).toMatchObject({ status: 200, body: { defaultProvider: 'exa-mcp' } })
   const restarted = h.env.DB
   h.env.DB = { prepare: restarted.prepare.bind(restarted), batch: restarted.batch.bind(restarted), exec: restarted.exec.bind(restarted) } as D1Database
   await initializeDatabase(h.env)
-  expect(await h.json('user-a', 'GET', '/providers')).toMatchObject({ status: 200, body: [{ endpoints: [{ hasKey: true, models: [{ nativeWebSearch: true }] }] }] })
+  expect(await h.json('user-a', 'GET', '/providers')).toMatchObject({ status: 200, body: [{ endpoints: [{ keys: [key], models: [{ nativeWebSearch: true }] }] }] })
 })

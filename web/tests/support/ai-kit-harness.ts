@@ -74,6 +74,13 @@ export async function createHarness(): Promise<Harness> {
   return { env, call, json, settle, objects }
 }
 
+/** Adds one key to an endpoint through the key route; returns the key id. */
+export async function addKey(h: Harness, user: string, endpointId: string, key: string): Promise<string> {
+  const { status, body } = await h.json<{ endpoints: { id: string; keys: { id: string }[] }[] }[]>(user, 'PUT', '/endpoint-keys', { endpointId, key })
+  if (status !== 200) throw new Error(`addKey failed: ${status}`)
+  return body.flatMap((provider) => provider.endpoints).find((endpoint) => endpoint.id === endpointId)!.keys.at(-1)!.id
+}
+
 export function frames(text: string): Record<string, unknown>[] {
   return text
     .split('\n\n')

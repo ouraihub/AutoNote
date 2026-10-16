@@ -21,7 +21,7 @@ import {
   upstreamFailure,
 } from './kit'
 import { PROTOCOL_PATH, Decoder, SseParser, authHeaders, requestBody, type ImagePart, type StoredMessage, type ToolCall, type ToolSpec, type Usage, type ReasoningBlock } from './protocol'
-import { modelOptions, resolveModel, type Connection } from './providers'
+import { modelOptions, resolveModel, withKeys, type Connection } from './providers'
 import { ImagesSchema, checkImages, copyImages, loadImages, saveGenerated, saveImages } from './images'
 import { GENERATE_IMAGE, GENERATE_IMAGE_SPEC, generateImage } from './painting'
 
@@ -252,7 +252,7 @@ export async function prepareRun(env: Env, userId: string, req: RunRequestInput)
     if (parts.length) message.images = parts
   }
 
-  if (!connection.apiKey && !isLoopback(parseTarget(connection.baseUrl))) throw needsConfig('missing_key')
+  if (!connection.apiKeys.length && !isLoopback(parseTarget(connection.baseUrl))) throw needsConfig('missing_key')
   if (Math.ceil((charCount(system) + charCount(input)) / 3) + maxOutput > contextWindow) {
     throw new KitFailure('budget_exceeded', `input exceed the budget of ${contextWindow}`, { reason: 'input', limit: contextWindow })
   }
@@ -406,7 +406,7 @@ async function streamRound(
   const encoded = requestBody({ protocol: connection.protocol, endpointId: connection.endpointId, model: connection.modelId, system: run.system, history: run.history, input: run.input, images: run.images, maxOutput: run.maxOutput, reasoningEffort: run.reasoningEffort, reasoning: connection.reasoning, reasoningBudget: run.reasoningBudget, nativeWebSearch: run.nativeWebSearch, tools: run.tools, turn })
   const body = JSON.stringify(encoded)
   state.requestChars = charCount(body)
-  const known = connection.apiKey ? [connection.apiKey] : []
+  const known = connection.apiKeys
   const upstream = new AbortController()
   const abort = (): void => upstream.abort()
   let rejectCancelled: (error: KitFailure) => void = () => {}
@@ -421,12 +421,12 @@ async function streamRound(
   signal.addEventListener('abort', onCancel, { once: true })
   const guarded = <T>(promise: Promise<T>): Promise<T> => Promise.race([promise, cancelledError])
   try {
-    const first = async (): Promise<{ reader: ReadableStreamDefaultReader<Uint8Array>; chunk: ReadableStreamReadResult<Uint8Array> }> => {
+    const first = async (key: string | null): Promise<{ reader: ReadableStreamDefaultReader<Uint8Array>; chunk: ReadableStreamReadResult<Uint8Array> }> => {
       let response: Response
       try {
         response = await fetch(`${connection.baseUrl}/${PROTOCOL_PATH[connection.protocol]}`, {
           method: 'POST',
-          headers: { ...authHeaders(connection.protocol, connection.apiKey), accept: 'text/event-stream', 'content-type': 'application/json' },
+          headers: { ...authHeaders(connection.protocol, key), accept: 'text/event-stream', 'content-type': 'application/json' },
           body,
           redirect: 'manual',
           signal: upstream.signal,
@@ -444,7 +444,8 @@ async function streamRound(
       const reader = response.body.getReader()
       return { reader, chunk: await reader.read() }
     }
-    let { reader, chunk } = await guarded(withTimeout(first(), TIMEOUTS.firstByteMs, 'first_byte', abort))
+    // Key failover (docs/34 §3.4): only rejections before the first chunk move to the next key.
+    let { reader, chunk } = await withKeys(connection.apiKeys, (key) => guarded(withTimeout(first(key), TIMEOUTS.firstByteMs, 'first_byte', abort)))
     const parser = new SseParser()
     const decoder = new Decoder(connection.protocol, connection.endpointId, connection.modelId)
     const apply = (data: string): void => {

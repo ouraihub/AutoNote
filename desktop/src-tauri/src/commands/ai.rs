@@ -28,11 +28,6 @@ pub struct AiRoleBinding {
     is_fallback: bool,
 }
 
-#[derive(Serialize)]
-pub struct RevealedKey {
-    key: String,
-}
-
 fn internal(message: &'static str) -> AppError {
     AppError::new(ErrorCode::Internal, message)
 }
@@ -139,17 +134,6 @@ async fn role_dtos(context: &AppContext) -> Result<Vec<AiRoleBinding>, AppError>
             is_fallback: row.is_fallback,
         })
         .collect())
-}
-
-#[tauri::command]
-pub async fn ai_endpoint_key_reveal(context: Ctx<'_>, id: String) -> Result<RevealedKey, AppError> {
-    let connection = provider_call(&context, move |store| store.endpoint_connection(&id)).await?;
-    let key = connection
-        .api_key
-        .ok_or_else(|| AppError::new(ErrorCode::NotFound, "Key not set"))?;
-    Ok(RevealedKey {
-        key: key.to_string(),
-    })
 }
 
 #[tauri::command]
@@ -290,12 +274,12 @@ mod tests {
             .save(providers::ProviderSave {
                 id: None,
                 name: "Example".to_owned(),
+                enabled: None,
                 endpoints: vec![providers::EndpointSave {
                     id: None,
                     slug: "main".to_owned(),
                     base_url: "https://example.com/v1".to_owned(),
                     protocol: providers::Protocol::OpenaiChat,
-                    api_key: None,
                     models: vec![
                         model(
                             "chat",

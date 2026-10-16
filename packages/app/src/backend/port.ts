@@ -247,8 +247,6 @@ export interface AiHostPort {
   readonly kit: KitPorts
   roles(options?: CallOptions): Promise<AiRoleBinding[]>
   setRole(role: AiRole, binding: ModelRef | null, options?: CallOptions): Promise<AiRoleBinding[]>
-  readonly revealNeedsPassword: boolean
-  revealKey(endpointId: string, currentPassword: string | null, options?: CallOptions): Promise<string>
   exportMarkdown?(markdown: string): Promise<void>
 }
 

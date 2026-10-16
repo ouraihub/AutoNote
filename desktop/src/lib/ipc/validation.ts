@@ -183,9 +183,6 @@ const aiRoleBinding = (value: unknown): boolean =>
 export function validateResponse(command: keyof CommandArgs, value: unknown): void {
   let valid: boolean
   switch (command) {
-    case 'ai_endpoint_key_reveal':
-      valid = record(value) && text(value.key)
-      break
     case 'ai_roles_get':
     case 'ai_roles_set':
       valid = Array.isArray(value) && value.every(aiRoleBinding)

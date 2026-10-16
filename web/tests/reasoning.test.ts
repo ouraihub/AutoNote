@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Protocol } from '@ouraihub/aether-ui/ports'
-import { chatModel, createHarness, frames } from './support/ai-kit-harness'
+import { addKey, chatModel, createHarness, frames } from './support/ai-kit-harness'
 import { initializeDatabase } from '../src/worker/db/schema'
 import type { Env } from '../src/worker/env'
 import { inferReasoning } from '../src/worker/ai/infer'
@@ -14,11 +14,12 @@ async function configured(protocol: Protocol) {
   const h = await createHarness()
   const reasoning = { dialect: protocol === 'anthropic-messages' ? 'anthropic-budget' : 'openai', efforts: ['none', 'low', 'high'], ...(protocol === 'anthropic-messages' ? { budgetTokens: 3000 } : {}) }
   const model = { ...chatModel('model'), maxOutput: 4096, contextWindow: 32000, reasoning }
-  const saved = await h.json<{ id: string; name: string; endpoints: { id: string; slug: string; baseUrl: string; protocol: Protocol; models: typeof model[] }[] }[]>('user-a', 'PUT', '/providers', { name: 'Local', endpoints: [{ slug: 'main', baseUrl: 'https://example.com/v1', protocol, apiKey: 'local-test-key', models: [model] }] })
+  const saved = await h.json<{ id: string; name: string; endpoints: { id: string; slug: string; baseUrl: string; protocol: Protocol; models: typeof model[] }[] }[]>('user-a', 'PUT', '/providers', { name: 'Local', endpoints: [{ slug: 'main', baseUrl: 'https://example.com/v1', protocol, models: [model] }] })
   expect(saved.status).toBe(200)
   const wire = saved.body[0]!
   const provider = { ...wire, endpoints: wire.endpoints.map(e => ({ id: e.id, slug: e.slug, baseUrl: e.baseUrl, protocol: e.protocol, models: e.models })) }
   const ref = { endpointId: provider.endpoints[0]!.id, modelId: 'model' }
+  await addKey(h, 'user-a', ref.endpointId, 'local-test-key')
   const run = async (extra: Record<string, unknown> = {}) => {
     const r = await h.call('user-a', 'POST', '/runs', { purpose: 'chat', skills: [], input: 'Question', regenerate: false, language: 'en-US', model: ref, reasoningEffort: 'high', ...extra })
     const text = await r.text(); await h.settle()
@@ -129,8 +130,9 @@ describe('reasoning and usage', () => {
   it('recognizes saved models automatically and applies effort only on the current run', async () => {
     const h = await createHarness()
     const saved = await h.json<{ endpoints: { id: string; models: { reasoning: unknown }[] }[] }[]>('user-a', 'PUT', '/providers', {
-      name: 'Automatic', endpoints: [{ slug: 'main', baseUrl: 'https://example.com', protocol: 'anthropic-messages', apiKey: 'test-key', models: [chatModel('claude-sonnet-5-5')] }],
+      name: 'Automatic', endpoints: [{ slug: 'main', baseUrl: 'https://example.com', protocol: 'anthropic-messages', models: [chatModel('claude-sonnet-5-5')] }],
     })
+    await addKey(h, 'user-a', saved.body[0]!.endpoints[0]!.id, 'test-key')
     const expected = { dialect: 'anthropic-adaptive', efforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'] }
     expect(saved.body[0]!.endpoints[0]!.models[0]!.reasoning).toEqual(expected)
     expect(await h.json('user-a', 'GET', '/model-options')).toMatchObject({ status: 200, body: [{ reasoning: expected }] })

@@ -61,7 +61,6 @@ export interface LogRecord {
 type Empty = undefined
 export interface CommandArgs {
   mcp_status: Empty
-  ai_endpoint_key_reveal: { id: string }
   ai_roles_get: Empty
   ai_roles_set: { role: AiRole; binding: ModelRef | null }
   ai_reply_export: { markdown: string }
@@ -135,7 +134,6 @@ export interface CommandArgs {
 }
 export interface CommandResults {
   mcp_status: McpLocalStatus
-  ai_endpoint_key_reveal: { key: string }
   ai_roles_get: AiRoleBinding[]
   ai_roles_set: AiRoleBinding[]
   ai_reply_export: { saved: boolean }

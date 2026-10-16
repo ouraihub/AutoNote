@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { purgeExpiredChatImages } from '../src/worker/ai/images'
-import { chatModel, createHarness, fixture, frames, streamOf, type Harness } from './support/ai-kit-harness'
+import { addKey, chatModel, createHarness, fixture, frames, streamOf, type Harness } from './support/ai-kit-harness'
 
 const KEY = 'sk-test-abcdefghijklmnop'
 const PNG = { mime: 'image/png', data: 'iVBORw0KGgo=' }
@@ -23,9 +23,11 @@ afterEach(() => {
 async function provider(h: Harness, protocol: string, canVision = true) {
   const { body } = await h.json<{ endpoints: { id: string }[] }[]>('user-a', 'PUT', '/providers', {
     name: `P-${protocol}-${canVision}`,
-    endpoints: [{ slug: 'main', baseUrl: 'https://api.example.com', protocol, apiKey: KEY, models: [{ ...chatModel('m1'), canVision }] }],
+    endpoints: [{ slug: 'main', baseUrl: 'https://api.example.com', protocol, models: [{ ...chatModel('m1'), canVision }] }],
   })
-  return { endpointId: body.at(-1)!.endpoints[0]!.id, modelId: 'm1' }
+  const endpointId = body.at(-1)!.endpoints[0]!.id
+  await addKey(h, 'user-a', endpointId, KEY)
+  return { endpointId, modelId: 'm1' }
 }
 
 async function run(h: Harness, body: Record<string, unknown>) {

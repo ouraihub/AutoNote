@@ -231,6 +231,26 @@ export function createHttpKitPorts(transport: Transport): KitPorts {
         }),
     },
     providers: {
+      revealNeedsPassword: true,
+      revealKey: (keyId: string, currentPassword?: string | null) =>
+        call<{ key: string }>(transport, {
+          method: 'POST',
+          path: `${BASE}/endpoint-keys/${encodeURIComponent(keyId)}/reveal`,
+          body: { currentPassword },
+        }).then((result) => result.key),
+      saveKey: (input) => call<Provider[]>(transport, { method: 'PUT', path: `${BASE}/endpoint-keys`, body: input }),
+      removeKey: (endpointId: string, keyId: string) =>
+        call<Provider[]>(transport, {
+          method: 'DELETE',
+          path: `${BASE}/endpoint-keys/${encodeURIComponent(keyId)}`,
+          body: { endpointId },
+        }),
+      setEnabled: (id: string, enabled: boolean) =>
+        call<Provider[]>(transport, {
+          method: 'PATCH',
+          path: `${BASE}/providers/${encodeURIComponent(id)}/enabled`,
+          body: { enabled },
+        }),
       list: () => call<Provider[]>(transport, { path: `${BASE}/providers` }),
       save: (provider) => call<Provider[]>(transport, { method: 'PUT', path: `${BASE}/providers`, body: provider }),
       remove: (id) =>

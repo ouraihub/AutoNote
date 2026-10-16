@@ -344,16 +344,23 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
      ON fts_index_queue(user_id, created_at, note_id)`,
   `CREATE TABLE IF NOT EXISTS ai_providers (
     id TEXT PRIMARY KEY, user_id TEXT NOT NULL, name TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
     position INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_ai_providers_user ON ai_providers(user_id, position, id)`,
   `CREATE TABLE IF NOT EXISTS ai_endpoints (
     id TEXT PRIMARY KEY, user_id TEXT NOT NULL, provider_id TEXT NOT NULL,
     slug TEXT NOT NULL, base_url TEXT NOT NULL, protocol TEXT NOT NULL,
-    key_ciphertext TEXT, position INTEGER NOT NULL,
+    position INTEGER NOT NULL,
     UNIQUE(user_id, provider_id, slug)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_ai_endpoints_user ON ai_endpoints(user_id, provider_id, position, id)`,
+  `CREATE TABLE IF NOT EXISTS ai_endpoint_keys (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, endpoint_id TEXT NOT NULL,
+    label TEXT NOT NULL DEFAULT '', enabled INTEGER NOT NULL DEFAULT 1,
+    key_ciphertext TEXT NOT NULL, position INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_endpoint_keys ON ai_endpoint_keys(user_id, endpoint_id, position, id)`,
   `CREATE TABLE IF NOT EXISTS ai_models (
     user_id TEXT NOT NULL, endpoint_id TEXT NOT NULL, model_id TEXT NOT NULL,
     model_type TEXT NOT NULL, type_source TEXT NOT NULL, context_window INTEGER,
@@ -656,6 +663,27 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE ai_turn_images ADD COLUMN kind TEXT NOT NULL DEFAULT 'input' CHECK(kind IN ('input','generated'))`,
     ],
   },
+  {
+    version: 22,
+    skipIfColumnExists: { table: 'ai_providers', column: 'enabled' },
+    statements: [`ALTER TABLE ai_providers ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1`],
+  },
+  {
+    // Multi-key endpoints (docs/34 §4): drop the single key column; old keys are not migrated.
+    version: 23,
+    statements: [
+      `CREATE TABLE ai_endpoints_v23 (
+        id TEXT PRIMARY KEY, user_id TEXT NOT NULL, provider_id TEXT NOT NULL,
+        slug TEXT NOT NULL, base_url TEXT NOT NULL, protocol TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        UNIQUE(user_id, provider_id, slug)
+      )`,
+      `INSERT INTO ai_endpoints_v23 (id, user_id, provider_id, slug, base_url, protocol, position) SELECT id, user_id, provider_id, slug, base_url, protocol, position FROM ai_endpoints`,
+      `DROP TABLE ai_endpoints`,
+      `ALTER TABLE ai_endpoints_v23 RENAME TO ai_endpoints`,
+      `CREATE INDEX IF NOT EXISTS idx_ai_endpoints_user ON ai_endpoints(user_id, provider_id, position, id)`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -704,8 +732,9 @@ const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ai_note_embeddings: ['user_id', 'note_id', 'model', 'vector', 'indexed_at'],
   ai_index_queue: ['user_id', 'note_id', 'kind', 'created_at'],
   fts_index_queue: ['user_id', 'note_id', 'kind', 'created_at'],
-  ai_providers: ['id', 'user_id', 'name', 'position', 'created_at', 'updated_at'],
-  ai_endpoints: ['id', 'user_id', 'provider_id', 'slug', 'base_url', 'protocol', 'key_ciphertext', 'position'],
+  ai_providers: ['id', 'user_id', 'name', 'enabled', 'position', 'created_at', 'updated_at'],
+  ai_endpoints: ['id', 'user_id', 'provider_id', 'slug', 'base_url', 'protocol', 'position'],
+  ai_endpoint_keys: ['id', 'user_id', 'endpoint_id', 'label', 'enabled', 'key_ciphertext', 'position'],
   ai_models: ['user_id', 'endpoint_id', 'model_id', 'model_type', 'type_source', 'context_window', 'can_vision', 'position', 'max_output', 'supports_tools', 'reasoning', 'native_web_search'],
   ai_roles: ['user_id', 'role', 'endpoint_id', 'model_id'],
   ai_chat_conversations: ['id', 'user_id', 'title', 'scope', 'created_at', 'updated_at', 'selected_turn_id', 'revision'],
@@ -744,6 +773,7 @@ const REQUIRED_TABLES = [
   'fts_index_queue',
   'ai_providers',
   'ai_endpoints',
+  'ai_endpoint_keys',
   'ai_models',
   'ai_roles',
   'ai_chat_conversations',
@@ -798,6 +828,7 @@ const REQUIRED_INDEXES = [
   'idx_fts_index_queue_due',
   'idx_ai_providers_user',
   'idx_ai_endpoints_user',
+  'idx_ai_endpoint_keys',
   'idx_ai_chat_conversations_user',
   'idx_ai_search_keys_scope',
   'idx_ai_turn_images_object',

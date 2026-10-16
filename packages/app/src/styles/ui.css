@@ -24,6 +24,9 @@
   --color-border: var(--border-default);
   --color-input: var(--border-default);
   --color-ring: var(--accent-ring);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
 }
 
 @theme inline {
@@ -45,8 +48,9 @@
   --color-border: var(--border-default);
   --color-input: var(--border-default);
   --color-ring: var(--accent-ring);
-  --color-chart-2: var(--success);
-  --color-chart-4: var(--warning);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
   --radius-sm: var(--r-sm);
   --radius-md: var(--r-md);
   --radius-lg: var(--r-lg);

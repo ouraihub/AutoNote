@@ -759,7 +759,6 @@ pub fn run() {
             commands::app::desktop_prefs_get,
             commands::app::desktop_prefs_save,
             commands::app::desktop_close_ack,
-            commands::ai::ai_endpoint_key_reveal,
             commands::ai::ai_roles_get,
             commands::ai::ai_roles_set,
             commands::ai::ai_reply_export,

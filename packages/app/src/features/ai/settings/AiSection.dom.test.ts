@@ -26,15 +26,14 @@ test('saving a provider refreshes both role selectors and deleting it clears sta
               {
                 id: 'provider',
                 name: 'Saved provider',
+                enabled: true,
                 endpoints: [
                   {
                     id: 'endpoint',
                     slug: 'main',
                     baseUrl: 'https://example.com',
                     protocol: 'openai-chat',
-                    hasKey: true,
-                    keyReadable: true,
-                    keyMasked: 'test',
+                    keys: [{ id: 'k1', label: '', enabled: true, masked: 'test', readable: true }],
                     probeUrl: 'https://example.com/v1/models',
                     models: [],
                   },
@@ -77,13 +76,15 @@ test('saving a provider refreshes both role selectors and deleting it clears sta
   const selectors = await screen.findAllByRole('button', { name: 'Select a model' })
   await waitFor(() => expect(selectors.every((button) => (button as HTMLButtonElement).disabled)).toBe(true))
   await fireEvent.click(screen.getByRole('button', { name: 'Add provider' }))
-  await fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await fireEvent.input(await screen.findByRole('textbox', { name: 'Name' }), { target: { value: 'Saved provider' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'OK' }))
   await waitFor(() => {
     const refreshed = screen.getAllByRole('button', { name: 'Select a model' })
     expect(refreshed.every((button) => !(button as HTMLButtonElement).disabled)).toBe(true)
     expect(refreshed[0]?.textContent).toContain('Saved model')
   })
-  await fireEvent.click(screen.getByRole('button', { name: 'Delete provider' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Provider settings' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Delete provider' }))
   await waitFor(() => {
     const refreshed = screen.getAllByRole('button', { name: 'Select a model' })
     expect(refreshed.every((button) => (button as HTMLButtonElement).disabled)).toBe(true)

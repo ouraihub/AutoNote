@@ -10,8 +10,5 @@ export function aiHostPort(transport: Pick<IpcTransport, 'invoke'>): AiHostPort 
     exportMarkdown: async (markdown) => {
       await transport.invoke('ai_reply_export', { markdown })
     },
-    revealNeedsPassword: false,
-    revealKey: async (endpointId, _currentPassword, options) =>
-      (await transport.invoke('ai_endpoint_key_reveal', { id: endpointId }, options)).key,
   }
 }
