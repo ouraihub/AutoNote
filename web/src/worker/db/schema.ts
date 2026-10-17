@@ -344,7 +344,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
      ON fts_index_queue(user_id, created_at, note_id)`,
   `CREATE TABLE IF NOT EXISTS ai_providers (
     id TEXT PRIMARY KEY, user_id TEXT NOT NULL, name TEXT NOT NULL,
-    enabled INTEGER NOT NULL DEFAULT 1,
+    enabled INTEGER NOT NULL DEFAULT 1, notes TEXT NOT NULL DEFAULT '',
     position INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_ai_providers_user ON ai_providers(user_id, position, id)`,
@@ -697,6 +697,11 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     skipIfColumnExists: { table: 'ai_endpoints', column: 'image_edit_base_url' },
     statements: [`ALTER TABLE ai_endpoints ADD COLUMN image_edit_base_url TEXT`],
   },
+  {
+    version: 26,
+    skipIfColumnExists: { table: 'ai_providers', column: 'notes' },
+    statements: [`ALTER TABLE ai_providers ADD COLUMN notes TEXT NOT NULL DEFAULT ''`],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -745,7 +750,7 @@ const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ai_note_embeddings: ['user_id', 'note_id', 'model', 'vector', 'indexed_at'],
   ai_index_queue: ['user_id', 'note_id', 'kind', 'created_at'],
   fts_index_queue: ['user_id', 'note_id', 'kind', 'created_at'],
-  ai_providers: ['id', 'user_id', 'name', 'enabled', 'position', 'created_at', 'updated_at'],
+  ai_providers: ['id', 'user_id', 'name', 'enabled', 'notes', 'position', 'created_at', 'updated_at'],
   ai_endpoints: ['id', 'user_id', 'provider_id', 'slug', 'base_url', 'protocol', 'position', 'image_base_url', 'headers', 'image_edit_base_url'],
   ai_endpoint_keys: ['id', 'user_id', 'endpoint_id', 'label', 'enabled', 'key_ciphertext', 'position'],
   ai_models: ['user_id', 'endpoint_id', 'model_id', 'model_type', 'type_source', 'context_window', 'can_vision', 'position', 'max_output', 'supports_tools', 'reasoning', 'native_web_search'],

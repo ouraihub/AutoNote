@@ -275,6 +275,7 @@ mod tests {
                 id: None,
                 name: "Example".to_owned(),
                 enabled: None,
+                notes: None,
                 endpoints: vec![providers::EndpointSave {
                     id: None,
                     slug: "main".to_owned(),

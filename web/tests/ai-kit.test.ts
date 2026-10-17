@@ -1062,6 +1062,17 @@ describe('run and history routes', () => {
     expect(await h.json('user-a', 'GET', '/providers')).toMatchObject({ status: 200, body: [{ endpoints: [{ id: endpointId, imageEditBaseUrl: null }] }] })
   })
 
+  it('stores provider model notes, keeps them when omitted and rejects oversized notes', async () => {
+    const h = await createHarness()
+    const { providerId } = await saveProvider(h)
+    const put = (extra: Record<string, unknown>) =>
+      h.json<{ notes: string }[]>('user-a', 'PUT', '/providers', { id: providerId, name: 'Acme', endpoints: [], ...extra })
+    expect((await put({ notes: '## 价格\n- 便宜' })).body[0]?.notes).toBe('## 价格\n- 便宜')
+    expect((await put({})).body[0]?.notes).toBe('## 价格\n- 便宜')
+    expect(await put({ notes: 'x'.repeat(10_001) })).toMatchObject({ status: 400 })
+    expect((await h.json<{ notes: string }[]>('user-a', 'GET', '/providers')).body[0]?.notes).toBe('## 价格\n- 便宜')
+  })
+
   it('drops note payload on first and continuing chat in actual loopback requests without losing history', async () => {
     const h = await createHarness()
     const marker = 'CURRENT-NOTE-BODY-NOT-IN-DROPPED-REQUEST'
