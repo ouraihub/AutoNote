@@ -28,6 +28,7 @@ test('saving a provider refreshes both role selectors and deleting it clears sta
                 name: 'Saved provider',
                 enabled: true,
                 notes: '',
+                presetId: null,
                 endpoints: [
                   {
                     id: 'endpoint',

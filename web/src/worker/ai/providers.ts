@@ -25,6 +25,7 @@ import {
   at,
   badRequest,
   cancelled,
+  conflict,
   charCount,
   excerpt,
   isLoopback,
@@ -66,6 +67,7 @@ export const ProviderSaveSchema = z.strictObject({
   name: z.string(),
   enabled: z.boolean().optional(),
   notes: z.string().optional(),
+  presetId: z.string().min(1).max(64).optional(),
   endpoints: z.array(
     z.strictObject({
       id: z.string().max(64).optional(),
@@ -259,9 +261,9 @@ export async function listProviders(env: Env, userId: string): Promise<Provider[
   const db = env.DB
   const [{ results: providers }, { results: endpoints }, { results: models }, { results: keys }] = await Promise.all([
     db
-      .prepare('SELECT id, name, enabled, notes FROM ai_providers WHERE user_id = ?1 ORDER BY position, id')
+      .prepare('SELECT id, name, enabled, notes, preset_id AS presetId FROM ai_providers WHERE user_id = ?1 ORDER BY position, id')
       .bind(userId)
-      .all<{ id: string; name: string; enabled: number; notes: string }>(),
+      .all<{ id: string; name: string; enabled: number; notes: string; presetId: string | null }>(),
     db
       .prepare(
         'SELECT id, provider_id AS providerId, slug, base_url AS baseUrl, protocol, image_base_url AS imageBaseUrl, image_edit_base_url AS imageEditBaseUrl, headers FROM ai_endpoints WHERE user_id = ?1 ORDER BY position, id',
@@ -331,6 +333,7 @@ export async function listProviders(env: Env, userId: string): Promise<Provider[
     name: provider.name,
     enabled: provider.enabled !== 0,
     notes: provider.notes,
+    presetId: provider.presetId,
     endpoints: shown.filter(([providerId]) => providerId === provider.id).map(([, endpoint]) => endpoint),
   }))
 }
@@ -427,6 +430,18 @@ export async function saveProvider(env: Env, userId: string, input: ProviderSave
     if (!existing) throw notFound('provider')
     priorEnabled = existing.enabled !== 0
   }
+  if (input.id === undefined && input.presetId !== undefined) {
+    const owned = 'SELECT 1 FROM ai_providers WHERE user_id = ?1 AND preset_id = ?2'
+    if (!(await db.prepare(owned).bind(userId, input.presetId).first())) {
+      await db
+        .prepare(
+          'UPDATE ai_providers SET preset_id = ?2 WHERE id = (SELECT id FROM ai_providers WHERE user_id = ?1 AND preset_id IS NULL AND lower(name) = lower(?3) ORDER BY position LIMIT 1)',
+        )
+        .bind(userId, input.presetId, input.name.trim())
+        .run()
+    }
+    if (await db.prepare(owned).bind(userId, input.presetId).first()) return listProviders(env, userId)
+  }
   const providerId = input.id ?? newId()
   const enabled = input.enabled ?? priorEnabled ?? true
   const { results: old } = await db
@@ -463,9 +478,9 @@ export async function saveProvider(env: Env, userId: string, input: ProviderSave
     input.id === undefined
       ? db
           .prepare(
-            'INSERT INTO ai_providers (id, user_id, name, enabled, notes, position, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?6, (SELECT COALESCE(MAX(position) + 1, 0) FROM ai_providers WHERE user_id = ?2), ?5, ?5)',
+            'INSERT INTO ai_providers (id, user_id, name, enabled, notes, preset_id, position, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?6, ?7, (SELECT COALESCE(MAX(position) + 1, 0) FROM ai_providers WHERE user_id = ?2), ?5, ?5)',
           )
-          .bind(providerId, userId, input.name, enabled ? 1 : 0, now, input.notes ?? '')
+          .bind(providerId, userId, input.name, enabled ? 1 : 0, now, input.notes ?? '', input.presetId ?? null)
       : db
           .prepare('UPDATE ai_providers SET name = ?1, enabled = ?2, updated_at = ?3, notes = COALESCE(?6, notes) WHERE id = ?4 AND user_id = ?5')
           .bind(input.name, enabled ? 1 : 0, now, providerId, userId, input.notes ?? null),
@@ -526,10 +541,11 @@ export async function saveProvider(env: Env, userId: string, input: ProviderSave
 export async function removeProvider(env: Env, userId: string, id: string): Promise<Provider[]> {
   const db = env.DB
   const existing = await db
-    .prepare('SELECT 1 FROM ai_providers WHERE id = ?1 AND user_id = ?2')
+    .prepare('SELECT preset_id AS presetId FROM ai_providers WHERE id = ?1 AND user_id = ?2')
     .bind(id, userId)
-    .first()
+    .first<{ presetId: string | null }>()
   if (!existing) throw notFound('provider')
+  if (existing.presetId !== null) throw conflict('preset_provider')
   const endpoints = 'SELECT id FROM ai_endpoints WHERE user_id = ?1 AND provider_id = ?2'
   await db.batch([
     db.prepare(`DELETE FROM ai_roles WHERE user_id = ?1 AND endpoint_id IN (${endpoints})`).bind(userId, id),

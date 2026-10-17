@@ -1073,6 +1073,23 @@ describe('run and history routes', () => {
     expect((await h.json<{ notes: string }[]>('user-a', 'GET', '/providers')).body[0]?.notes).toBe('## 价格\n- 便宜')
   })
 
+  it('seeds a host preset once per user, adopts a same-named provider and refuses to delete presets', async () => {
+    const h = await createHarness()
+    type Listed = { id: string; name: string; presetId: string | null; enabled: boolean }[]
+    const seed = (user: string, name: string, presetId: string) =>
+      h.json<Listed>(user, 'PUT', '/providers', { name, presetId, enabled: false, endpoints: [{ slug: 'ep-1', baseUrl: 'https://api.qnaigc.com', protocol: 'openai-chat', models: [] }] })
+    const first = await seed('user-a', '七牛云', 'qiniu')
+    expect(first.body).toMatchObject([{ name: '七牛云', presetId: 'qiniu', enabled: false }])
+    expect((await seed('user-a', '七牛云', 'qiniu')).body).toHaveLength(1)
+    expect(await h.json('user-a', 'DELETE', `/providers/${first.body[0]!.id}`)).toMatchObject({ status: 409 })
+    expect((await h.json<Listed>('user-a', 'GET', '/providers')).body).toHaveLength(1)
+    expect((await seed('user-b', '七牛云', 'qiniu')).body).toMatchObject([{ presetId: 'qiniu' }])
+    const own = (await h.json<Listed>('user-a', 'PUT', '/providers', { name: 'Fenno', endpoints: [] })).body.find((p) => p.name === 'Fenno')!
+    const adopted = (await seed('user-a', 'fenno', 'fenno')).body
+    expect(adopted).toHaveLength(2)
+    expect(adopted.find((p) => p.id === own.id)).toMatchObject({ name: 'Fenno', presetId: 'fenno' })
+  })
+
   it('drops note payload on first and continuing chat in actual loopback requests without losing history', async () => {
     const h = await createHarness()
     const marker = 'CURRENT-NOTE-BODY-NOT-IN-DROPPED-REQUEST'

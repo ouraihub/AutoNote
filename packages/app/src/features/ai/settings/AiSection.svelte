@@ -9,6 +9,7 @@
   import { logFailure } from '@app/log/logger'
   import { getBackend, getI18n, getLogger } from '@app/root/context'
   import type { MessageKey } from '@shared/locales/en-US'
+  import { PROVIDER_PRESETS } from './presets'
 
   const aiHost = getBackend().aiHost
   const i18n = getI18n()
@@ -56,7 +57,7 @@
 
 {#if aiHost}
   <div class="space-y-6">
-    <ProvidersSettings onchanged={providersChanged} />
+    <ProvidersSettings onchanged={providersChanged} presets={PROVIDER_PRESETS} />
 
     {#key providerRevision}
       <section aria-labelledby={`${uid}-roles`}>
