@@ -54,7 +54,7 @@
     "@codemirror/view": "6.43.14",
     "@dicebear/core": "9.4.3",
     "@dicebear/micah": "9.4.3",
-    "@ouraihub/aether-ui": "github:ouraihub/Aether#45a023886afe652719f5b610204f302e844d35b5&path:packages/ui",
+    "@ouraihub/aether-ui": "github:ouraihub/Aether#87f2835e24122ccdb0de4936aeb8b3c9860625db&path:packages/ui",
     "dompurify": "3.4.1",
     "katex": "0.18.1",
     "markdown-it": "14.3.0",

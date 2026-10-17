@@ -13,12 +13,12 @@ note-core = { path = "core" }
 note-sync = { path = "sync" }
 note-mcp = { path = "mcp" }
 autonote-shell = { path = "shell" }
-aether-observability = { git = "https://github.com/ouraihub/Aether.git", rev = "45a023886afe652719f5b610204f302e844d35b5" }
-aether-providers = { git = "https://github.com/ouraihub/Aether.git", rev = "45a023886afe652719f5b610204f302e844d35b5" }
-aether-chat = { git = "https://github.com/ouraihub/Aether.git", rev = "45a023886afe652719f5b610204f302e844d35b5" }
-aether-mcp-server = { git = "https://github.com/ouraihub/Aether.git", rev = "45a023886afe652719f5b610204f302e844d35b5" }
-aether-search = { git = "https://github.com/ouraihub/Aether.git", rev = "45a023886afe652719f5b610204f302e844d35b5" }
-tauri-plugin-aether = { git = "https://github.com/ouraihub/Aether.git", rev = "45a023886afe652719f5b610204f302e844d35b5" }
+aether-observability = { git = "https://github.com/ouraihub/Aether.git", rev = "87f2835e24122ccdb0de4936aeb8b3c9860625db" }
+aether-providers = { git = "https://github.com/ouraihub/Aether.git", rev = "87f2835e24122ccdb0de4936aeb8b3c9860625db" }
+aether-chat = { git = "https://github.com/ouraihub/Aether.git", rev = "87f2835e24122ccdb0de4936aeb8b3c9860625db" }
+aether-mcp-server = { git = "https://github.com/ouraihub/Aether.git", rev = "87f2835e24122ccdb0de4936aeb8b3c9860625db" }
+aether-search = { git = "https://github.com/ouraihub/Aether.git", rev = "87f2835e24122ccdb0de4936aeb8b3c9860625db" }
+tauri-plugin-aether = { git = "https://github.com/ouraihub/Aether.git", rev = "87f2835e24122ccdb0de4936aeb8b3c9860625db" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
