@@ -409,7 +409,7 @@ const textStream = (text: string) =>
   )
 
 describe('request configuration (docs/36)', () => {
-  type Saved = { id: string; endpoints: { id: string; imageBaseUrl: string | null; headers: Record<string, string> }[] }[]
+  type Saved = { id: string; endpoints: { id: string; imageBaseUrl: string | null; imageEditBaseUrl: string | null; headers: Record<string, string> }[] }[]
   const put = (h: Harness, providerId: string, endpointId: string, extra: Record<string, unknown>) =>
     h.json<Saved>('user-a', 'PUT', '/providers', {
       id: providerId,
@@ -420,16 +420,17 @@ describe('request configuration (docs/36)', () => {
   it('saves, lists and keeps image base URL and headers when omitted', async () => {
     const h = await createHarness()
     const { providerId, endpointId } = await saveProvider(h)
-    expect((await h.json<Saved>('user-a', 'GET', '/providers')).body[0]!.endpoints[0]).toMatchObject({ imageBaseUrl: null, headers: {} })
-    const saved = await put(h, providerId, endpointId, { imageBaseUrl: ' https://img.example.com ', headers: { ' X-Team ': 'blue', 'x-trace': '' } })
-    expect(saved).toMatchObject({ status: 200, body: [{ endpoints: [{ imageBaseUrl: 'https://img.example.com', headers: { 'X-Team': 'blue', 'x-trace': '' } }] }] })
+    expect((await h.json<Saved>('user-a', 'GET', '/providers')).body[0]!.endpoints[0]).toMatchObject({ imageBaseUrl: null, imageEditBaseUrl: null, headers: {} })
+    const saved = await put(h, providerId, endpointId, { imageBaseUrl: ' https://img.example.com ', imageEditBaseUrl: ' https://edit.example.com ', headers: { ' X-Team ': 'blue', 'x-trace': '' } })
+    expect(saved).toMatchObject({ status: 200, body: [{ endpoints: [{ imageBaseUrl: 'https://img.example.com', imageEditBaseUrl: 'https://edit.example.com', headers: { 'X-Team': 'blue', 'x-trace': '' } }] }] })
     await put(h, providerId, endpointId, {})
     expect((await h.json<Saved>('user-a', 'GET', '/providers')).body[0]!.endpoints[0]).toMatchObject({
       imageBaseUrl: 'https://img.example.com',
+      imageEditBaseUrl: 'https://edit.example.com',
       headers: { 'X-Team': 'blue', 'x-trace': '' },
     })
-    const cleared = await put(h, providerId, endpointId, { imageBaseUrl: '  ', headers: {} })
-    expect(cleared.body[0]!.endpoints[0]).toMatchObject({ imageBaseUrl: null, headers: {} })
+    const cleared = await put(h, providerId, endpointId, { imageBaseUrl: '  ', imageEditBaseUrl: null, headers: {} })
+    expect(cleared.body[0]!.endpoints[0]).toMatchObject({ imageBaseUrl: null, imageEditBaseUrl: null, headers: {} })
   })
 
   it('rejects invalid image base URLs and headers with Aether reasons', async () => {
@@ -439,13 +440,15 @@ describe('request configuration (docs/36)', () => {
     const bad = (field: string, why: string) => ({ status: 400, body: { error: { details: { field, reason: why } } } })
     expect(await reason({ imageBaseUrl: 'ftp://img' })).toMatchObject(bad('imageBaseUrl', 'invalid_url'))
     expect(await reason({ imageBaseUrl: `https://${'a'.repeat(2048)}` })).toMatchObject(bad('imageBaseUrl', 'invalid_url'))
+    expect(await reason({ imageEditBaseUrl: 'ftp://img' })).toMatchObject(bad('imageEditBaseUrl', 'invalid_url'))
+    expect(await reason({ imageEditBaseUrl: `https://${'a'.repeat(2048)}` })).toMatchObject(bad('imageEditBaseUrl', 'invalid_url'))
     const many = Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`x-h${i}`, 'v']))
     expect(await reason({ headers: many })).toMatchObject(bad('headers', 'too_many'))
     for (const headers of [{ 'bad name': 'v' }, { '': 'v' }, { 'x-a': 'v', 'X-A': 'w' }, { 'x-a': 'a\nb' }, { 'x-a': 'v'.repeat(2049) }])
       expect(await reason({ headers }), JSON.stringify(headers).slice(0, 40)).toMatchObject(bad('headers', 'invalid'))
     for (const name of ['Authorization', 'x-api-key', 'Anthropic-Version', 'host', 'Content-Type', 'content-length', 'accept', 'connection', 'transfer-encoding', 'Cookie'])
       expect(await reason({ headers: { [name]: 'v' } }), name).toMatchObject(bad('headers', 'reserved'))
-    expect((await h.json<Saved>('user-a', 'GET', '/providers')).body[0]!.endpoints[0]).toMatchObject({ imageBaseUrl: null, headers: {} })
+    expect((await h.json<Saved>('user-a', 'GET', '/providers')).body[0]!.endpoints[0]).toMatchObject({ imageBaseUrl: null, imageEditBaseUrl: null, headers: {} })
   })
 
   it('sends custom headers on chat rounds and probes without overriding system headers', async () => {
@@ -1017,7 +1020,7 @@ describe('run and history routes', () => {
     const h = await createHarness()
     const { endpointId } = await saveProvider(h)
     await h.env.DB.exec(
-      "DROP TABLE ai_endpoint_keys; ALTER TABLE ai_endpoints ADD COLUMN key_ciphertext TEXT; UPDATE ai_endpoints SET key_ciphertext = 'legacy'; DELETE FROM schema_migrations WHERE version IN (23, 24); DELETE FROM app_meta WHERE key = 'database-state-v1'",
+      "DROP TABLE ai_endpoint_keys; ALTER TABLE ai_endpoints ADD COLUMN key_ciphertext TEXT; UPDATE ai_endpoints SET key_ciphertext = 'legacy'; DELETE FROM schema_migrations WHERE version IN (23, 24, 25); DELETE FROM app_meta WHERE key = 'database-state-v1'",
     )
     const old = h.env.DB
     h.env.DB = { prepare: old.prepare.bind(old), batch: old.batch.bind(old), exec: old.exec.bind(old) } as D1Database
@@ -1043,6 +1046,20 @@ describe('run and history routes', () => {
       status: 200,
       body: [{ endpoints: [{ id: endpointId, imageBaseUrl: null, headers: {}, keys: [{ masked: expect.any(String) }] }] }],
     })
+  })
+
+  it('upgrades a v24 endpoint table to v25 with no image edit base URL', async () => {
+    const h = await createHarness()
+    const { endpointId } = await saveProvider(h)
+    await h.env.DB.exec(
+      "ALTER TABLE ai_endpoints DROP COLUMN image_edit_base_url; DELETE FROM schema_migrations WHERE version = 25; DELETE FROM app_meta WHERE key = 'database-state-v1'",
+    )
+    const old = h.env.DB
+    h.env.DB = { prepare: old.prepare.bind(old), batch: old.batch.bind(old), exec: old.exec.bind(old) } as D1Database
+    await initializeDatabase(h.env)
+    const columns = (await h.env.DB.prepare('PRAGMA table_info(ai_endpoints)').all<{ name: string }>()).results.map((row) => row.name)
+    expect(columns).toContain('image_edit_base_url')
+    expect(await h.json('user-a', 'GET', '/providers')).toMatchObject({ status: 200, body: [{ endpoints: [{ id: endpointId, imageEditBaseUrl: null }] }] })
   })
 
   it('drops note payload on first and continuing chat in actual loopback requests without losing history', async () => {

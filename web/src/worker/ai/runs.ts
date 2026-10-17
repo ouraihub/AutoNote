@@ -22,8 +22,8 @@ import {
 } from './kit'
 import { PROTOCOL_PATH, Decoder, SseParser, authHeaders, requestBody, type ImagePart, type StoredMessage, type ToolCall, type ToolSpec, type Usage, type ReasoningBlock } from './protocol'
 import { modelOptions, resolveModel, withKeys, type Connection } from './providers'
-import { ImagesSchema, checkImages, copyImages, loadImages, saveGenerated, saveImages } from './images'
-import { GENERATE_IMAGE, GENERATE_IMAGE_SPEC, generateImage } from './painting'
+import { ImagesSchema, checkImages, copyImages, loadImages, saveGenerated, saveImages, type ImageRow } from './images'
+import { GENERATE_IMAGE, generateImage, generateImageSpec } from './painting'
 
 const NOTE_MAX_CHARS = 24_000
 const NOTE_TITLE_MAX_CHARS = 200
@@ -91,6 +91,8 @@ export interface PreparedRun {
   /** Host tools offered this run; currently only `generate_image` (docs/20). */
   tools: ToolSpec[]
   painting: Connection | null
+  /** Images `generate_image` may edit, `image-N` = index N-1 (docs/37 §2.1); bytes load on use. */
+  choices: { origin: string; image: ImagePart | ImageRow }[]
 }
 
 const bytes = (value: string): number => new TextEncoder().encode(value).length
@@ -267,7 +269,16 @@ export async function prepareRun(env: Env, userId: string, req: RunRequestInput)
     if (source && !translation) await copyImages(env.DB, userId, [[source.id, turn.turnId]], 'input')
     else if (!source) await saveImages(env, userId, turn.turnId, req.images)
   }
-  return { runId: newId(), connection, system, history, input, images, maxOutput, turn, webSearch: req.purpose === 'chat' && req.webSearch && !nativeWebSearch, nativeWebSearch, reasoningEffort: req.reasoningEffort, reasoningBudget, tools: painting ? [GENERATE_IMAGE_SPEC] : [], painting }
+  const choices: PreparedRun['choices'] = []
+  if (painting?.canVision) {
+    for (const image of [...images].reverse()) choices.push({ origin: 'attached by the user in this message', image })
+    for (const past of [...turns].reverse()) {
+      for (const image of [...past.generated].reverse()) choices.push({ origin: 'generated in an earlier reply', image })
+      for (const image of [...past.images].reverse()) choices.push({ origin: 'attached in an earlier message', image })
+    }
+  }
+  const offered = choices.filter(({ image }) => !('objectKey' in image) || image.objectKey).slice(0, 8)
+  return { runId: newId(), connection, system, history, input, images, maxOutput, turn, webSearch: req.purpose === 'chat' && req.webSearch && !nativeWebSearch, nativeWebSearch, reasoningEffort: req.reasoningEffort, reasoningBudget, tools: painting ? [generateImageSpec(offered.map((choice) => choice.origin))] : [], painting, choices: offered }
 }
 
 /** The `painting` role's image model; unbound or deleted → `needs_config{painting_model}`. */
@@ -498,7 +509,7 @@ async function runTool(env: Env, userId: string, run: PreparedRun, call: ToolCal
   if (painted.count++ >= MAX_PAINTINGS) return fail('limit', `At most ${MAX_PAINTINGS} images per reply.`)
   let image: ImagePart
   try {
-    image = await generateImage(env.DB, run.painting, call.args ?? {}, signal)
+    image = await generateImage(env.DB, run.painting, call.args ?? {}, signal, await pickImages(env, run, call.args?.image_ids))
   } catch (error) {
     if (signal.aborted) {
       emit({ kind: 'tool_result', callId: call.id, outcome: 'unknown', summary: 'cancelled' })
@@ -514,4 +525,21 @@ async function runTool(env: Env, userId: string, run: PreparedRun, call: ToolCal
   const text = 'Generated 1 image; it is already shown to the user.'
   emit({ kind: 'tool_result', callId: call.id, outcome: 'ok', summary: text, payload: { images: [{ mime: image.mime, url }] } })
   return text
+}
+
+/** Resolves `image_ids` against the run's choices, loading bytes now (docs/37 §2.1). */
+async function pickImages(env: Env, run: PreparedRun, raw: unknown): Promise<[string, ImagePart][]> {
+  if (raw == null) return []
+  if (!run.painting?.canVision) throw badRequest('image_ids', 'unsupported')
+  if (!Array.isArray(raw)) throw badRequest('image_ids', 'unknown')
+  if (raw.length > 4) throw badRequest('image_ids', 'too_many', 4)
+  const picked: [string, ImagePart][] = []
+  for (const id of raw) {
+    const choice = typeof id === 'string' ? run.choices[Number(/^image-([1-9])$/.exec(id)?.[1]) - 1] : undefined
+    if (!choice) throw badRequest('image_ids', 'unknown')
+    const image = 'objectKey' in choice.image ? (await loadImages(env, [choice.image]))[0] : choice.image
+    if (!image) throw badRequest('image_ids', 'expired')
+    picked.push([id, image])
+  }
+  return picked
 }

@@ -1,4 +1,4 @@
-// `generate_image` tool (Aether docs/20): spec and an OpenAI-compatible `/images/generations` client.
+// `generate_image` tool (Aether docs/20, docs/37): spec and an OpenAI-compatible `/images/generations` + `/images/edits` client.
 import { KitFailure, addressAllowed, at, badRequest, cancelled, parseTarget, readUpTo, upstreamFailure } from './kit'
 import { MAX_IMAGE_BYTES, encode } from './images'
 import type { ImagePart, ToolSpec } from './protocol'
@@ -23,6 +23,21 @@ export const GENERATE_IMAGE_SPEC: ToolSpec = {
   },
 }
 
+/** Per-run spec: with `choices` (docs/37 §2.1, newest first) the model may pass `image_ids` to edit them. */
+export function generateImageSpec(choices: readonly string[]): ToolSpec {
+  if (!choices.length) return GENERATE_IMAGE_SPEC
+  const ids = choices.map((_, i) => `image-${i + 1}`)
+  const list = choices.map((origin, i) => `${ids[i]}: ${origin}`).join('\n')
+  const { properties, ...rest } = GENERATE_IMAGE_SPEC.parameters as { properties: Record<string, unknown> }
+  return {
+    name: GENERATE_IMAGE,
+    description: `${GENERATE_IMAGE_SPEC.description} To edit or use existing images as references, pass their ids in image_ids; omit it to draw from scratch.\nImages you can pass in image_ids (newest first):\n${list}`,
+    parameters: { ...rest, properties: { ...properties, image_ids: { type: 'array', items: { type: 'string', enum: ids }, minItems: 1, maxItems: 4 } } },
+  }
+}
+
+const EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' }
+
 function mimeOf(bytes: Uint8Array): string {
   if (bytes[0] === 0xff && bytes[1] === 0xd8) return 'image/jpeg'
   if (String.fromCharCode(...bytes.subarray(8, 12)) === 'WEBP') return 'image/webp'
@@ -35,8 +50,8 @@ async function allowed(db: D1Database, raw: string): Promise<URL> {
   return url
 }
 
-/** Validates the model's arguments and calls the painting model once. */
-export async function generateImage(db: D1Database, painting: Connection, args: Record<string, unknown>, signal: AbortSignal): Promise<ImagePart> {
+/** Validates the model's arguments and calls the painting model once; `images` (id → part) switch to `/images/edits`. */
+export async function generateImage(db: D1Database, painting: Connection, args: Record<string, unknown>, signal: AbortSignal, images: readonly (readonly [id: string, image: ImagePart])[] = []): Promise<ImagePart> {
   const prompt = typeof args.prompt === 'string' ? args.prompt.trim() : ''
   if (!prompt || [...prompt].length > 4000) throw badRequest('prompt', 'invalid')
   const size = args.size == null ? SIZES[0] : SIZES.find((item) => item === args.size)
@@ -52,13 +67,28 @@ export async function generateImage(db: D1Database, painting: Connection, args: 
       throw new KitFailure('network', 'painting model unreachable')
     }
   }
-  const target = await allowed(db, `${painting.imageBaseUrl ?? painting.baseUrl}/images/generations`)
+  const edit = images.length > 0
+  const target = await allowed(db, edit ? `${painting.imageEditBaseUrl ?? painting.baseUrl}/images/edits` : `${painting.imageBaseUrl ?? painting.baseUrl}/images/generations`)
+  // No `response_format`: gpt-image-* rejects it (always b64); others may answer `url`, handled below.
+  let payload: BodyInit = JSON.stringify({ model: painting.modelId, prompt, size, n: 1 })
+  if (edit) {
+    const form = new FormData()
+    form.set('model', painting.modelId)
+    form.set('prompt', prompt)
+    form.set('size', size)
+    form.set('n', '1')
+    for (const [id, image] of images) {
+      const file = Uint8Array.from(atob(image.data), (c) => c.charCodeAt(0))
+      form.append(images.length === 1 ? 'image' : 'image[]', new Blob([file], { type: image.mime }), `${id}.${EXT[image.mime] ?? 'png'}`)
+    }
+    payload = form
+  }
   const { response, text, overflow } = await withKeys(painting.apiKeys, async (key) => {
     const response = await call(target, {
       method: 'POST',
-      headers: { ...painting.headers, 'content-type': 'application/json', ...(key ? { authorization: `Bearer ${key}` } : {}) },
-      // No `response_format`: gpt-image-* rejects it (always b64); others may answer `url`, handled below.
-      body: JSON.stringify({ model: painting.modelId, prompt, size, n: 1 }),
+      // FormData sets its own multipart content-type with the boundary.
+      headers: { ...painting.headers, ...(edit ? {} : { 'content-type': 'application/json' }), ...(key ? { authorization: `Bearer ${key}` } : {}) },
+      body: payload,
     })
     const { bytes: raw, overflow } = await readUpTo(response.body, RESPONSE_BYTES)
     const text = new TextDecoder().decode(raw)

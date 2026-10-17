@@ -23,7 +23,7 @@ Cherry 一个服务商下按协议挂多个端点；我们是一个服务商下�
 | 默认徽标 / 设为默认 | 只显示“默认”徽标（一条线路只有一个地址） | 不需要 | — |
 | 添加端点 | 添加线路（已有 `onaddendpoint`） | 已有 | 已有 |
 | 图像生成 Base URL | **新增** 本线路的图像生成地址 | **新增列 `image_base_url TEXT NULL`** | 绘图 `/images/generations`（桌面 `painting.rs`、Web `painting.ts`） |
-| 图像编辑 Base URL | **不做** | — | 两端都没有调用 `/images/edits`，做了就是表面配置 |
+| 图像编辑 Base URL | 已在 docs/37 随改图功能一起实现 | 新增列 `image_edit_base_url`（桌面 v7、Web v25） | 改图 `/images/edits` |
 | 自定义请求头 | **新增** 本线路的自定义请求头 | **新增列 `headers TEXT NOT NULL DEFAULT '{}'`**（JSON 对象） | 聊天每一轮、绘图、探测/同步模型 |
 
 结论：**需要改表**，两端各加两列；不加列就会出现“填了保存但没存上”的情况。

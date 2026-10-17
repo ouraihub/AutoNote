@@ -72,6 +72,7 @@ export const ProviderSaveSchema = z.strictObject({
       baseUrl: z.string(),
       protocol: z.enum(PROTOCOLS),
       imageBaseUrl: z.string().nullable().optional(),
+      imageEditBaseUrl: z.string().nullable().optional(),
       headers: z.record(z.string(), z.string()).optional(),
       models: z.array(ModelSchema),
     }),
@@ -138,6 +139,7 @@ function storedReasoning(raw: string | null): ReasoningConfig | null {
 export interface Connection {
   baseUrl: string
   imageBaseUrl: string | null
+  imageEditBaseUrl: string | null
   headers: Record<string, string>
   protocol: Protocol
   /** Enabled keys in rotation order for this request; empty = no key. */
@@ -159,6 +161,7 @@ interface EndpointRow {
   baseUrl: string
   protocol: Protocol
   imageBaseUrl: string | null
+  imageEditBaseUrl: string | null
   headers: string
 }
 
@@ -260,7 +263,7 @@ export async function listProviders(env: Env, userId: string): Promise<Provider[
       .all<{ id: string; name: string; enabled: number }>(),
     db
       .prepare(
-        'SELECT id, provider_id AS providerId, slug, base_url AS baseUrl, protocol, image_base_url AS imageBaseUrl, headers FROM ai_endpoints WHERE user_id = ?1 ORDER BY position, id',
+        'SELECT id, provider_id AS providerId, slug, base_url AS baseUrl, protocol, image_base_url AS imageBaseUrl, image_edit_base_url AS imageEditBaseUrl, headers FROM ai_endpoints WHERE user_id = ?1 ORDER BY position, id',
       )
       .bind(userId)
       .all<EndpointRow>(),
@@ -299,6 +302,7 @@ export async function listProviders(env: Env, userId: string): Promise<Provider[
           baseUrl: row.baseUrl,
           protocol: row.protocol,
           imageBaseUrl: row.imageBaseUrl,
+          imageEditBaseUrl: row.imageEditBaseUrl,
           headers: JSON.parse(row.headers) as Record<string, string>,
           keys: shownKeys,
           probeUrl: `${apiBase(row.baseUrl)}/models`,
@@ -383,6 +387,7 @@ function validateSave(input: ProviderSaveInput): void {
     if (new TextEncoder().encode(url).length > 2048) throw badRequest('baseUrl', 'out_of_range', 2048)
     if (url && !url.startsWith('http://') && !url.startsWith('https://')) throw badRequest('baseUrl', 'invalid_url')
     if (imageBase(endpoint.imageBaseUrl) === undefined) throw badRequest('imageBaseUrl', 'invalid_url')
+    if (imageBase(endpoint.imageEditBaseUrl) === undefined) throw badRequest('imageEditBaseUrl', 'invalid_url')
     if (endpoint.headers !== undefined) cleanHeaders(endpoint.headers)
     if (endpoint.models.length > 1000) throw badRequest('models', 'out_of_range', 1000)
     const models = new Set<string>()
@@ -480,19 +485,20 @@ export async function saveProvider(env: Env, userId: string, input: ProviderSave
   planned.forEach(({ endpoint, id, models }, position) => {
     const values = [endpoint.slug, endpoint.baseUrl.trim(), endpoint.protocol, position, id, userId] as const
     const image = endpoint.imageBaseUrl === undefined ? undefined : (imageBase(endpoint.imageBaseUrl) ?? null)
+    const edit = endpoint.imageEditBaseUrl === undefined ? undefined : (imageBase(endpoint.imageEditBaseUrl) ?? null)
     const headers = endpoint.headers === undefined ? null : JSON.stringify(cleanHeaders(endpoint.headers))
     statements.push(
       endpoint.id === undefined
         ? db
             .prepare(
-              'INSERT INTO ai_endpoints (slug, base_url, protocol, position, id, user_id, provider_id, image_base_url, headers) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)',
+              'INSERT INTO ai_endpoints (slug, base_url, protocol, position, id, user_id, provider_id, image_base_url, headers, image_edit_base_url) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)',
             )
-            .bind(...values, providerId, image ?? null, headers ?? '{}')
+            .bind(...values, providerId, image ?? null, headers ?? '{}', edit ?? null)
         : db
             .prepare(
-              'UPDATE ai_endpoints SET slug = ?1, base_url = ?2, protocol = ?3, position = ?4, image_base_url = CASE WHEN ?7 = 1 THEN image_base_url ELSE ?8 END, headers = COALESCE(?9, headers) WHERE id = ?5 AND user_id = ?6',
+              'UPDATE ai_endpoints SET slug = ?1, base_url = ?2, protocol = ?3, position = ?4, image_base_url = CASE WHEN ?7 = 1 THEN image_base_url ELSE ?8 END, headers = COALESCE(?9, headers), image_edit_base_url = CASE WHEN ?10 = 1 THEN image_edit_base_url ELSE ?11 END WHERE id = ?5 AND user_id = ?6',
             )
-            .bind(...values, image === undefined ? 1 : 0, image ?? null, headers),
+            .bind(...values, image === undefined ? 1 : 0, image ?? null, headers, edit === undefined ? 1 : 0, edit ?? null),
       db
         .prepare(
           `INSERT INTO ai_models (user_id, endpoint_id, model_id, model_type, type_source, context_window, max_output, can_vision, supports_tools, reasoning, native_web_search, position)
@@ -638,7 +644,7 @@ export async function modelOptions(db: D1Database, userId: string, filter: Model
 
 export async function resolveModel(env: Env, userId: string, model: ModelRef): Promise<Connection> {
   const row = await env.DB.prepare(
-    `SELECT e.id AS endpointId, e.base_url AS baseUrl, e.protocol, e.image_base_url AS imageBaseUrl, e.headers,
+    `SELECT e.id AS endpointId, e.base_url AS baseUrl, e.protocol, e.image_base_url AS imageBaseUrl, e.image_edit_base_url AS imageEditBaseUrl, e.headers,
        m.model_type AS modelType, m.context_window AS contextWindow, m.max_output AS maxOutput, m.supports_tools AS supportsTools, m.reasoning, m.native_web_search AS nativeWebSearch, m.can_vision AS canVision
      FROM ai_models m JOIN ai_endpoints e ON e.id = m.endpoint_id AND e.user_id = m.user_id
      JOIN ai_providers p ON p.id = e.provider_id AND p.user_id = m.user_id
@@ -650,6 +656,7 @@ export async function resolveModel(env: Env, userId: string, model: ModelRef): P
       baseUrl: string
       protocol: Protocol
       imageBaseUrl: string | null
+      imageEditBaseUrl: string | null
       headers: string
       modelType: ModelType
       contextWindow: number | null
@@ -664,6 +671,7 @@ export async function resolveModel(env: Env, userId: string, model: ModelRef): P
   return {
     baseUrl: apiBase(row.baseUrl),
     imageBaseUrl: row.imageBaseUrl ? apiBase(row.imageBaseUrl) : null,
+    imageEditBaseUrl: row.imageEditBaseUrl ? apiBase(row.imageEditBaseUrl) : null,
     headers: JSON.parse(row.headers) as Record<string, string>,
     protocol: row.protocol,
     apiKeys: await rotatedKeys(env, userId, row.endpointId),
