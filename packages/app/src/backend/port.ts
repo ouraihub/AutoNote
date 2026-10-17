@@ -248,6 +248,7 @@ export interface AiHostPort {
   roles(options?: CallOptions): Promise<AiRoleBinding[]>
   setRole(role: AiRole, binding: ModelRef | null, options?: CallOptions): Promise<AiRoleBinding[]>
   exportMarkdown?(markdown: string): Promise<void>
+  readImage(url: string, options?: CallOptions): Promise<Blob>
 }
 
 export interface Backend {

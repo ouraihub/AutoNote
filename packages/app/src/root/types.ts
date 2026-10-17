@@ -1,4 +1,5 @@
 import type { Text } from '@codemirror/state'
+import type { ImageRef } from '@ouraihub/aether-ui/ports'
 import type { EditorView } from '@codemirror/view'
 import type { Component } from 'svelte'
 import type { FlushResult } from '@shared/backend-types'
@@ -28,7 +29,7 @@ export interface HostPanel {
 export interface WorkspacePanelProps {
   note: { id: string; title: string; content: string } | null
   insert(text: string): void
-  saveNote(markdown: string): Promise<void>
+  saveNote(markdown: string, images?: readonly ImageRef[]): Promise<void>
   openSettings(sectionId: string): void
   onClose(): void
 }

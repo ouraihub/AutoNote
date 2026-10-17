@@ -7,7 +7,10 @@
   const markdown = '# Saved reply\n\n- body\n- retained'
   async function save() {
     try {
-      await saveNote(markdown)
+      await saveNote(markdown, [
+        { mime: 'image/png', url: 'data:image/png;base64,iVBORw0KGgo=' },
+        { mime: 'image/png', url: null },
+      ])
     } catch {
       error = i18n.t('common.save_failed')
     }

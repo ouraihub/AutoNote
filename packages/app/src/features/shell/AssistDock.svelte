@@ -1,12 +1,15 @@
 <script lang="ts">
+  import type { ImageRef } from '@ouraihub/aether-ui/ports'
   import type { MessageKey } from '@shared/locales/en-US'
-  import { getExtensions, getI18n, getNotes, getUi } from '@app/root/context'
+  import { getBackend, getExtensions, getI18n, getNotes, getUi } from '@app/root/context'
+  import { uploadedFileMarkdown } from '@app/editor'
   import type { WorkspacePanelProps } from '@app/root/types'
 
   let { narrow }: { narrow: boolean } = $props()
   const extensions = getExtensions()
   const ui = getUi()
   const notes = getNotes()
+  const backend = getBackend()
   const i18n = getI18n()
   const slot = extensions.workspacePanel
 
@@ -22,10 +25,19 @@
     if (ui.insertAtCursor) return ui.insertAtCursor(text)
     if (note) notes.editContent(note.id, `${note.content}${note.content.endsWith('\n') ? '\n' : '\n\n'}${text}`)
   }
-  async function saveNote(markdown: string): Promise<void> {
+  async function saveNote(markdown: string, images: readonly ImageRef[] = []): Promise<void> {
     const first = markdown.split(/\r?\n/).find((line) => line.trim()) ?? ''
     const title = [...first.replace(/^\s{0,3}#{1,6}\s+/, '').trim()].slice(0, 80).join('')
-    await notes.create({ title, content: markdown })
+    const links: string[] = []
+    for (const [index, image] of images.entries()) {
+      if (!image.url || !backend.aiHost) continue
+      const blob = await backend.aiHost.readImage(image.url)
+      const extension = (image.mime.split('/')[1] ?? 'png').replace('jpeg', 'jpg')
+      const file = new File([blob], `ai-image-${index + 1}.${extension}`, { type: image.mime })
+      links.push(uploadedFileMarkdown(await backend.files.upload(file)))
+    }
+    const content = [markdown, ...links].filter(Boolean).join('\n\n')
+    await notes.create({ title, content })
   }
   const close = (): void => ui.toggleAssist(false)
 </script>

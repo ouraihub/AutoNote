@@ -288,6 +288,17 @@ test('saving an assistant reply creates an independent note and preserves the or
   }
   setup.backend.notes.list = async () => ({ notes: [original, ...saved], total: 1 + saved.length, nextCursor: null })
   setup.backend.notes.get = async (id) => saved.find((note) => note.id === id) ?? original
+  const readImage = vi.fn(async (url: string) => new Blob([url], { type: 'image/png' }))
+  const uploaded: File[] = []
+  Object.assign(setup.backend, {
+    aiHost: { readImage },
+    files: {
+      upload: async (file: File) => {
+        uploaded.push(file)
+        return { id: 'ATTACH1', filename: file.name, mime: file.type }
+      },
+    },
+  })
   const deps = {
     ...setup.deps,
     extensions: {
@@ -302,7 +313,11 @@ test('saving an assistant reply creates an independent note and preserves the or
     await fireEvent.click(within(node).getByRole('option', { name: 'Original note' }))
     await fireEvent.click(await within(node).findByRole('button', { name: 'AI 对话' }))
     await fireEvent.click(await within(node).findByRole('button', { name: '保存' }))
-    await waitFor(() => expect(saved[0]?.content).toBe('# Saved reply\n\n- body\n- retained'))
+    await waitFor(() =>
+      expect(saved[0]?.content).toBe('# Saved reply\n\n- body\n- retained\n\n![ai-image-1](</api/files/ATTACH1>)'),
+    )
+    expect(readImage).toHaveBeenCalledExactlyOnceWith('data:image/png;base64,iVBORw0KGgo=')
+    expect(uploaded.map((file) => [file.name, file.type])).toEqual([['ai-image-1.png', 'image/png']])
     expect(saved[0]?.title).toBe('Saved reply')
     expect(saved[0]?.id).not.toBe(original.id)
     expect(original.content).toBe('')
