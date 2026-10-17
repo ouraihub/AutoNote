@@ -34,7 +34,10 @@ beforeEach(() => {
   fetchMock.mockReset()
   vi.stubGlobal('fetch', fetchMock)
 })
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
+})
 
 async function setup(protocol: Protocol, { bind = true, supportsTools = null as boolean | null } = {}) {
   const h = await createHarness()
@@ -139,5 +142,31 @@ describe('generate_image tool loop', () => {
     expect(capped.events.filter((e) => e.kind === 'round_start')).toHaveLength(4)
     expect(capped.events.filter((e) => e.kind === 'tool_result').map((e) => e.outcome)).toEqual(['ok', 'ok', 'error', 'error'])
     expect(capped.events.at(-1)).toEqual({ kind: 'end', status: 'completed', exhausted: true })
+  })
+
+  it('paints at the image base URL with custom headers and falls back to the API address when cleared', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(Date.now() + 120_000)
+    const { h, model } = await setup('openai-chat')
+    const providerId = (await h.json<{ id: string }[]>('user-a', 'GET', '/providers')).body[0]!.id
+    const save = (imageBaseUrl: string) =>
+      h.json('user-a', 'PUT', '/providers', {
+        id: providerId,
+        name: 'P',
+        endpoints: [{ id: model.endpointId, slug: 'main', baseUrl: 'https://api.example.com', protocol: 'openai-chat', imageBaseUrl, headers: { 'X-Team': 'blue' }, models: [chatModel('m1'), { ...chatModel('img1'), modelType: 'image' }] }],
+      })
+    await save('https://img.example.com/')
+    upstream('openai-chat', 1)
+    await run(h, { model, generateImage: true })
+    const [paint] = calls('/images/generations')
+    expect(String(paint![0])).toBe('https://img.example.com/v1/images/generations')
+    const headers = new Headers(paint![1]?.headers)
+    expect([headers.get('x-team'), headers.get('authorization')]).toEqual(['blue', `Bearer ${KEY}`])
+
+    fetchMock.mockReset()
+    await save('')
+    upstream('openai-chat', 1)
+    await run(h, { model, generateImage: true })
+    expect(calls('/images/generations').map(([url]) => String(url))).toEqual(['https://api.example.com/v1/images/generations'])
   })
 })

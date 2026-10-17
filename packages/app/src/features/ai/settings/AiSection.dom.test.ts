@@ -35,6 +35,8 @@ test('saving a provider refreshes both role selectors and deleting it clears sta
                     protocol: 'openai-chat',
                     keys: [{ id: 'k1', label: '', enabled: true, masked: 'test', readable: true }],
                     probeUrl: 'https://example.com/v1/models',
+                    imageBaseUrl: null,
+                    headers: {},
                     models: [],
                   },
                 ],

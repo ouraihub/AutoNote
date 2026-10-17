@@ -296,6 +296,8 @@ mod tests {
                             false,
                         ),
                     ],
+                    image_base_url: None,
+                    headers: None,
                 }],
             })
             .unwrap();

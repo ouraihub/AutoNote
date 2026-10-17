@@ -426,7 +426,7 @@ async function streamRound(
       try {
         response = await fetch(`${connection.baseUrl}/${PROTOCOL_PATH[connection.protocol]}`, {
           method: 'POST',
-          headers: { ...authHeaders(connection.protocol, key), accept: 'text/event-stream', 'content-type': 'application/json' },
+          headers: { ...connection.headers, ...authHeaders(connection.protocol, key), accept: 'text/event-stream', 'content-type': 'application/json' },
           body,
           redirect: 'manual',
           signal: upstream.signal,

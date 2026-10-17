@@ -52,11 +52,11 @@ export async function generateImage(db: D1Database, painting: Connection, args: 
       throw new KitFailure('network', 'painting model unreachable')
     }
   }
-  const target = await allowed(db, `${painting.baseUrl}/images/generations`)
+  const target = await allowed(db, `${painting.imageBaseUrl ?? painting.baseUrl}/images/generations`)
   const { response, text, overflow } = await withKeys(painting.apiKeys, async (key) => {
     const response = await call(target, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...(key ? { authorization: `Bearer ${key}` } : {}) },
+      headers: { ...painting.headers, 'content-type': 'application/json', ...(key ? { authorization: `Bearer ${key}` } : {}) },
       // No `response_format`: gpt-image-* rejects it (always b64); others may answer `url`, handled below.
       body: JSON.stringify({ model: painting.modelId, prompt, size, n: 1 }),
     })

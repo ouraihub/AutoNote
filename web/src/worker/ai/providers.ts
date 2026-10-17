@@ -71,6 +71,8 @@ export const ProviderSaveSchema = z.strictObject({
       slug: z.string(),
       baseUrl: z.string(),
       protocol: z.enum(PROTOCOLS),
+      imageBaseUrl: z.string().nullable().optional(),
+      headers: z.record(z.string(), z.string()).optional(),
       models: z.array(ModelSchema),
     }),
   ),
@@ -135,6 +137,8 @@ function storedReasoning(raw: string | null): ReasoningConfig | null {
 
 export interface Connection {
   baseUrl: string
+  imageBaseUrl: string | null
+  headers: Record<string, string>
   protocol: Protocol
   /** Enabled keys in rotation order for this request; empty = no key. */
   apiKeys: string[]
@@ -154,6 +158,8 @@ interface EndpointRow {
   slug: string
   baseUrl: string
   protocol: Protocol
+  imageBaseUrl: string | null
+  headers: string
 }
 
 interface KeyRow {
@@ -232,13 +238,17 @@ export async function withKeys<T>(keys: readonly string[], attempt: (key: string
   }
 }
 
-async function ownedEndpoint(db: D1Database, userId: string, id: string): Promise<{ baseUrl: string; protocol: Protocol }> {
+async function ownedEndpoint(
+  db: D1Database,
+  userId: string,
+  id: string,
+): Promise<{ baseUrl: string; protocol: Protocol; headers: Record<string, string> }> {
   const row = await db
-    .prepare('SELECT base_url AS baseUrl, protocol FROM ai_endpoints WHERE id = ?1 AND user_id = ?2')
+    .prepare('SELECT base_url AS baseUrl, protocol, headers FROM ai_endpoints WHERE id = ?1 AND user_id = ?2')
     .bind(id, userId)
-    .first<{ baseUrl: string; protocol: Protocol }>()
+    .first<{ baseUrl: string; protocol: Protocol; headers: string }>()
   if (!row) throw notFound('endpoint')
-  return row
+  return { ...row, headers: JSON.parse(row.headers) as Record<string, string> }
 }
 
 export async function listProviders(env: Env, userId: string): Promise<Provider[]> {
@@ -250,7 +260,7 @@ export async function listProviders(env: Env, userId: string): Promise<Provider[
       .all<{ id: string; name: string; enabled: number }>(),
     db
       .prepare(
-        'SELECT id, provider_id AS providerId, slug, base_url AS baseUrl, protocol FROM ai_endpoints WHERE user_id = ?1 ORDER BY position, id',
+        'SELECT id, provider_id AS providerId, slug, base_url AS baseUrl, protocol, image_base_url AS imageBaseUrl, headers FROM ai_endpoints WHERE user_id = ?1 ORDER BY position, id',
       )
       .bind(userId)
       .all<EndpointRow>(),
@@ -288,6 +298,8 @@ export async function listProviders(env: Env, userId: string): Promise<Provider[
           slug: row.slug,
           baseUrl: row.baseUrl,
           protocol: row.protocol,
+          imageBaseUrl: row.imageBaseUrl,
+          headers: JSON.parse(row.headers) as Record<string, string>,
           keys: shownKeys,
           probeUrl: `${apiBase(row.baseUrl)}/models`,
           models: models
@@ -317,6 +329,42 @@ export async function listProviders(env: Env, userId: string): Promise<Provider[
   }))
 }
 
+const RESERVED_HEADERS: Record<string, true> = {
+  authorization: true,
+  'x-api-key': true,
+  'anthropic-version': true,
+  host: true,
+  'content-type': true,
+  'content-length': true,
+  accept: true,
+  connection: true,
+  'transfer-encoding': true,
+  cookie: true,
+}
+
+function imageBase(raw: string | null | undefined): string | null | undefined {
+  const url = raw?.trim() ?? ''
+  if (!url) return null
+  return new TextEncoder().encode(url).length <= 2048 && /^https?:\/\//.test(url) ? url : undefined
+}
+
+function cleanHeaders(raw: Record<string, string>): Record<string, string> {
+  const entries = Object.entries(raw)
+  if (entries.length > 20) throw badRequest('headers', 'too_many')
+  const headers: [string, string][] = []
+  const seen = new Set<string>()
+  for (const [rawName, value] of entries) {
+    const name = rawName.trim()
+    const lower = name.toLowerCase()
+    if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,100}$/.test(name) || seen.has(lower) || charCount(value) > 2048 || /[\r\n]/.test(value))
+      throw badRequest('headers', 'invalid')
+    if (Object.hasOwn(RESERVED_HEADERS, lower)) throw badRequest('headers', 'reserved')
+    seen.add(lower)
+    headers.push([name, value])
+  }
+  return Object.fromEntries(headers)
+}
+
 function validateSave(input: ProviderSaveInput): void {
   const name = charCount(input.name.trim())
   if (name === 0 || name > 80) throw badRequest('name', 'out_of_range', 80)
@@ -334,6 +382,8 @@ function validateSave(input: ProviderSaveInput): void {
     const url = endpoint.baseUrl.trim()
     if (new TextEncoder().encode(url).length > 2048) throw badRequest('baseUrl', 'out_of_range', 2048)
     if (url && !url.startsWith('http://') && !url.startsWith('https://')) throw badRequest('baseUrl', 'invalid_url')
+    if (imageBase(endpoint.imageBaseUrl) === undefined) throw badRequest('imageBaseUrl', 'invalid_url')
+    if (endpoint.headers !== undefined) cleanHeaders(endpoint.headers)
     if (endpoint.models.length > 1000) throw badRequest('models', 'out_of_range', 1000)
     const models = new Set<string>()
     for (const model of endpoint.models) {
@@ -429,18 +479,20 @@ export async function saveProvider(env: Env, userId: string, input: ProviderSave
   )
   planned.forEach(({ endpoint, id, models }, position) => {
     const values = [endpoint.slug, endpoint.baseUrl.trim(), endpoint.protocol, position, id, userId] as const
+    const image = endpoint.imageBaseUrl === undefined ? undefined : (imageBase(endpoint.imageBaseUrl) ?? null)
+    const headers = endpoint.headers === undefined ? null : JSON.stringify(cleanHeaders(endpoint.headers))
     statements.push(
       endpoint.id === undefined
         ? db
             .prepare(
-              'INSERT INTO ai_endpoints (slug, base_url, protocol, position, id, user_id, provider_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)',
+              'INSERT INTO ai_endpoints (slug, base_url, protocol, position, id, user_id, provider_id, image_base_url, headers) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)',
             )
-            .bind(...values, providerId)
+            .bind(...values, providerId, image ?? null, headers ?? '{}')
         : db
             .prepare(
-              'UPDATE ai_endpoints SET slug = ?1, base_url = ?2, protocol = ?3, position = ?4 WHERE id = ?5 AND user_id = ?6',
+              'UPDATE ai_endpoints SET slug = ?1, base_url = ?2, protocol = ?3, position = ?4, image_base_url = CASE WHEN ?7 = 1 THEN image_base_url ELSE ?8 END, headers = COALESCE(?9, headers) WHERE id = ?5 AND user_id = ?6',
             )
-            .bind(...values),
+            .bind(...values, image === undefined ? 1 : 0, image ?? null, headers),
       db
         .prepare(
           `INSERT INTO ai_models (user_id, endpoint_id, model_id, model_type, type_source, context_window, max_output, can_vision, supports_tools, reasoning, native_web_search, position)
@@ -586,7 +638,7 @@ export async function modelOptions(db: D1Database, userId: string, filter: Model
 
 export async function resolveModel(env: Env, userId: string, model: ModelRef): Promise<Connection> {
   const row = await env.DB.prepare(
-    `SELECT e.id AS endpointId, e.base_url AS baseUrl, e.protocol,
+    `SELECT e.id AS endpointId, e.base_url AS baseUrl, e.protocol, e.image_base_url AS imageBaseUrl, e.headers,
        m.model_type AS modelType, m.context_window AS contextWindow, m.max_output AS maxOutput, m.supports_tools AS supportsTools, m.reasoning, m.native_web_search AS nativeWebSearch, m.can_vision AS canVision
      FROM ai_models m JOIN ai_endpoints e ON e.id = m.endpoint_id AND e.user_id = m.user_id
      JOIN ai_providers p ON p.id = e.provider_id AND p.user_id = m.user_id
@@ -597,6 +649,8 @@ export async function resolveModel(env: Env, userId: string, model: ModelRef): P
       endpointId: string
       baseUrl: string
       protocol: Protocol
+      imageBaseUrl: string | null
+      headers: string
       modelType: ModelType
       contextWindow: number | null
       maxOutput: number | null
@@ -609,6 +663,8 @@ export async function resolveModel(env: Env, userId: string, model: ModelRef): P
   if (!row.baseUrl.trim()) throw needsConfig('missing_url')
   return {
     baseUrl: apiBase(row.baseUrl),
+    imageBaseUrl: row.imageBaseUrl ? apiBase(row.imageBaseUrl) : null,
+    headers: JSON.parse(row.headers) as Record<string, string>,
     protocol: row.protocol,
     apiKeys: await rotatedKeys(env, userId, row.endpointId),
     modelId: model.modelId,
@@ -651,14 +707,15 @@ export async function probe(
   let baseUrl: string
   let protocol: Protocol
   let keys: string[] = []
+  let headers: Record<string, string> = {}
   if (target.kind === 'saved') {
-    ;({ baseUrl, protocol } = await ownedEndpoint(env.DB, userId, target.endpointId))
+    ;({ baseUrl, protocol, headers } = await ownedEndpoint(env.DB, userId, target.endpointId))
     keys = await probeKeys(env, userId, target.endpointId)
   } else {
     baseUrl = target.baseUrl
     protocol = target.protocol
     if (target.endpointId !== undefined) {
-      await ownedEndpoint(env.DB, userId, target.endpointId)
+      ;({ headers } = await ownedEndpoint(env.DB, userId, target.endpointId))
       keys = await probeKeys(env, userId, target.endpointId, target.keyId)
     } else if (target.keyId !== undefined) throw notFound('key')
   }
@@ -683,7 +740,7 @@ export async function probe(
     let response: Response
     try {
       response = await fetch(url, {
-        headers: authHeaders(protocol, key),
+        headers: { ...headers, ...authHeaders(protocol, key) },
         redirect: 'manual',
         signal: AbortSignal.any([signal, timeout]),
       })
