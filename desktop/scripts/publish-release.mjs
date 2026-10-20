@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { copyFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { aggregateCandidates } from './release-candidates.mjs'
+import { aggregateCandidates, verifyBuildRun } from './release-candidates.mjs'
 import { root } from './release-artifacts.mjs'
 
 function gh(args, token = process.env.GH_TOKEN) {
@@ -26,24 +26,11 @@ const source = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'u
 if (source.status !== 0) throw new Error('Cannot resolve selected tag commit')
 const sourceSha = source.stdout.trim()
 const run = JSON.parse(gh(['api', `repos/${repository}/actions/runs/${runId}`]))
-const sameRun = runId === process.env.GITHUB_RUN_ID && process.env.ALL_BUILDS_PASSED === 'true'
-if (
-  (!sameRun && run.conclusion !== 'success') ||
-  !['push', 'workflow_dispatch'].includes(run.event) ||
-  run.path !== '.github/workflows/desktop-release.yml' ||
-  run.head_branch !== tag ||
-  run.head_sha !== sourceSha
-)
-  throw new Error('Candidate run is not the successful selected tag/source workflow')
 const pages = JSON.parse(
   gh(['api', '--paginate', '--slurp', `repos/${repository}/actions/runs/${runId}/jobs?per_page=100`]),
 )
 const jobs = pages.flatMap((page) => page.jobs)
-for (const platform of ['windows', 'macos', 'linux']) {
-  const matches = jobs.filter((job) => job.name === `Build (${platform})`)
-  if (matches.length !== 1 || matches[0].conclusion !== 'success')
-    throw new Error(`Missing successful native ${platform} job`)
-}
+verifyBuildRun(run, jobs, sourceSha)
 const artifacts = aggregateCandidates(path.join(root, 'dist/candidates'), { version, sourceSha, buildRunId: runId })
 const stage = mkdtempSync(path.join(tmpdir(), 'autonote-public-release-'))
 try {

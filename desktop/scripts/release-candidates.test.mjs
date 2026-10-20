@@ -2,11 +2,53 @@ import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { aggregateCandidates, packages, verifyCandidate } from './release-candidates.mjs'
+import { aggregateCandidates, packages, verifyBuildRun, verifyCandidate } from './release-candidates.mjs'
 import { sha256 } from './release-artifacts.mjs'
 
 const stage = realpathSync(mkdtempSync(path.join(tmpdir(), 'autonote-candidates-')))
 const expected = { version: '0.2.0', sourceSha: 'a'.repeat(40), buildRunId: '123' }
+const run = {
+  status: 'completed',
+  conclusion: 'success',
+  event: 'push',
+  path: '.github/workflows/desktop.yml',
+  head_branch: 'main',
+  head_sha: expected.sourceSha,
+}
+const jobs = Object.keys(packages).map((platform) => ({ name: `Build (${platform})`, conclusion: 'success' }))
+verifyBuildRun(run, jobs, expected.sourceSha)
+verifyBuildRun({ ...run, event: 'workflow_dispatch' }, jobs, expected.sourceSha)
+for (const patch of [
+  { status: 'in_progress' },
+  { conclusion: 'failure' },
+  { event: 'pull_request' },
+  { path: '.github/workflows/desktop-release.yml' },
+  { head_branch: 'feature' },
+  { head_sha: 'b'.repeat(40) },
+])
+  assert.throws(() => verifyBuildRun({ ...run, ...patch }, jobs, expected.sourceSha), /successful Desktop/)
+for (const platform of Object.keys(packages)) {
+  const name = `Build (${platform})`
+  assert.throws(
+    () =>
+      verifyBuildRun(
+        run,
+        jobs.filter((job) => job.name !== name),
+        expected.sourceSha,
+      ),
+    /Missing successful native/,
+  )
+  assert.throws(
+    () =>
+      verifyBuildRun(
+        run,
+        jobs.map((job) => (job.name === name ? { ...job, conclusion: 'failure' } : job)),
+        expected.sourceSha,
+      ),
+    /Missing successful native/,
+  )
+}
+assert.throws(() => verifyBuildRun(run, [...jobs, jobs[0]], expected.sourceSha), /Missing successful native/)
 try {
   for (const [platform, names] of Object.entries(packages)) {
     const dir = path.join(stage, `candidate-${platform}`)

@@ -10,123 +10,22 @@ on:
         required: true
         type: string
       build_run_id:
-        description: Optional successful all-platform candidate run; blank builds the selected tag fresh
+        description: Successful Desktop run for the tag commit; blank selects the latest matching success
         required: false
         type: string
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: desktop-release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: Build (${{ matrix.platform }})
-    if: github.event_name == 'push' || inputs.build_run_id == ''
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: windows
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
-          - platform: macos
-            os: macos-14
-            target: aarch64-apple-darwin
-          - platform: linux
-            os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.tag || github.ref_name }}
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: pnpm
-      - name: Require exact tag workflow ref and version
-        shell: bash
-        env:
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-        run: |
-          test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"
-          node desktop/scripts/version-check.mjs "$RELEASE_TAG"
-      - name: Install Linux build, package and real desktop smoke dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev patchelf libfuse2 libsecret-1-dev gnome-keyring dbus-x11 xvfb xdotool openbox imagemagick
-      - name: Require native Apple Silicon
-        if: runner.os == 'macOS'
-        run: test "$(uname -m)" = arm64
-      - name: Install pinned Rust toolchain and release target
-        working-directory: desktop
-        shell: bash
-        run: |
-          rustup show
-          rustup target add ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: desktop/src-tauri
-      - uses: ilammy/msvc-dev-cmd@v1
-        if: runner.os == 'Windows'
-        with:
-          arch: x64
-      - name: Enforce explicit GitHub runner compiler branch
-        if: runner.os == 'Windows'
-        shell: cmd
-        run: call desktop\scripts\msvc-env.bat
-      - run: pnpm install --frozen-lockfile
-      - name: Full checks, native packages, real secure store and packaged launch gates
-        run: pnpm run ci
-      - name: Verify exact platform candidate manifest
-        run: node desktop/scripts/release-candidates.mjs verify desktop/dist/candidate-${{ matrix.platform }}/candidate.json
-      - name: Upload Windows candidates only
-        if: matrix.platform == 'windows'
-        uses: actions/upload-artifact@v6
-        with:
-          name: candidate-windows
-          path: |
-            desktop/dist/candidate-windows/candidate.json
-            desktop/dist/candidate-windows/AutoNote-windows-setup.exe
-            desktop/dist/candidate-windows/AutoNote-windows-portable.zip
-          if-no-files-found: error
-          retention-days: 30
-      - name: Upload macOS candidates only
-        if: matrix.platform == 'macos'
-        uses: actions/upload-artifact@v6
-        with:
-          name: candidate-macos
-          path: |
-            desktop/dist/candidate-macos/candidate.json
-            desktop/dist/candidate-macos/AutoNote-macos-arm64.dmg
-          if-no-files-found: error
-          retention-days: 30
-      - name: Upload Linux candidates only
-        if: matrix.platform == 'linux'
-        uses: actions/upload-artifact@v6
-        with:
-          name: candidate-linux
-          path: |
-            desktop/dist/candidate-linux/candidate.json
-            desktop/dist/candidate-linux/AutoNote-linux-x64.AppImage
-            desktop/dist/candidate-linux/AutoNote-linux-x64.deb
-          if-no-files-found: error
-          retention-days: 30
-
   publish:
-    needs: build
-    if: always() && (needs.build.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.build_run_id != ''))
     runs-on: ubuntu-22.04
     timeout-minutes: 20
-    permissions:
-      contents: read
-      actions: read
     steps:
       - uses: actions/checkout@v7
         with:
@@ -137,30 +36,45 @@ jobs:
       - name: Check selected tag versions
         env:
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-        run: node desktop/scripts/version-check.mjs "$RELEASE_TAG"
+        run: |
+          test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"
+          node desktop/scripts/version-check.mjs "$RELEASE_TAG"
+      - name: Select successful Desktop run for the exact tag commit
+        id: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+        run: |
+          if [ -z "$BUILD_RUN_ID" ]; then
+            BUILD_RUN_ID=$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/desktop.yml/runs" -f head_sha="$(git rev-parse HEAD)" -f branch=main -f status=success -f per_page=100 --jq '.workflow_runs[0].id // empty')
+          fi
+          if ! [[ "$BUILD_RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "No successful Desktop run for this commit. Complete Desktop first; release never rebuilds."
+            exit 1
+          fi
+          echo "run_id=$BUILD_RUN_ID" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@v7
         with:
           name: candidate-windows
           path: desktop/dist/candidates/candidate-windows
-          run-id: ${{ inputs.build_run_id || github.run_id }}
+          run-id: ${{ steps.candidate.outputs.run_id }}
           github-token: ${{ github.token }}
       - uses: actions/download-artifact@v7
         with:
           name: candidate-macos
           path: desktop/dist/candidates/candidate-macos
-          run-id: ${{ inputs.build_run_id || github.run_id }}
+          run-id: ${{ steps.candidate.outputs.run_id }}
           github-token: ${{ github.token }}
       - uses: actions/download-artifact@v7
         with:
           name: candidate-linux
           path: desktop/dist/candidates/candidate-linux
-          run-id: ${{ inputs.build_run_id || github.run_id }}
+          run-id: ${{ steps.candidate.outputs.run_id }}
           github-token: ${{ github.token }}
-      - name: Verify all source/run identities and hashes; publish five public packages atomically
+      - name: Verify source, successful native jobs and five package hashes; publish
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-          BUILD_RUN_ID: ${{ inputs.build_run_id || github.run_id }}
-          ALL_BUILDS_PASSED: ${{ needs.build.result == 'success' }}
+          BUILD_RUN_ID: ${{ steps.candidate.outputs.run_id }}
         run: node desktop/scripts/publish-release.mjs

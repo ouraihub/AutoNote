@@ -9,6 +9,7 @@ on:
       - pnpm-workspace.yaml
       - package.json
       - .github/workflows/desktop.yml
+      - .github/workflows/desktop-release.yml
   push:
     branches: [main]
     paths:
@@ -18,6 +19,7 @@ on:
       - pnpm-workspace.yaml
       - package.json
       - .github/workflows/desktop.yml
+      - .github/workflows/desktop-release.yml
   workflow_dispatch:
 
 concurrency:
@@ -29,15 +31,19 @@ permissions:
 
 jobs:
   verify:
+    name: Build (${{ matrix.platform }})
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: windows-latest
+            platform: windows
             target: x86_64-pc-windows-msvc
           - os: macos-14
+            platform: macos
             target: aarch64-apple-darwin
           - os: ubuntu-22.04
+            platform: linux
             target: x86_64-unknown-linux-gnu
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
@@ -75,7 +81,17 @@ jobs:
         shell: cmd
         run: call desktop\scripts\msvc-env.bat
       - run: pnpm install --frozen-lockfile
-      - name: Full desktop checks, tests, real secure-store restart, clippy and fmt
-        run: pnpm run desktop:verify
-      - name: Real native bundles and packaged startup smoke (mirrored by pnpm run ci)
-        run: pnpm run desktop:package:verify
+      - name: Full checks, native packages, secure store and packaged startup smoke
+        run: pnpm run ci
+      - name: Verify platform candidate manifest
+        if: github.event_name != 'pull_request'
+        run: node desktop/scripts/release-candidates.mjs verify desktop/dist/candidate-${{ matrix.platform }}/candidate.json
+      - name: Upload verified platform candidates
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v6
+        with:
+          name: candidate-${{ matrix.platform }}
+          path: desktop/dist/candidate-${{ matrix.platform }}/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0

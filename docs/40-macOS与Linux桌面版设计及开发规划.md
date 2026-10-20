@@ -35,7 +35,7 @@ AutoNote 同步复用 Aether 的非 Windows 凭据实现（现有 SecretStore �
 
 沿用 pnpm 和 Rust 1.92.0，不换 UI 框架，不增加第二套应用。Node 平台分发脚本在 Windows 调用现有 MSVC wrapper、其他平台直接 cargo --manifest-path。原生 CI 使用 macOS ARM64、Ubuntu x64、Windows x64；安装 WebKitGTK/GTK/AppIndicator/OpenSSL/打包依赖。desktop:verify 包含 check --workspace --all-targets、完整现有测试、Clippy、fmt、发布边界与原生凭据冒烟，检查不删减。根 pnpm run ci 同步包含 desktop:package:verify，构建真实安装包；非 Windows 再检查格式/内嵌版本/架构、真实窗口、隔离 HOME 中 library.db schema/quick_check 与截图，结束删除隔离数据。该启动冒烟不等于人工验收全部交互。
 
-保留 Windows 现有构建收集，给非 Windows 增加明确的平台 manifest，校验版本、包种类、非空正规文件、路径包含、SHA256，不上传数据/密钥/日志。发布汇总核对所有候选来自同一 tag/commit 后，使用现有 RELEASE_TOKEN 一次创建公开 Release；公开仓库不复制私有 Git 对象、构建日志或自动生成私有 commit 说明。
+保留 Windows 现有构建收集，给非 Windows 增加明确的平台 manifest，校验版本、包种类、非空正规文件、路径包含、SHA256，不上传数据/密钥/日志。`desktop.yml` 统一执行三平台质量门与打包冒烟，成功后上传三个候选 artifact（非 PR，保留30天）；`desktop-release.yml` 仅下载、核验并发布，不再编译。先等待 main 目标提交的 Desktop 成功，再打 `desktop-v<version>` tag；发行自动选择相同提交最近成功的 Desktop run，也支持手动指定 `build_run_id`（workflow ref 必须为所选 tag）。必须同时满足 main 来源、完成且成功、三项原生任务成功、同一提交/run、版本及五包哈希；候选缺失或过期直接失败，需明确运行 Desktop，不能静默回退重编。使用现有 RELEASE_TOKEN 创建公开 Release；公开仓库不复制私有 Git 对象、构建日志或自动生成私有 commit 说明。
 
 macOS 使用 ad-hoc 签名，不具备 Developer ID 签名、未公证，可能受 Gatekeeper 限制。以后配置 Apple 凭据才可宣称 Developer ID 签名或公证。Linux 说明支持的发行版基线和 Secret Service 依赖，不宣称任意发行版通用。公开资产仅含五类安装包，发布说明列出 SHA256，不上传截图、日志、凭据或运行数据。
 
@@ -71,3 +71,6 @@ macOS 使用 ad-hoc 签名，不具备 Developer ID 签名、未公证，可能�
 - 最终宿主提交 `8896801edadaf5af1db6793b865ce9587f4b7183` 的Desktop运行 `39386284846` 三平台全绿：Linux20m46s、macOS13m4s、Windows25m55s。Linux包含DEB/AppImage真实启动、实帧截图及portal卸载/隔离目录清理，未跳过质量门。
 - 正式tag `desktop-v0.2.0` 的发行运行 `39389252446` 三个Build任务全部成功并上传候选；publish任务因GitHub账号账单/额度被平台拒绝启动。使用本机既有授权下载同轮候选，通过版本/提交/run/五包集合/大小/SHA256及三项Build成功校验后发布到公开 `https://github.com/OurAIApps/AutoNote/releases/tag/desktop-v0.2.0`。未改tag、未混用本地重编包，工作流总状态仍因账单限制失败，不能记作发行工作流全绿。
 - 已不带Authorization/Cookie匿名下载五个latest链接：全部HTTP200，下载字节数和SHA256逐一等于正式候选。Windows安装包6696613B、ZIP7732201B、macOS DMG10800716B、AppImage87542264B、DEB9224212B。SHA256完整值见公开发行说明。0.1.0未覆盖，未部署Cloudflare；macOS为ad-hoc签名，未Developer ID签名/公证，未声称完整人工安装卸载生命周期通过。
+- 2026-10-20 按用户要求取消发行二次编译：将候选上传移至 Desktop，Release 仅复用成功运行；移除同轮运行未完成时的发布豁免。旧 Desktop 运行未上传候选，不能追溯复用，需新流程首轮成功后才能发行；已发布0.2.0不受影响。本轮未推送、未触发或重跑GitHub Actions。
+- 为保持原发行质量门不减，Desktop 三平台直接运行根 `pnpm run ci`（包含原有 Web、desktop:verify 与 desktop:package:verify）；不是删除发行检查，而是将其集中到唯一构建入口，Release 不再重复执行。根CI命令未变。
+- 新流程本地验证：完整根 `pnpm run ci` 成功（artifact3558），包含Windows真实NSIS/portable构建；actionlint1.7.12验证两个工作流通过，发行回归及格式检查通过。只读GitHub API按真实0.2.0提交选中旧Desktop运行39386284846；旧运行缺新候选任务合同被明确拒绝。真实五包候选重新聚合、大小/哈希全部通过；实际运行publish-release入口时，旧提交候选被来源校验阻断，未调用公开发布。新工作流的远端artifact上传/下载尚未执行，未宣称三平台新流程通过。

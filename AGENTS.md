@@ -8,6 +8,7 @@
 - 改了 `web/src/worker` 或 API，还要跑 e2e：先用 `AUTONOTE_EPHEMERAL_DEV=1 pnpm exec vite --port 7712 --strictPort` 起一个临时实例，再运行 `node web/scripts/e2e.mjs http://localhost:7712`。
 - 只跑改动文件的测试（`vitest run xxx.test.ts`）不算验证。`pnpm run ci` 不通过，不提交、不推送、不汇报“已完成”。
 - 新增 CI 步骤时，同时更新 `pnpm run ci` 和工作流，两边保持一致。
+- 推送或手动触发 GitHub Actions 前，先完成 `docs/04-工程规范.md` §13 本地 checklist，记录命令/平台/结果及未验证项。先用本机/WSL排错，禁止把三平台完整CI当逐次调试器；额度异常后未经用户同意不得再触发远端，也不得提高预算或削弱检查。
 
 ## 2. 共享代码在 Aether
 

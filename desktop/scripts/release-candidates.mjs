@@ -9,6 +9,22 @@ export const packages = {
   macos: { dmg: 'AutoNote-macos-arm64.dmg' },
   linux: { appimage: 'AutoNote-linux-x64.AppImage', deb: 'AutoNote-linux-x64.deb' },
 }
+export function verifyBuildRun(run, jobs, sourceSha) {
+  if (
+    run.status !== 'completed' ||
+    run.conclusion !== 'success' ||
+    !['push', 'workflow_dispatch'].includes(run.event) ||
+    run.path !== '.github/workflows/desktop.yml' ||
+    run.head_branch !== 'main' ||
+    run.head_sha !== sourceSha
+  )
+    throw new Error('Candidate run is not the successful Desktop main/source workflow')
+  for (const platform of Object.keys(packages)) {
+    const matches = jobs.filter((job) => job.name === `Build (${platform})`)
+    if (matches.length !== 1 || matches[0].conclusion !== 'success')
+      throw new Error(`Missing successful native ${platform} job`)
+  }
+}
 const architectures = { windows: 'x64', macos: 'arm64', linux: 'x64' }
 function regular(file) {
   noLinks(file)
