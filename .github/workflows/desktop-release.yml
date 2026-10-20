@@ -135,6 +135,22 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Interactive acceptance/protected environment gate failed' }
           $manifest = Get-Content desktop/dist/release.json -Raw | ConvertFrom-Json
           if ('desktop-v' + $manifest.version -ne $env:RELEASE_TAG) { throw 'Artifact/tag mismatch' }
-          $files = @($manifest.artifacts | ForEach-Object { 'desktop/dist/' + $_.path })
-          gh release create $env:RELEASE_TAG --verify-tag --title "AutoNote Desktop $($manifest.version)" --generate-notes @files
+          $nsis = $manifest.artifacts | Where-Object { $_.kind -eq 'nsis' }
+          $portable = $manifest.artifacts | Where-Object { $_.kind -eq 'portable' }
+          if ($null -eq $nsis -or $null -eq $portable) { throw 'Release manifest is missing NSIS or portable artifact' }
+          $setupName = 'AutoNote-windows-setup.exe'
+          $portableName = 'AutoNote-windows-portable.zip'
+          Copy-Item ('desktop/dist/' + $nsis.path) $setupName
+          Copy-Item ('desktop/dist/' + $portable.path) $portableName
+          $notes = @"
+          ## 下载
+
+          | 文件 | 说明 |
+          |---|---|
+          | ``$setupName`` | Windows 安装版：安装到当前用户目录，可正常卸载 |
+          | ``$portableName`` | Windows 便携版：解压后直接运行，不写入注册表 |
+
+          需要 WebView2。便携版数据保存在程序目录旁的 ``data`` 文件夹中。
+          "@
+          gh release create $env:RELEASE_TAG --verify-tag --title "AutoNote Desktop $($manifest.version)" --notes $notes --generate-notes $setupName $portableName
           if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }

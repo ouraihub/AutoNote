@@ -9,6 +9,7 @@
   import { PwaState, PwaPanel } from './pwa'
   import { SharePage } from './share'
   import OverlayProvider from '@app/components/ui/OverlayProvider.svelte'
+  import DownloadPage from './DownloadPage.svelte'
   import { setI18n, setNotifier } from '@app/root'
   import type { MessageKey } from '@shared/locales/en-US'
 
@@ -158,6 +159,8 @@
 {/if}
 {#if route.kind === 'app'}
   <div bind:this={target} class="h-dvh min-h-0" data-web-host></div>
+{:else if route.kind === 'download'}
+  <DownloadPage language={services.language} />
 {:else if route.kind === 'share'}
   {#key route.slug}
     <SharePage
