@@ -68,3 +68,6 @@ macOS 使用 ad-hoc 签名，不具备 Developer ID 签名、未公证，可能�
 - 同轮Linux已通过完整测试并真实构建83.49MiB AppImage、8.80MiB DEB；DEB启动后窗口/库均可见，但截图检查过早且以压缩文件1KB阈值误判。改为按启动PID定位窗口、显式PNG、等待至少960×640且超过16种颜色的真实帧，仍验证PNG签名；不以文件压缩大小判断是否渲染。
 - 运行 `39377448932`：Windows、macOS均全绿；Linux DEB真实窗口/隔离库/完整尺寸渲染截图通过，随后旧的AppImage/DEB二进制全SHA相等检查失败。Tauri官方bundler会分别写入 `__TAURI_BUNDLE_TYPE_VAR_APP/DEB`（两包全文件哈希不应相同）。改查两个ELF的x64架构、相同GNU build-id及各自包格式标记，外层各包仍使用独立SHA256验证，再真实启动AppImage。
 - 原生运行 `39381629797`：Windows/macOS全绿；Linux日志明确DEB与AppImage均 `PASS`（真实窗口、隔离库、PNG实帧），仅最外层清理因D-Bus会话结束后的portal FUSE挂载点 `Transport endpoint is not connected` 失败。改为保留shell EXIT trap，在D-Bus结束前通过portal依赖的fusermount3卸载doc挂载，随后仍完整删除隔离目录；不吞清理错误。
+- 最终宿主提交 `8896801edadaf5af1db6793b865ce9587f4b7183` 的Desktop运行 `39386284846` 三平台全绿：Linux20m46s、macOS13m4s、Windows25m55s。Linux包含DEB/AppImage真实启动、实帧截图及portal卸载/隔离目录清理，未跳过质量门。
+- 正式tag `desktop-v0.2.0` 的发行运行 `39389252446` 三个Build任务全部成功并上传候选；publish任务因GitHub账号账单/额度被平台拒绝启动。使用本机既有授权下载同轮候选，通过版本/提交/run/五包集合/大小/SHA256及三项Build成功校验后发布到公开 `https://github.com/OurAIApps/AutoNote/releases/tag/desktop-v0.2.0`。未改tag、未混用本地重编包，工作流总状态仍因账单限制失败，不能记作发行工作流全绿。
+- 已不带Authorization/Cookie匿名下载五个latest链接：全部HTTP200，下载字节数和SHA256逐一等于正式候选。Windows安装包6696613B、ZIP7732201B、macOS DMG10800716B、AppImage87542264B、DEB9224212B。SHA256完整值见公开发行说明。0.1.0未覆盖，未部署Cloudflare；macOS为ad-hoc签名，未Developer ID签名/公证，未声称完整人工安装卸载生命周期通过。
