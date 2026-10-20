@@ -7,6 +7,9 @@ import { fileURLToPath } from 'node:url'
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 export const target = path.resolve(root, 'src-tauri', process.env.CARGO_TARGET_DIR || 'target')
 export const sha256 = file => createHash('sha256').update(readFileSync(file)).digest('hex')
+// Prefer PowerShell 7 on PATH; fall back to the always-present 5.1 by absolute path (its dir may be missing from PATH).
+export const powershellExe = (process.env.PATH || '').split(path.delimiter).map(dir => path.join(dir, 'pwsh.exe')).find(existsSync)
+  || path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
 export function noLinks(file) {
   for (let current = path.resolve(file); ; current = path.dirname(current)) {
     if (existsSync(current) && lstatSync(current).isSymbolicLink()) throw new Error(`Refusing linked path: ${current}`)
@@ -31,7 +34,7 @@ export function currentArtifacts(manifestPath = path.join(root, 'dist', 'release
       ? '$ErrorActionPreference="Stop"; Add-Type -AssemblyName System.IO.Compression.FileSystem; $z=[IO.Compression.ZipFile]::OpenRead($env:AUTONOTE_PACKAGE); try { $names=@($z.Entries | Where-Object {!$_.FullName.EndsWith("/")} | ForEach-Object {$_.FullName.Replace([char]92,[char]47)}); if($names.Count -ne 2 -or $names -notcontains "AutoNote/AutoNote.exe" -or $names -notcontains "AutoNote/LICENSE"){throw "Portable must contain only exe and license"}; $e=$z.GetEntry("AutoNote/AutoNote.exe"); if($null -eq $e){$e=$z.Entries | Where-Object {$_.FullName.Replace([char]92,[char]47) -eq "AutoNote/AutoNote.exe"}}; $s=$e.Open(); try {$h=[Security.Cryptography.SHA256]::Create(); $hex=([BitConverter]::ToString($h.ComputeHash($s))).Replace("-","").ToLower(); if($hex -ne $env:AUTONOTE_EXE_HASH){throw "Portable executable differs"}} finally {$s.Dispose();$h.Dispose()}} finally {$z.Dispose()}'
       : '$ErrorActionPreference="Stop"; $v=[Diagnostics.FileVersionInfo]::GetVersionInfo($env:AUTONOTE_PACKAGE); if($v.ProductVersion -ne $env:AUTONOTE_VERSION){throw "NSIS embedded version differs"}'
     if (process.platform === 'win32') {
-      const result = spawnSync('powershell', ['-NoProfile', '-Command', inspect], { stdio: 'inherit', env: { ...process.env, AUTONOTE_PACKAGE: file, AUTONOTE_EXE_HASH: manifest.exeSha256, AUTONOTE_VERSION: manifest.version } })
+      const result = spawnSync(powershellExe, ['-NoProfile', '-Command', inspect], { stdio: 'inherit', env: { ...process.env, AUTONOTE_PACKAGE: file, AUTONOTE_EXE_HASH: manifest.exeSha256, AUTONOTE_VERSION: manifest.version } })
       if (result.status !== 0) throw new Error('Package structure/version verification failed')
     }
     artifact.file = file
@@ -48,7 +51,7 @@ function collect(version, started) {
   const installers = readdirSync(nsis).filter(name => name.endsWith('-setup.exe') && name.includes(`_${version}_`) && statSync(path.join(nsis, name)).mtimeMs >= started - 2000)
   for (const name of installers) noLinks(path.join(nsis, name))
   if (installers.length !== 1 || !statSync(exe).isFile()) throw new Error('Expected current executable and exactly one current-version NSIS installer')
-  const exeVersion = spawnSync('powershell', ['-NoProfile', '-Command', '$ErrorActionPreference="Stop"; $v=[Diagnostics.FileVersionInfo]::GetVersionInfo($env:AUTONOTE_EXE); if($v.ProductVersion -ne $env:AUTONOTE_VERSION){throw "Built exe version differs from manifests"}'], { stdio: 'inherit', env: { ...process.env, AUTONOTE_EXE: exe, AUTONOTE_VERSION: version } })
+  const exeVersion = spawnSync(powershellExe, ['-NoProfile', '-Command', '$ErrorActionPreference="Stop"; $v=[Diagnostics.FileVersionInfo]::GetVersionInfo($env:AUTONOTE_EXE); if($v.ProductVersion -ne $env:AUTONOTE_VERSION){throw "Built exe version differs from manifests"}'], { stdio: 'inherit', env: { ...process.env, AUTONOTE_EXE: exe, AUTONOTE_VERSION: version } })
   if (exeVersion.status !== 0) throw new Error('Built executable version verification failed')
   const dist = path.join(root, 'dist')
   const portable = path.join(dist, 'AutoNote')
@@ -69,7 +72,7 @@ function collect(version, started) {
     copyFileSync(path.join(nsis, installerName), path.join(stage, installerName))
     const zipName = `AutoNote_${version}_x64-portable.zip`
     const zip = path.join(stage, zipName)
-    const result = spawnSync('powershell', ['-NoProfile', '-Command', '$ErrorActionPreference="Stop"; Compress-Archive -LiteralPath $env:AUTONOTE_PAYLOAD -DestinationPath $env:AUTONOTE_ZIP -CompressionLevel Optimal'], { stdio: 'inherit', env: { ...process.env, AUTONOTE_PAYLOAD: payload, AUTONOTE_ZIP: zip } })
+    const result = spawnSync(powershellExe, ['-NoProfile', '-Command', '$ErrorActionPreference="Stop"; Compress-Archive -LiteralPath $env:AUTONOTE_PAYLOAD -DestinationPath $env:AUTONOTE_ZIP -CompressionLevel Optimal'], { stdio: 'inherit', env: { ...process.env, AUTONOTE_PAYLOAD: payload, AUTONOTE_ZIP: zip } })
     if (result.status !== 0) throw new Error('Portable packaging failed')
     const artifacts = [{ kind: 'nsis', path: installerName }, { kind: 'portable', path: zipName }].map(item => ({ ...item, sha256: sha256(path.join(stage, item.path)) }))
     rmSync(payload, { recursive: true })

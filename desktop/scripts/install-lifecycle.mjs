@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { createHash, randomUUID } from 'node:crypto'
-import { currentArtifacts, noLinks, sha256 } from './release-artifacts.mjs'
+import { currentArtifacts, noLinks, powershellExe, sha256 } from './release-artifacts.mjs'
 import { recorder, requireDesktop } from './interactive-evidence.mjs'
 
 export const installCases = ['first-install', 'same-version-reinstall', 'upgrade', 'uninstall-preserve', 'reinstall-readback', 'unwritable-install', 'webview-installed', 'webview-absent']
@@ -41,7 +41,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.met
   const evidence = recorder(path.join(stage, 'evidence'), 'installation', release)
   const current = release.artifacts.find(item => item.kind === 'nsis').file
   noLinks(previous)
-  const previousInfo = spawnSync('powershell', ['-NoProfile', '-Command', '[Diagnostics.FileVersionInfo]::GetVersionInfo($env:AUTONOTE_PREVIOUS).ProductVersion'], { encoding: 'utf8', env: { ...process.env, AUTONOTE_PREVIOUS: previous } })
+  const previousInfo = spawnSync(powershellExe, ['-NoProfile', '-Command', '[Diagnostics.FileVersionInfo]::GetVersionInfo($env:AUTONOTE_PREVIOUS).ProductVersion'], { encoding: 'utf8', env: { ...process.env, AUTONOTE_PREVIOUS: previous } })
   const previousVersion = previousInfo.stdout.trim()
   const oldNumbers = previousVersion.split(/[.-]/).slice(0, 3).map(Number)
   const newNumbers = release.version.split(/[.-]/).slice(0, 3).map(Number)

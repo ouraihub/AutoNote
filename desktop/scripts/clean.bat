@@ -7,6 +7,8 @@ rem Keep this file CRLF and ASCII-only (cmd.exe mis-parses LF-only batch files,
 rem and UTF-8 Chinese in the OEM code page can break parsing mid-line).
 
 for %%R in ("%~dp0..") do set "ROOT=%%~fR\"
+set "PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+where /q pwsh && set "PS=pwsh"
 
 set "DEEP="
 set "YES="
@@ -79,7 +81,7 @@ if defined STRAY if defined KILL (
 
 set "DEEP_FLAG="
 if defined DEEP set "DEEP_FLAG=-Deep"
-powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%scripts\clean-artifacts.ps1" -Root "%ROOT%." %DEEP_FLAG%
+"%PS%" -NoProfile -ExecutionPolicy Bypass -File "%ROOT%scripts\clean-artifacts.ps1" -Root "%ROOT%." %DEEP_FLAG%
 if errorlevel 1 exit /b 1
 
 echo.
@@ -95,7 +97,7 @@ goto end
 rem Vite's dev server survives a closed terminal often enough to be worth
 rem detecting. Match on this repo's path so node processes from other
 rem projects are never touched.
-powershell -NoProfile -Command "$root='%ROOT%'.TrimEnd('\').ToLower(); Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -and $_.CommandLine.ToLower().Contains($root) } | ForEach-Object { $_.ProcessId }" 2>nul
+"%PS%" -NoProfile -Command "$root='%ROOT%'.TrimEnd('\').ToLower(); Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -and $_.CommandLine.ToLower().Contains($root) } | ForEach-Object { $_.ProcessId }" 2>nul
 exit /b 0
 
 
