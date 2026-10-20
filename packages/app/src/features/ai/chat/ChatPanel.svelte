@@ -1,5 +1,6 @@
 <script lang="ts">
   import { ChatPanel } from '@ouraihub/aether-ui/chat'
+  import { providersRevision } from '@ouraihub/aether-ui/providers'
   import type { ModelRef } from '@ouraihub/aether-ui/ports'
   import { getBackend, getPrefs } from '@app/root/context'
   import type { WorkspacePanelProps } from '@app/root/types'
@@ -22,6 +23,17 @@
     const pinned = Array.isArray(toolbar) && toolbar.every((id) => typeof id === 'string') ? toolbar : undefined
     return { key, model, painting, toolbar: pinned, conversationId: typeof last === 'string' ? last : null }
   })
+  let paintingNow = $state<boolean | null>(null)
+  $effect(() => {
+    if (providersRevision.value === 0) return
+    let alive = true
+    void (aiHost?.roles().catch(() => []) ?? Promise.resolve([])).then((roles) => {
+      if (alive) paintingNow = Boolean(roles.find((role) => role.role === 'painting')?.binding)
+    })
+    return () => {
+      alive = false
+    }
+  })
 </script>
 
 {#if aiHost}
@@ -39,7 +51,7 @@
           onOpenSettings={() => openSettings('ai')}
           onConversationChange={(id) => void (id ? prefs.save(key, id) : prefs.remove(key)).catch(() => {})}
           {onClose}
-          paintingModel={painting}
+          paintingModel={paintingNow ?? painting}
           {...toolbar ? { toolbar } : {}}
           onToolbarChange={(ids) => void prefs.save('ai.chat.toolbar', ids).catch(() => {})}
         />

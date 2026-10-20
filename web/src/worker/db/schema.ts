@@ -711,6 +711,17 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_providers_preset ON ai_providers(user_id, preset_id) WHERE preset_id IS NOT NULL`,
     ],
   },
+  {
+    version: 28,
+    skipIfColumnExists: { table: 'ai_models', column: 'name' },
+    statements: [
+      `ALTER TABLE ai_models ADD COLUMN name TEXT`,
+      `ALTER TABLE ai_models ADD COLUMN group_name TEXT`,
+      `ALTER TABLE ai_models ADD COLUMN pricing TEXT`,
+      `ALTER TABLE ai_chat_turns ADD COLUMN cost REAL`,
+      `ALTER TABLE ai_chat_turns ADD COLUMN cost_currency TEXT`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -762,10 +773,10 @@ const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ai_providers: ['id', 'user_id', 'name', 'enabled', 'notes', 'preset_id', 'position', 'created_at', 'updated_at'],
   ai_endpoints: ['id', 'user_id', 'provider_id', 'slug', 'base_url', 'protocol', 'position', 'image_base_url', 'headers', 'image_edit_base_url'],
   ai_endpoint_keys: ['id', 'user_id', 'endpoint_id', 'label', 'enabled', 'key_ciphertext', 'position'],
-  ai_models: ['user_id', 'endpoint_id', 'model_id', 'model_type', 'type_source', 'context_window', 'can_vision', 'position', 'max_output', 'supports_tools', 'reasoning', 'native_web_search'],
+  ai_models: ['user_id', 'endpoint_id', 'model_id', 'model_type', 'type_source', 'context_window', 'can_vision', 'position', 'max_output', 'supports_tools', 'reasoning', 'native_web_search', 'name', 'group_name', 'pricing'],
   ai_roles: ['user_id', 'role', 'endpoint_id', 'model_id'],
   ai_chat_conversations: ['id', 'user_id', 'title', 'scope', 'created_at', 'updated_at', 'selected_turn_id', 'revision'],
-  ai_chat_turns: ['id', 'user_id', 'conversation_id', 'seq', 'status', 'input', 'messages', 'model_id', 'endpoint_id', 'error_code', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'reasoning_tokens', 'reasoning_effort', 'reasoning_text', 'context_usage', 'created_at', 'parent_id', 'question_id', 'supersedes_id', 'kind'],
+  ai_chat_turns: ['id', 'user_id', 'conversation_id', 'seq', 'status', 'input', 'messages', 'model_id', 'endpoint_id', 'error_code', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'reasoning_tokens', 'reasoning_effort', 'reasoning_text', 'context_usage', 'created_at', 'parent_id', 'question_id', 'supersedes_id', 'kind', 'cost', 'cost_currency'],
   ai_turn_images: ['user_id', 'turn_id', 'idx', 'mime', 'object_key', 'created_at', 'kind'],
 } as const
 

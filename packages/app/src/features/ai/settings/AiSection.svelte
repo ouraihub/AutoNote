@@ -23,6 +23,15 @@
   const chatRole = $derived(roles.find((role) => role.role === 'chat'))
   const writingRole = $derived(roles.find((role) => role.role === 'writing'))
   const paintingRole = $derived(roles.find((role) => role.role === 'painting'))
+  const roleNames: Record<AiRole, MessageKey> = {
+    chat: 'ai.role_chat',
+    writing: 'ai.role_writing',
+    painting: 'ai.role_painting',
+  }
+  const usedBy = (endpointId: string, modelId: string): string[] =>
+    roles
+      .filter((role) => role.binding?.endpointId === endpointId && role.binding.modelId === modelId)
+      .map((role) => i18n.t(roleNames[role.role]))
 
   async function attempt(event: string, action: () => Promise<void>): Promise<void> {
     busy = true
@@ -57,7 +66,7 @@
 
 {#if aiHost}
   <div class="space-y-6">
-    <ProvidersSettings onchanged={providersChanged} presets={PROVIDER_PRESETS} />
+    <ProvidersSettings onchanged={providersChanged} presets={PROVIDER_PRESETS} {usedBy} />
 
     {#key providerRevision}
       <section aria-labelledby={`${uid}-roles`}>

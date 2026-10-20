@@ -107,6 +107,8 @@ export const chatModel = (id: string) => ({
   maxOutput: null,
   canVision: false,
   supportsTools: null,
-  reasoning: null,
   nativeWebSearch: false,
+  name: null,
+  groupName: null,
+  pricing: null,
 })

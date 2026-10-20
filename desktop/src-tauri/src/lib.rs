@@ -363,9 +363,10 @@ impl tauri_plugin_aether::KitHost for AetherHost {
         };
         if req.purpose == "chat"
             && let Some(model) = &req.model
-            && valid(model)
         {
-            return Ok(model.clone());
+            return valid(model)
+                .then(|| model.clone())
+                .ok_or_else(|| tauri_plugin_aether::KitError::needs_config("model"));
         }
         let library = self.library.get().ok_or_else(|| {
             tauri_plugin_aether::KitError::internal(std::io::Error::other("library not ready"))

@@ -4,6 +4,7 @@ import type {
   ModelFilter,
   ModelOption,
   ModelRef,
+  ModelPricing,
   ModelType,
   ProbeError,
   ProbeErrorKind,
@@ -50,8 +51,23 @@ const ReasoningSchema = z
   })
   .transform(({ budgetTokens, ...config }) => (budgetTokens === null ? config : { ...config, budgetTokens }))
 
+const PricingSchema = z.strictObject({
+  currency: z.enum(['USD', 'CNY']),
+  tiers: z.array(
+    z.strictObject({
+      minInputTokens: z.number(),
+      input: z.number(),
+      output: z.number(),
+      cacheRead: z.number().nullable().default(null),
+      cacheWrite: z.number().nullable().default(null),
+    }),
+  ),
+})
+
 const ModelSchema = z.strictObject({
   id: z.string(),
+  name: z.string().nullable().default(null),
+  groupName: z.string().nullable().default(null),
   modelType: z.enum(MODEL_TYPES),
   typeSource: z.enum(['inferred', 'user']),
   contextWindow: tokenLimit,
@@ -60,6 +76,7 @@ const ModelSchema = z.strictObject({
   supportsTools: z.boolean().nullable().default(null),
   reasoning: ReasoningSchema.nullable().optional(),
   nativeWebSearch: z.boolean().default(false),
+  pricing: PricingSchema.nullable().default(null),
 })
 
 export const ProviderSaveSchema = z.strictObject({
@@ -130,13 +147,63 @@ export function validateReasoning(
     throw badRequest('reasoning', 'protocol_mismatch')
   const budget = config.budgetTokens
   if (config.dialect === 'anthropic-budget') {
-    if (budget == null || budget < 1024 || (maxOutput !== null && budget >= maxOutput))
+    if (budget == null || budget < 1024 || budget >= (maxOutput ?? 4096))
       throw badRequest('reasoning', 'invalid_budget')
   } else if (budget != null) throw badRequest('reasoning', 'unexpected_budget')
 }
 
-function storedReasoning(raw: string | null): ReasoningConfig | null {
-  return raw === null ? null : ReasoningSchema.parse(JSON.parse(raw))
+function readReasoning(
+  raw: string | null,
+  modelId: string,
+  modelType: ModelType,
+  protocol: Protocol,
+  maxOutput: number | null,
+): ReasoningConfig | null {
+  if (raw === 'none') return null
+  if (raw !== null) return ReasoningSchema.parse(JSON.parse(raw))
+  return modelType === 'chat' ? inferReasoning(modelId, protocol, maxOutput) : null
+}
+
+const label80 = (field: string, raw: string | null): string | null => {
+  const value = raw?.trim() || null
+  if (value !== null && charCount(value) > 80) throw badRequest(field, 'too_long', 80)
+  return value
+}
+
+function validatePricing(pricing: ModelPricing | null, modelType: ModelType): void {
+  if (pricing === null) return
+  const { tiers } = pricing
+  const price = (value: number | null) => value === null || (Number.isFinite(value) && value >= 0 && value <= 1e6)
+  if (
+    modelType !== 'chat' ||
+    !tiers.length ||
+    tiers.length > 8 ||
+    tiers[0]!.minInputTokens !== 0 ||
+    tiers.some(
+      (tier, index) =>
+        !Number.isSafeInteger(tier.minInputTokens) ||
+        (index > 0 && tier.minInputTokens <= tiers[index - 1]!.minInputTokens) ||
+        ![tier.input, tier.output, tier.cacheRead, tier.cacheWrite].every(price),
+    )
+  )
+    throw badRequest('pricing', 'invalid')
+}
+
+function validateModel(model: z.infer<typeof ModelSchema>, protocol: Protocol): void {
+  label80('name', model.name)
+  label80('groupName', model.groupName)
+  if (model.contextWindow !== null && model.contextWindow < 1) throw badRequest('contextWindow', 'invalid')
+  if (model.maxOutput !== null && model.maxOutput < 1) throw badRequest('maxOutput', 'invalid')
+  if (
+    model.modelType === 'chat' &&
+    model.contextWindow !== null &&
+    model.maxOutput !== null &&
+    model.maxOutput >= model.contextWindow
+  )
+    throw badRequest('maxOutput', 'exceeds_context')
+  validatePricing(model.pricing, model.modelType)
+  if (model.nativeWebSearch && (model.modelType !== 'chat' || protocol === 'openai-chat'))
+    throw badRequest('nativeWebSearch', 'unsupported_protocol')
 }
 
 export interface Connection {
@@ -155,6 +222,7 @@ export interface Connection {
   reasoning: ReasoningConfig | null
   nativeWebSearch: boolean
   canVision: boolean
+  pricing: ModelPricing | null
 }
 
 interface EndpointRow {
@@ -187,6 +255,9 @@ interface ModelRow {
   supportsTools: number | null
   reasoning: string | null
   nativeWebSearch: number
+  name: string | null
+  groupName: string | null
+  pricing: string | null
 }
 
 const flag = (value: number | null): boolean | null => (value === null ? null : value !== 0)
@@ -272,7 +343,7 @@ export async function listProviders(env: Env, userId: string): Promise<Provider[
       .all<EndpointRow>(),
     db
       .prepare(
-        'SELECT endpoint_id AS endpointId, model_id AS id, model_type AS modelType, type_source AS typeSource, context_window AS contextWindow, max_output AS maxOutput, can_vision AS canVision, supports_tools AS supportsTools, reasoning, native_web_search AS nativeWebSearch FROM ai_models WHERE user_id = ?1 ORDER BY position',
+        'SELECT endpoint_id AS endpointId, model_id AS id, model_type AS modelType, type_source AS typeSource, context_window AS contextWindow, max_output AS maxOutput, can_vision AS canVision, supports_tools AS supportsTools, reasoning, native_web_search AS nativeWebSearch, name, group_name AS groupName, pricing FROM ai_models WHERE user_id = ?1 ORDER BY position',
       )
       .bind(userId)
       .all<ModelRow>(),
@@ -313,16 +384,17 @@ export async function listProviders(env: Env, userId: string): Promise<Provider[
             .filter((model) => model.endpointId === row.id)
             .map((model) => ({
               id: model.id,
+              name: model.name,
+              groupName: model.groupName,
               modelType: model.modelType,
               typeSource: model.typeSource,
               contextWindow: model.contextWindow,
               maxOutput: model.maxOutput,
               canVision: model.canVision !== 0,
               supportsTools: flag(model.supportsTools),
-              reasoning:
-                storedReasoning(model.reasoning) ??
-                (model.modelType === 'chat' ? inferReasoning(model.id, row.protocol, model.maxOutput) : null),
+              reasoning: readReasoning(model.reasoning, model.id, model.modelType, row.protocol, model.maxOutput),
               nativeWebSearch: model.nativeWebSearch !== 0,
+              pricing: model.pricing === null ? null : (JSON.parse(model.pricing) as ModelPricing),
             })),
         },
       ]
@@ -401,9 +473,7 @@ function validateSave(input: ProviderSaveInput): void {
       if (!model.id) throw badRequest('models', 'empty_id')
       if (models.has(model.id)) throw badRequest('models', 'duplicate')
       models.add(model.id)
-      if (model.reasoning) validateReasoning(model.reasoning, endpoint.protocol, model.modelType, model.maxOutput)
-      if (model.nativeWebSearch && (model.modelType !== 'chat' || endpoint.protocol === 'openai-chat'))
-        throw badRequest('nativeWebSearch', 'unsupported_protocol')
+      validateModel(model, endpoint.protocol)
     }
   }
 }
@@ -455,21 +525,31 @@ export async function saveProvider(env: Env, userId: string, input: ProviderSave
     )
     .bind(userId, providerId)
     .all<{ endpointId: string; modelId: string; reasoning: string | null }>()
-  const priorReasoning = new Map(
-    priorModels.map((model) => [`${model.endpointId}\n${model.modelId}`, storedReasoning(model.reasoning)]),
-  )
+  const priorReasoning = new Map(priorModels.map((model) => [`${model.endpointId}\n${model.modelId}`, model.reasoning]))
   if (input.endpoints.some((endpoint) => endpoint.id !== undefined && !oldIds.has(endpoint.id)))
     throw notFound('endpoint')
   const kept = new Set(input.endpoints.flatMap((endpoint) => (endpoint.id === undefined ? [] : [endpoint.id])))
 
   const planned = input.endpoints.map((endpoint) => {
     const id = endpoint.id ?? newId()
-    const models = endpoint.models.map((model) => ({
-      ...model,
-      reasoning: model.reasoning === undefined ? (priorReasoning.get(`${id}\n${model.id}`) ?? null) : model.reasoning,
-    }))
-    for (const model of models)
-      if (model.reasoning) validateReasoning(model.reasoning, endpoint.protocol, model.modelType, model.maxOutput)
+    const models = endpoint.models.map((model) => {
+      // Omitted keeps the stored column (re-validated below); null = off ('none' for chat); object = replace.
+      const reasoning =
+        model.reasoning === undefined
+          ? (priorReasoning.get(`${id}\n${model.id}`) ?? null)
+          : model.reasoning === null
+            ? model.modelType === 'chat' ? 'none' : null
+            : JSON.stringify(model.reasoning)
+      if (reasoning !== null && reasoning !== 'none')
+        validateReasoning(ReasoningSchema.parse(JSON.parse(reasoning)), endpoint.protocol, model.modelType, model.maxOutput)
+      return {
+        ...model,
+        name: label80('name', model.name),
+        groupName: label80('groupName', model.groupName),
+        reasoning: model.modelType === 'chat' ? reasoning : null,
+        pricing: model.pricing === null ? null : JSON.stringify(model.pricing),
+      }
+    })
     return { endpoint, id, models }
   })
 
@@ -519,10 +599,11 @@ export async function saveProvider(env: Env, userId: string, input: ProviderSave
             .bind(...values, image === undefined ? 1 : 0, image ?? null, headers, edit === undefined ? 1 : 0, edit ?? null),
       db
         .prepare(
-          `INSERT INTO ai_models (user_id, endpoint_id, model_id, model_type, type_source, context_window, max_output, can_vision, supports_tools, reasoning, native_web_search, position)
+          `INSERT INTO ai_models (user_id, endpoint_id, model_id, model_type, type_source, context_window, max_output, can_vision, supports_tools, reasoning, native_web_search, name, group_name, pricing, position)
            SELECT ?1, ?2, json_extract(value, '$.id'), json_extract(value, '$.modelType'), json_extract(value, '$.typeSource'),
              json_extract(value, '$.contextWindow'), json_extract(value, '$.maxOutput'), json_extract(value, '$.canVision'),
-             json_extract(value, '$.supportsTools'), CASE WHEN json_type(value, '$.reasoning') = 'object' THEN json_extract(value, '$.reasoning') ELSE NULL END, json_extract(value, '$.nativeWebSearch'), key FROM json_each(?3)`,
+             json_extract(value, '$.supportsTools'), json_extract(value, '$.reasoning'), json_extract(value, '$.nativeWebSearch'),
+             json_extract(value, '$.name'), json_extract(value, '$.groupName'), json_extract(value, '$.pricing'), key FROM json_each(?3)`,
         )
         .bind(userId, id, JSON.stringify(models)),
     )
@@ -618,7 +699,7 @@ export async function revealKey(env: Env, userId: string, keyId: string, current
 export async function modelOptions(db: D1Database, userId: string, filter: ModelFilter): Promise<ModelOption[]> {
   const { results } = await db
     .prepare(
-      `SELECT p.name AS provider, e.slug, e.protocol, m.endpoint_id AS endpointId, m.model_id AS modelId, m.model_type AS modelType, m.supports_tools AS supportsTools, m.context_window AS contextWindow, m.max_output AS maxOutput, m.reasoning, m.native_web_search AS nativeWebSearch, m.can_vision AS canVision
+      `SELECT p.name AS provider, e.slug, e.protocol, m.endpoint_id AS endpointId, m.model_id AS modelId, m.name, m.model_type AS modelType, m.supports_tools AS supportsTools, m.context_window AS contextWindow, m.max_output AS maxOutput, m.reasoning, m.native_web_search AS nativeWebSearch, m.can_vision AS canVision
        FROM ai_models m
        JOIN ai_endpoints e ON e.id = m.endpoint_id AND e.user_id = m.user_id
        JOIN ai_providers p ON p.id = e.provider_id AND p.user_id = m.user_id
@@ -632,6 +713,7 @@ export async function modelOptions(db: D1Database, userId: string, filter: Model
       protocol: Protocol
       endpointId: string
       modelId: string
+      name: string | null
       modelType: ModelType
       supportsTools: number | null
       contextWindow: number | null
@@ -649,13 +731,12 @@ export async function modelOptions(db: D1Database, userId: string, filter: Model
     .map((row) => ({
       endpointId: row.endpointId,
       modelId: row.modelId,
+      name: row.name,
       label: `${row.provider} · ${row.slug} · ${row.modelId}`,
       modelType: row.modelType,
       supportsTools: flag(row.supportsTools),
       contextWindow: row.contextWindow,
-      reasoning:
-        storedReasoning(row.reasoning) ??
-        (row.modelType === 'chat' ? inferReasoning(row.modelId, row.protocol, row.maxOutput) : null),
+      reasoning: readReasoning(row.reasoning, row.modelId, row.modelType, row.protocol, row.maxOutput),
       nativeWebSearch: row.nativeWebSearch !== 0,
       canVision: row.canVision !== 0,
     }))
@@ -664,7 +745,7 @@ export async function modelOptions(db: D1Database, userId: string, filter: Model
 export async function resolveModel(env: Env, userId: string, model: ModelRef): Promise<Connection> {
   const row = await env.DB.prepare(
     `SELECT e.id AS endpointId, e.base_url AS baseUrl, e.protocol, e.image_base_url AS imageBaseUrl, e.image_edit_base_url AS imageEditBaseUrl, e.headers,
-       m.model_type AS modelType, m.context_window AS contextWindow, m.max_output AS maxOutput, m.supports_tools AS supportsTools, m.reasoning, m.native_web_search AS nativeWebSearch, m.can_vision AS canVision
+       m.model_type AS modelType, m.context_window AS contextWindow, m.max_output AS maxOutput, m.supports_tools AS supportsTools, m.reasoning, m.native_web_search AS nativeWebSearch, m.can_vision AS canVision, m.pricing
      FROM ai_models m JOIN ai_endpoints e ON e.id = m.endpoint_id AND e.user_id = m.user_id
      JOIN ai_providers p ON p.id = e.provider_id AND p.user_id = m.user_id
      WHERE m.user_id = ?1 AND m.endpoint_id = ?2 AND m.model_id = ?3 AND p.enabled = 1`,
@@ -684,6 +765,7 @@ export async function resolveModel(env: Env, userId: string, model: ModelRef): P
       reasoning: string | null
       nativeWebSearch: number
       canVision: number
+      pricing: string | null
     }>()
   if (!row) throw notFound('model')
   if (!row.baseUrl.trim()) throw needsConfig('missing_url')
@@ -696,14 +778,13 @@ export async function resolveModel(env: Env, userId: string, model: ModelRef): P
     apiKeys: await rotatedKeys(env, userId, row.endpointId),
     modelId: model.modelId,
     endpointId: row.endpointId,
-    reasoning:
-      storedReasoning(row.reasoning) ??
-      (row.modelType === 'chat' ? inferReasoning(model.modelId, row.protocol, row.maxOutput) : null),
+    reasoning: readReasoning(row.reasoning, model.modelId, row.modelType, row.protocol, row.maxOutput),
     contextWindow: row.contextWindow,
     maxOutput: row.maxOutput,
     supportsTools: flag(row.supportsTools),
     nativeWebSearch: row.nativeWebSearch !== 0,
     canVision: row.canVision !== 0,
+    pricing: row.pricing === null ? null : (JSON.parse(row.pricing) as ModelPricing),
   }
 }
 
@@ -812,6 +893,9 @@ export async function probe(
         supportsTools: inferred.supportsTools,
         reasoning: inferred.modelType === 'chat' ? inferReasoning(id, protocol, inferred.maxOutput) : null,
         nativeWebSearch: false,
+        name: null,
+        groupName: inferred.group,
+        pricing: null,
       }
     }),
     null,

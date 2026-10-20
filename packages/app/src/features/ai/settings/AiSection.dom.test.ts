@@ -3,10 +3,42 @@ import { afterEach, expect, test, vi } from 'vitest'
 import type { Backend, AiRoleBinding } from '@app/backend'
 import type { I18nState } from '@app/i18n/runtime.svelte'
 import type { ModelOption, Provider } from '@ouraihub/aether-ui/ports'
+import type * as ProvidersModule from '@ouraihub/aether-ui/providers'
 import { EN_US_MESSAGES } from '@shared/locales/en-US'
 import AiSectionHarness from './AiSectionHarness.svelte'
 
+const captured = vi.hoisted(() => ({ usedBy: undefined as ((endpointId: string, modelId: string) => string[]) | undefined }))
+vi.mock('@ouraihub/aether-ui/providers', async (importOriginal) => {
+  const actual = await importOriginal<typeof ProvidersModule>()
+  const ProvidersSettings = (...args: Parameters<typeof actual.ProvidersSettings>) => {
+    captured.usedBy = args[1].usedBy
+    return actual.ProvidersSettings(...args)
+  }
+  return { ...actual, ProvidersSettings }
+})
+
 afterEach(cleanup)
+
+test('usedBy lists localized roles bound to a model, including fallback writing', async () => {
+  const binding = { endpointId: 'endpoint', modelId: 'm', label: 'M' }
+  const roles: AiRoleBinding[] = [
+    { role: 'chat', binding, isFallback: false },
+    { role: 'writing', binding, isFallback: true },
+    { role: 'painting', binding: { ...binding, modelId: 'img' }, isFallback: false },
+  ]
+  const backend = {
+    aiHost: {
+      roles: async () => roles,
+      setRole: async () => roles,
+      kit: { providers: { list: async () => [], modelOptions: async () => [] } },
+    },
+  } as unknown as Backend
+  const i18n = { locale: 'en-US', t: (key: keyof typeof EN_US_MESSAGES) => EN_US_MESSAGES[key] } as I18nState
+  render(AiSectionHarness, { props: { backend, i18n } })
+  await waitFor(() => expect(captured.usedBy?.('endpoint', 'm')).toEqual([EN_US_MESSAGES['ai.role_chat'], EN_US_MESSAGES['ai.role_writing']]))
+  expect(captured.usedBy?.('endpoint', 'img')).toEqual([EN_US_MESSAGES['ai.role_painting']])
+  expect(captured.usedBy?.('other', 'm')).toEqual([])
+})
 
 test('saving a provider refreshes both role selectors and deleting it clears stale role bindings', async () => {
   let providers: Provider[] = []
@@ -50,6 +82,7 @@ test('saving a provider refreshes both role selectors and deleting it clears sta
                 endpointId: 'endpoint',
                 modelId: 'saved-model',
                 label: 'Saved model',
+                name: null,
                 modelType: 'chat',
                 supportsTools: null,
                 reasoning: null,

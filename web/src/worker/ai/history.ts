@@ -1,4 +1,4 @@
-import type { Conversation, ConversationSummary, EndStatus, TurnStatus, ContextUsage, ReasoningEffort } from '@ouraihub/aether-ui/ports'
+import type { Conversation, ConversationSummary, Cost, EndStatus, TurnStatus, ContextUsage, ReasoningEffort } from '@ouraihub/aether-ui/ports'
 import { newId } from '../lib/id'
 import { badRequest, charCount, conflict, notFound } from './kit'
 import type { StoredMessage, Usage } from './protocol'
@@ -24,6 +24,7 @@ export interface StoredTurn {
   reasoningText: string
   usage: Usage
   contextUsage: ContextUsage | null
+  cost: Cost | null
   /** User input images; the only ones replayed to models. */
   images: ImageRow[]
   /** Images `generate_image` produced in this turn (docs/20 §3). */
@@ -51,6 +52,7 @@ export interface TurnRecord {
   reasoningEffort: ReasoningEffort
   reasoningText: string
   contextUsage: ContextUsage
+  cost: Cost | null
 }
 
 export async function listConversations(db: D1Database, userId: string, scope: string | null): Promise<ConversationSummary[]> {
@@ -70,7 +72,8 @@ export async function loadConversation(db: D1Database, userId: string, id: strin
       `SELECT id, parent_id AS parentId, question_id AS questionId, supersedes_id AS supersedesId, kind,
         status, input, messages, model_id AS modelId, endpoint_id AS endpointId, error_code AS errorCode, created_at AS createdAt,
         reasoning_effort AS reasoningEffort, reasoning_text AS reasoningText, context_usage AS contextUsage,
-        input_tokens AS inputTokens, output_tokens AS outputTokens, cache_read_tokens AS cacheReadTokens, cache_write_tokens AS cacheWriteTokens, reasoning_tokens AS reasoningTokens
+        input_tokens AS inputTokens, output_tokens AS outputTokens, cache_read_tokens AS cacheReadTokens, cache_write_tokens AS cacheWriteTokens, reasoning_tokens AS reasoningTokens,
+        cost, cost_currency AS costCurrency
         FROM ai_chat_turns WHERE conversation_id = ?1 AND user_id = ?2 ORDER BY seq`,
     ).bind(id, userId),
     db.prepare(
@@ -81,20 +84,21 @@ export async function loadConversation(db: D1Database, userId: string, id: strin
   ])
   const images = imageRows!.results as ImageRow[]
   const summary = summaries!.results[0] as (ConversationSummary & { revision: string }) | undefined
-  const results = rows!.results as (Omit<StoredTurn, 'messages' | 'usage' | 'contextUsage' | 'images' | 'generated'> & Usage & { messages: string; createdAt: number; contextUsage: string | null })[]
+  const results = rows!.results as (Omit<StoredTurn, 'messages' | 'usage' | 'contextUsage' | 'images' | 'generated' | 'cost'> & Usage & { messages: string; createdAt: number; contextUsage: string | null; cost: number | null; costCurrency: Cost['currency'] | null })[]
   if (!summary) throw notFound('conversation')
   const stale = Date.now() - STALE_RUNNING_MS
   const { revision, ...wireSummary } = summary
   return {
     summary: wireSummary,
     revision,
-    turns: results.map(({ createdAt, messages, contextUsage, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, reasoningTokens, ...turn }) => ({
+    turns: results.map(({ createdAt, messages, contextUsage, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, reasoningTokens, cost, costCurrency, ...turn }) => ({
       ...turn,
       images: images.filter((image) => image.turnId === turn.id && image.kind === 'input'),
       generated: images.filter((image) => image.turnId === turn.id && image.kind === 'generated'),
       reasoningEffort: turn.reasoningEffort ?? 'default',
       reasoningText: turn.reasoningText ?? '',
       usage: { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, reasoningTokens },
+      cost: cost !== null && costCurrency !== null ? { amount: cost, currency: costCurrency } : null,
       contextUsage: contextUsage ? JSON.parse(contextUsage) as ContextUsage : null,
       messages: JSON.parse(messages) as StoredMessage[],
       ...(turn.status === 'running' && createdAt < stale ? { status: 'failed' as const, errorCode: 'interrupted', contextUsage: null } : {}),
@@ -120,6 +124,7 @@ export function toWire({ summary, turns }: StoredConversation): Conversation {
       reasoningEffort: turn.reasoningEffort,
       reasoningText: turn.reasoningText,
       usage: turn.usage,
+      cost: turn.cost,
       contextUsage: turn.contextUsage,
       images: imageRefs(summary.id, turn.id, turn.images),
       generated: imageRefs(summary.id, turn.id, turn.generated),
@@ -217,14 +222,15 @@ export async function finishTurn(db: D1Database, userId: string, turn: TurnHandl
     db
       .prepare(
         `UPDATE ai_chat_turns SET status = ?1, messages = ?2, model_id = ?3, error_code = ?4, input_tokens = ?5, output_tokens = ?6,
-          cache_read_tokens = ?7, cache_write_tokens = ?8, reasoning_tokens = ?9, context_usage = ?10, endpoint_id = ?11, reasoning_effort = ?12, reasoning_text = ?13
+          cache_read_tokens = ?7, cache_write_tokens = ?8, reasoning_tokens = ?9, context_usage = ?10, endpoint_id = ?11, reasoning_effort = ?12, reasoning_text = ?13,
+          cost = ?17, cost_currency = ?18
          WHERE id = ?14 AND conversation_id = ?15 AND user_id = ?16 AND status = 'running'`,
       )
       .bind(
         record.status, JSON.stringify(record.messages), record.modelId, record.errorCode,
         record.usage.inputTokens, record.usage.outputTokens, record.usage.cacheReadTokens, record.usage.cacheWriteTokens, record.usage.reasoningTokens,
         JSON.stringify(record.contextUsage), record.endpointId, record.reasoningEffort, record.reasoningText,
-        turn.turnId, turn.conversationId, userId,
+        turn.turnId, turn.conversationId, userId, record.cost?.amount ?? null, record.cost?.currency ?? null,
       ),
     db.prepare(`UPDATE ai_chat_conversations SET updated_at = ?1, revision = ?5,
       selected_turn_id = CASE WHEN ?6 = 'completed' AND EXISTS (
@@ -322,10 +328,10 @@ export async function forkConversation(db: D1Database, userId: string, id: strin
     ...path.map((turn, index) => db.prepare(`INSERT INTO ai_chat_turns (
       id, user_id, conversation_id, seq, parent_id, question_id, supersedes_id, kind, status, input, messages,
       model_id, endpoint_id, error_code, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens,
-      reasoning_effort, reasoning_text, context_usage, created_at
+      reasoning_effort, reasoning_text, context_usage, created_at, cost, cost_currency
     ) SELECT ?1, user_id, ?2, ?3, ?4, ?5, ?6, kind, status, input, messages,
       model_id, endpoint_id, error_code, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens,
-      reasoning_effort, reasoning_text, context_usage, created_at FROM ai_chat_turns
+      reasoning_effort, reasoning_text, context_usage, created_at, cost, cost_currency FROM ai_chat_turns
       WHERE id = ?7 AND conversation_id = ?8 AND user_id = ?9 AND EXISTS (
         SELECT 1 FROM ai_chat_conversations WHERE id = ?8 AND user_id = ?9 AND revision = ?10
       )`).bind(ids.get(turn.id)!, forkId, index + 1, turn.parentId ? ids.get(turn.parentId)! : null,

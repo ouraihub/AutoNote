@@ -74,6 +74,12 @@ fn note_scope_authorization_survives_null_context() {
     let (_foreign_dir, foreign, foreign_note, _) = fixture("http://127.0.0.1:9");
     let mut req = request(&note, &model);
     assert_eq!(host.select_model(&req).unwrap(), model);
+    let missing = ModelRef {
+        endpoint_id: model.endpoint_id.clone(),
+        model_id: "gone".into(),
+    };
+    let explicit = request(&note, &missing);
+    assert_eq!(error(&explicit, &host)["details"]["reason"], "model");
     assert!(host.context(&req).unwrap().is_none());
     let turn = host
         .chat_store
@@ -330,6 +336,7 @@ fn dropped_context_reaches_loopback_without_note_body_and_preserves_history() {
                         context_usage: summary.context_usage,
                         reasoning_effort: None,
                         endpoint_id: Some(model.endpoint_id.clone()),
+                        cost: summary.cost,
                     },
                 )
                 .unwrap();

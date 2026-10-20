@@ -269,6 +269,9 @@ mod tests {
                 supports_tools: None,
                 reasoning: None,
                 native_web_search: false,
+                name: None,
+                group_name: None,
+                pricing: None,
             };
         let saved = store
             .save(providers::ProviderSave {

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { KitError, ModelRef, RunEvent, ContextUsage, ReasoningEffort } from '@ouraihub/aether-ui/ports'
+import type { Cost, KitError, ModelPricing, ModelRef, RunEvent, ContextUsage, ReasoningEffort } from '@ouraihub/aether-ui/ports'
 import { search as searchWeb, getPreferences } from './search'
 import type { Env } from '../env'
 import { newId } from '../lib/id'
@@ -291,6 +291,21 @@ async function paintingModel(env: Env, userId: string): Promise<Connection> {
   return resolveModel(env, userId, { endpointId: row.endpointId, modelId: row.modelId })
 }
 
+/** Turn cost summed per upstream round (contract §4); null when pricing is absent or any round lacks input/output tokens. */
+export function cost(pricing: ModelPricing | null, rounds: readonly Usage[]): Cost | null {
+  if (!pricing || !rounds.length) return null
+  let amount = 0
+  for (const round of rounds) {
+    const input = round.inputTokens, output = round.outputTokens
+    if (input === null || output === null) return null
+    const tier = pricing.tiers.findLast((candidate) => candidate.minInputTokens <= input) ?? pricing.tiers[0]!
+    const read = round.cacheReadTokens ?? 0, write = round.cacheWriteTokens ?? 0
+    const uncached = Math.max(0, input - read - write)
+    amount += (uncached * tier.input + read * (tier.cacheRead ?? tier.input) + write * (tier.cacheWrite ?? tier.input) + output * tier.output) / 1e6
+  }
+  return { amount, currency: pricing.currency }
+}
+
 export async function executeRun(
   env: Env,
   userId: string,
@@ -299,6 +314,7 @@ export async function executeRun(
   emit: (event: RunEvent) => void,
 ): Promise<void> {
   const usage: Usage = { inputTokens: null, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null, reasoningTokens: null }
+  const rounds: Usage[] = []
   const state = { text: '', reasoningText: '', reasoning: [] as ReasoningBlock[], requestChars: 0 }
   // Messages this run produced after the user input: assistant rounds and tool results (same shape as desktop).
   const messages: StoredMessage[] = []
@@ -343,8 +359,15 @@ export async function executeRun(
       const roundUsage: Usage = { inputTokens: null, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null, reasoningTokens: null }
       let result: { calls: ToolCall[]; truncated: boolean }
       try {
-        result = await streamRound(run, messages, signal, roundUsage, state, emit)
+        result = await streamRound(run, messages, signal, roundUsage, state, emit).catch((error: unknown) => {
+          // Mirrors desktop run.rs: an unknown-capability model whose upstream 400s on tools retries once without them.
+          const rejectsTools = error instanceof KitFailure && Number(error.details.status) === 400 && error.message.toLowerCase().includes('tool')
+          if (!rejectsTools || !run.tools.length || run.connection.supportsTools !== null || state.text) throw error
+          run.tools = []
+          return streamRound(run, messages, signal, roundUsage, state, emit)
+        })
       } finally {
+        rounds.push(roundUsage)
         for (const key of Object.keys(usage) as (keyof Usage)[]) {
           const a = usage[key], b = roundUsage[key]
           usage[key] = a === null ? b : b === null ? a : Math.min(0xffff_ffff, a + b)
@@ -374,7 +397,8 @@ export async function executeRun(
       end = { kind: 'end', status: 'failed', error: failure }
     }
   }
-  emit({ kind: 'usage', ...usage })
+  const spent = cost(run.connection.pricing, rounds)
+  emit({ kind: 'usage', ...usage, cost: spent })
   emit({ kind: 'context', usage: contextUsage })
   if (!run.turn) { emit(end); return }
   flush()
@@ -388,6 +412,7 @@ export async function executeRun(
     endpointId: run.connection.endpointId,
     reasoningEffort: run.reasoningEffort,
     reasoningText: state.reasoningText,
+    cost: spent,
   }).catch((error: unknown) => {
     end = { kind: 'end', status: 'failed', error: internal(error).toJSON() }
   })

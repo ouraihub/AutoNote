@@ -5,6 +5,7 @@ import { ApiError } from '../lib/errors'
 import { isValidId } from '../lib/id'
 import { readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
+import { modelOptions } from '../ai/providers'
 
 const ROLES = ['chat', 'writing', 'painting'] as const
 type Role = (typeof ROLES)[number]
@@ -41,18 +42,20 @@ aiRoutes.put('/roles', async (c) => {
 })
 
 async function listRoles(db: D1Database, userId: string): Promise<Response> {
-  const { results } = await db.prepare('SELECT role,endpoint_id AS endpointId,model_id AS modelId FROM ai_roles WHERE user_id = ?1').bind(userId).all<{ role: Role; endpointId: string; modelId: string }>()
-  const chat = results.find((row) => row.role === 'chat')
-  return Response.json(
-    ROLES.map((role) => {
-      const own = results.find((row) => row.role === role)
-      const row = own ?? (role === 'writing' ? chat : undefined)
-      return {
-        role,
-        binding: row ? { endpointId: row.endpointId, modelId: row.modelId, label: row.modelId } : null,
-        isFallback: role === 'writing' && !own && Boolean(chat),
-      }
-    }),
-  )
+  const [{ results }, options] = await Promise.all([
+    db.prepare('SELECT role,endpoint_id AS endpointId,model_id AS modelId FROM ai_roles WHERE user_id = ?1').bind(userId).all<{ role: Role; endpointId: string; modelId: string }>(),
+    modelOptions(db, userId, {}),
+  ])
+  const valid = (role: Role) => {
+    const row = results.find((entry) => entry.role === role)
+    const option = row && options.find((entry) => entry.endpointId === row.endpointId && entry.modelId === row.modelId && entry.modelType === (role === 'painting' ? 'image' : 'chat'))
+    return option ? { endpointId: option.endpointId, modelId: option.modelId, label: option.label } : null
+  }
+  const chat = valid('chat')
+  const writing = valid('writing')
+  return Response.json([
+    { role: 'chat', binding: chat, isFallback: false },
+    { role: 'writing', binding: writing ?? chat, isFallback: !writing && Boolean(chat) },
+    { role: 'painting', binding: valid('painting'), isFallback: false },
+  ])
 }
-
