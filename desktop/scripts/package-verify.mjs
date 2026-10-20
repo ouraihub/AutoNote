@@ -25,7 +25,7 @@ if (process.platform === 'linux') {
         '--',
         'bash',
         '-euc',
-        'printf "%s" "autonote-ci-only" | gnome-keyring-daemon --unlock --components=secrets; openbox & exec node scripts/smoke-native.mjs',
+        'trap \'if mountpoint -q "$XDG_RUNTIME_DIR/doc"; then fusermount3 -u "$XDG_RUNTIME_DIR/doc"; fi\' EXIT; printf "%s" "autonote-ci-only" | gnome-keyring-daemon --unlock --components=secrets; openbox & node scripts/smoke-native.mjs',
       ],
       {
         env: {

@@ -67,3 +67,4 @@ macOS 使用 ad-hoc 签名，不具备 Developer ID 签名、未公证，可能�
 - 修复提交 `8aa7e29` 的原生运行 `39373959227`：macOS任务 `118467792907` 已成功，真实DMG格式/版本/ARM64/ad-hoc签名检查、挂载启动、可见窗口、隔离HOME库schema/quick_check与PNG截图通过；Linux/Windows当时仍执行中。另WSL Linux transfer回归12项全通过，本机完整CI通过（artifact3483）。
 - 同轮Linux已通过完整测试并真实构建83.49MiB AppImage、8.80MiB DEB；DEB启动后窗口/库均可见，但截图检查过早且以压缩文件1KB阈值误判。改为按启动PID定位窗口、显式PNG、等待至少960×640且超过16种颜色的真实帧，仍验证PNG签名；不以文件压缩大小判断是否渲染。
 - 运行 `39377448932`：Windows、macOS均全绿；Linux DEB真实窗口/隔离库/完整尺寸渲染截图通过，随后旧的AppImage/DEB二进制全SHA相等检查失败。Tauri官方bundler会分别写入 `__TAURI_BUNDLE_TYPE_VAR_APP/DEB`（两包全文件哈希不应相同）。改查两个ELF的x64架构、相同GNU build-id及各自包格式标记，外层各包仍使用独立SHA256验证，再真实启动AppImage。
+- 原生运行 `39381629797`：Windows/macOS全绿；Linux日志明确DEB与AppImage均 `PASS`（真实窗口、隔离库、PNG实帧），仅最外层清理因D-Bus会话结束后的portal FUSE挂载点 `Transport endpoint is not connected` 失败。改为保留shell EXIT trap，在D-Bus结束前通过portal依赖的fusermount3卸载doc挂载，随后仍完整删除隔离目录；不吞清理错误。
