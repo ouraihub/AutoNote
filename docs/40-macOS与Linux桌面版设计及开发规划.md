@@ -64,3 +64,5 @@ macOS 使用 ad-hoc 签名，不具备 Developer ID 签名、未公证，可能�
 - Windows打包exe经UIA实窗验收：设置→关于实际显示0.2.0、库目录为exe旁data，点击打开日志目录后枚举到真实Explorer目标窗口；PrintWindow截图核对，关闭正常退出0。临时脚本按UTF8读取，未访问用户生产库。macOS/Linux宿主包仍待原生runner构建与启动冒烟。
 - 宿主原生运行 `39367556615` 的macOS编译报告 `icons/icon.png is not RGBA`。四个现有PNG实际都是8位RGB（color type2）；已统一无损转成8位RGBA（type6），逐像素ARGB比较全部不变，尺寸仍32/128/256/512，未换图、未绕过Tauri检查。完整本地与原生重跑待后续结果。
 - RGBA修复提交 `e4fca18` 已通过完整本地CI（artifact3467）。原生重跑 `39369828351` 已越过图标编译：macOS完整desktop:verify通过、真实DMG已构建，窗口冒烟Swift缺Foundation桥接导入；Linux导出五个行为测试失败，发布后目录同步使用cap-std的路径句柄且清理不存在partial掩盖原错误。修复窗口脚本导入Foundation；目录同步改为同能力目录下打开可读`.`句柄，清理只忽略已经不存在的临时文件，保留真实同步错误。
+- 修复提交 `8aa7e29` 的原生运行 `39373959227`：macOS任务 `118467792907` 已成功，真实DMG格式/版本/ARM64/ad-hoc签名检查、挂载启动、可见窗口、隔离HOME库schema/quick_check与PNG截图通过；Linux/Windows当时仍执行中。另WSL Linux transfer回归12项全通过，本机完整CI通过（artifact3483）。
+- 同轮Linux已通过完整测试并真实构建83.49MiB AppImage、8.80MiB DEB；DEB启动后窗口/库均可见，但截图检查过早且以压缩文件1KB阈值误判。改为按启动PID定位窗口、显式PNG、等待至少960×640且超过16种颜色的真实帧，仍验证PNG签名；不以文件压缩大小判断是否渲染。

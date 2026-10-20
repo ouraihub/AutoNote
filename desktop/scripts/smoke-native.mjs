@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -55,7 +55,11 @@ async function launch(executable, cwd, label) {
       if (child.exitCode !== null || child.signalCode !== null)
         throw new Error(`Packaged app exited before startup (${child.exitCode || child.signalCode})`)
       if (platform === 'linux') {
-        const result = spawnSync('xdotool', ['search', '--onlyvisible', '--name', '^AutoNote$'], { encoding: 'utf8' })
+        const result = spawnSync(
+          'xdotool',
+          ['search', '--onlyvisible', '--pid', String(child.pid), '--name', '^AutoNote$'],
+          { encoding: 'utf8' },
+        )
         if (result.status === 0) window = result.stdout.trim().split('\n')[0]
       } else {
         const script = `import Foundation\nimport CoreGraphics\nlet windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []\nif windows.contains(where: { ($0[kCGWindowOwnerPID as String] as? Int) == ${child.pid} && ($0[kCGWindowLayer as String] as? Int) == 0 }) { print("visible") }\n`
@@ -77,13 +81,21 @@ async function launch(executable, cwd, label) {
       db.close()
     }
     const screenshot = path.join(stage, `${label}.png`)
-    if (platform === 'linux') run('import', ['-window', window, screenshot])
-    else run('screencapture', ['-x', screenshot])
-    if (
-      statSync(screenshot).size < 1000 ||
-      !readFileSync(screenshot).subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'))
-    )
-      throw new Error('Native screenshot is empty or not PNG')
+    if (platform === 'linux') {
+      let rendered = false
+      for (let attempt = 0; attempt < 30; attempt++) {
+        run('import', ['-window', window, `PNG:${screenshot}`])
+        const [width, height, colors] = run('identify', ['-format', '%w %h %k', screenshot]).split(' ').map(Number)
+        if (width >= 960 && height >= 640 && colors > 16) {
+          rendered = true
+          break
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+      }
+      if (!rendered) throw new Error('Native window did not render a full-size application frame')
+    } else run('screencapture', ['-x', screenshot])
+    if (!readFileSync(screenshot).subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex')))
+      throw new Error('Native screenshot is not PNG')
     console.log(
       `PASS: ${label}: visible native window, isolated HOME database schema/quick_check and screenshot (not full UI acceptance)`,
     )
