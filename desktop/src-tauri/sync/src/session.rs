@@ -46,7 +46,8 @@ impl SiteOrigin {
     /// Validate and normalize an origin before using it for authentication.
     ///
     /// # Errors
-    /// Returns `bad_request` for a non-HTTP origin or non-origin URL.
+    /// Returns `bad_request` for a non-HTTP origin, non-origin URL, or plain
+    /// `http` to anything but loopback (credentials would travel in cleartext).
     pub fn parse(value: &str) -> Result<Self, AppError> {
         if value.trim() != value || value.bytes().any(|b| b.is_ascii_control()) {
             return Err(invalid());
@@ -59,6 +60,10 @@ impl SiteOrigin {
             || url.path() != "/"
             || url.query().is_some()
             || url.fragment().is_some()
+            || (url.scheme() == "http"
+                && !matches!(url.host(), Some(Host::Domain("localhost")))
+                && !matches!(url.host(), Some(Host::Ipv4(ip)) if ip.is_loopback())
+                && !matches!(url.host(), Some(Host::Ipv6(ip)) if ip.is_loopback()))
         {
             return Err(invalid());
         }
@@ -446,11 +451,20 @@ mod tests {
             "https://notes.example.test?token=secret",
             "file:///library",
             " https://notes.example.test",
+            "http://notes.example.test",
+            "http://192.168.1.10:7712",
         ] {
             assert_eq!(
                 SiteOrigin::parse(origin).unwrap_err().code(),
                 ErrorCode::BadRequest
             );
+        }
+        for origin in [
+            "http://localhost:7712",
+            "http://[::1]:7712",
+            "https://notes.example.test",
+        ] {
+            assert!(SiteOrigin::parse(origin).is_ok(), "{origin}");
         }
         let local = SiteOrigin::parse("http://127.0.0.1:7713").unwrap();
         let legacy = SessionCookie::parse(

@@ -32,14 +32,14 @@ const revokeKey = vi.fn(async () => ({ ok: true as const }))
 const get = vi.fn(async () => ({ enabled: true, canManageGlobal: false, endpoint: 'https://example.com/mcp', preferences: { writeEnabled: false, trashEnabled: false }, apiKeys: [], grants: [], aiSearch: { available: false } }))
 const backend = {
   kind: 'web', capabilities: { accounts: true, totp: false, share: true, remoteBackup: false, mcp: 'remote', updateCheck: false },
-  session: { account: { updateProfile, setPassword: vi.fn() } }, share: { list, remove }, mcp: { get, createKey, revokeKey },
+  session: { updateProfile, account: { setPassword: vi.fn() } }, share: { list, remove }, mcp: { get, createKey, revokeKey },
 } as unknown as Backend
 const settings = { current: { backup: { schedule: 'off' } }, update: vi.fn() } as unknown as SettingsState
 const mount = (component: typeof AccountSettings | typeof SharedNotes | typeof McpSettings | typeof BackupSettings | typeof UpdateSettings, source: Backend = backend) =>
   render(CloudSettingsHarness, { props: { component, backend: source, session, i18n, notifier, settings } })
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 
-test('profile saves through the account port', async () => {
+test('profile saves through the session port', async () => {
   mount(AccountSettings)
   await fireEvent.input(screen.getByLabelText('Display name'), { target: { value: 'New name' } })
   await fireEvent.submit(screen.getByLabelText('Display name').closest('form')!)

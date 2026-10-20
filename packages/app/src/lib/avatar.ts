@@ -1,6 +1,12 @@
 import { createAvatar } from '@dicebear/core'
 import * as micah from '@dicebear/micah'
-import { generatedAvatarSeed, isBitmapAvatarDataUrl, parseStoredAvatarUrl } from '@shared/avatar'
+import { generatedAvatarSeed, isBitmapAvatarDataUrl, parseStoredAvatarUrl, presetAvatarIndex } from '@shared/avatar'
+
+const PRESET_AVATARS = import.meta.glob<string>('../assets/avatars/*.webp', { eager: true, query: '?url', import: 'default' })
+
+export function presetAvatarUrl(index: number): string | undefined {
+  return PRESET_AVATARS[`../assets/avatars/${String(index).padStart(2, '0')}.webp`]
+}
 
 const BACKGROUND_COLORS = ['f87171', 'fb923c', '09acf4', 'fb923c', 'f472b6', 'a78bfa', '34d399']
 const BASE_COLORS = ['f7e1c3', 'f9c9b6', 'f2d6cb', 'f8ce8e', 'eac393']
@@ -32,5 +38,8 @@ export function createAvatarDataUri(seed: string): string {
 
 export function resolveAvatarSource(preference: string | null | undefined, displayName: string): string {
   if (preference && (isBitmapAvatarDataUrl(preference) || parseStoredAvatarUrl(preference))) return preference
+  const preset = presetAvatarIndex(preference)
+  const presetUrl = preset === null ? undefined : presetAvatarUrl(preset)
+  if (presetUrl) return presetUrl
   return createAvatarDataUri(generatedAvatarSeed(preference) ?? displayName)
 }

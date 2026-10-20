@@ -207,3 +207,123 @@ impl Library {
         })
     }
 }
+
+/// Display name and avatar preference of the local library owner.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LocalProfile {
+    pub name: String,
+    pub avatar_url: String,
+}
+
+/// Partial update; absent fields keep their stored value.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LocalProfilePatch {
+    pub name: Option<String>,
+    pub avatar_url: Option<String>,
+}
+
+const PROFILE_NAME_MAX_CHARS: usize = 64;
+const AVATAR_DATA_URL_MAX_BYTES: usize = 128 * 1024 * 4 / 3 + 64;
+
+fn valid_avatar(value: &str) -> bool {
+    if value.is_empty() {
+        return true;
+    }
+    if let Some(seed) = value.strip_prefix("dicebear:") {
+        return (16..=64).contains(&seed.len())
+            && seed
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+    }
+    if let Some(index) = value.strip_prefix("preset:") {
+        return index.len() == 2 && matches!(index.parse::<u8>(), Ok(1..=12));
+    }
+    let image = [
+        "data:image/png;base64,",
+        "data:image/jpeg;base64,",
+        "data:image/webp;base64,",
+    ];
+    value.len() <= AVATAR_DATA_URL_MAX_BYTES && image.iter().any(|prefix| value.starts_with(prefix))
+}
+
+impl Library {
+    /// Loads the local profile; an unset profile is empty.
+    /// # Errors
+    /// Returns storage or malformed stored profile errors.
+    pub fn local_profile(&self) -> Result<LocalProfile, Error> {
+        self.read(|conn| {
+            let value: Option<String> = conn
+                .query_row("SELECT value FROM prefs WHERE key='profile'", [], |r| {
+                    r.get(0)
+                })
+                .optional()?;
+            value.map_or_else(
+                || Ok(LocalProfile::default()),
+                |value| {
+                    serde_json::from_str(&value)
+                        .map_err(|_| Error::invalid("profile", "invalid stored profile"))
+                },
+            )
+        })
+    }
+
+    /// Applies a validated partial profile update and returns the stored profile.
+    /// # Errors
+    /// Rejects names outside 1..=64 characters after trimming and unsupported avatar values.
+    pub fn local_profile_save(&self, patch: &LocalProfilePatch) -> Result<LocalProfile, Error> {
+        let mut profile = self.local_profile()?;
+        if let Some(name) = &patch.name {
+            let name = name.trim();
+            if name.is_empty() || name.chars().count() > PROFILE_NAME_MAX_CHARS {
+                return Err(Error::invalid("name", "must be 1-64 characters"));
+            }
+            name.clone_into(&mut profile.name);
+        }
+        if let Some(avatar) = &patch.avatar_url {
+            if !valid_avatar(avatar) {
+                return Err(Error::invalid("avatarUrl", "unsupported avatar"));
+            }
+            avatar.clone_into(&mut profile.avatar_url);
+        }
+        let value = serde_json::to_string(&profile)
+            .map_err(|_| Error::invalid("profile", "cannot encode profile"))?;
+        self.write(WriteOrigin::Ui, |w| {
+            w.tx.execute(
+                "INSERT INTO prefs(key,value,updated_at) VALUES('profile',?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",
+                params![value, w.now.get()],
+            )?;
+            Ok(())
+        })?;
+        Ok(profile)
+    }
+}
+
+#[cfg(test)]
+mod profile_tests {
+    use super::valid_avatar;
+
+    #[test]
+    fn avatar_preferences_match_the_shared_rules() {
+        for ok in [
+            "",
+            "preset:01",
+            "preset:12",
+            "dicebear:abcdefghijklmnop",
+            "data:image/png;base64,AAAA",
+        ] {
+            assert!(valid_avatar(ok), "{ok}");
+        }
+        for bad in [
+            "preset:00",
+            "preset:13",
+            "preset:1",
+            "dicebear:short",
+            "https://example.com/a.png",
+            "data:image/svg+xml;base64,AAAA",
+        ] {
+            assert!(!valid_avatar(bad), "{bad}");
+        }
+    }
+}

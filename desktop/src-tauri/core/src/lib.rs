@@ -34,7 +34,9 @@ pub use dto::{
 };
 pub use error::{AppError, Entity, Error, ErrorCode, ErrorDetails};
 pub use files::{CHUNK_MAX_BYTES, UploadBegin};
-pub use prefs::{Appearance, Backup, Editor, Preview, Sync, UserSettings};
+pub use prefs::{
+    Appearance, Backup, Editor, LocalProfile, LocalProfilePatch, Preview, Sync, UserSettings,
+};
 pub use query::{
     GraphEdge, GraphMeta, GraphNode, GraphQuery, GraphResponse, GraphTag, ListNotesQuery,
     NoteOrder, NoteSort, NoteView, SearchHit, SearchMode, SearchQuery, SearchResponse, SearchTerms,

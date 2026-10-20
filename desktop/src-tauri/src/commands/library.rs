@@ -6,8 +6,9 @@ use serde_json::{Value, json};
 
 use note_core::{
     AppError, Cursor, Error, ErrorCode, Folder, FolderCreate, FolderDeleteStrategy, FolderPatch,
-    GraphQuery, GraphResponse, ProgressEvent, ProgressPhase, SearchQuery, SearchResponse,
-    SyncResponse, Tag, TagCreate, TagPatch, TagPatchResult, UserSettings, WriteOrigin, parse_input,
+    GraphQuery, GraphResponse, LocalProfile, LocalProfilePatch, ProgressEvent, ProgressPhase,
+    SearchQuery, SearchResponse, SyncResponse, Tag, TagCreate, TagPatch, TagPatchResult,
+    UserSettings, WriteOrigin, parse_input,
 };
 use tauri::ipc::Channel;
 
@@ -203,17 +204,27 @@ pub async fn settings_stats(context: Ctx<'_>) -> Result<BTreeMap<&'static str, i
     run("settings_stats", &context, |lib| lib.settings_stats()).await
 }
 
+fn local_user(id: &str, profile: &LocalProfile) -> Value {
+    let name = if profile.name.is_empty() {
+        "Local"
+    } else {
+        profile.name.as_str()
+    };
+    json!({
+        "id": id, "login": "local", "name": name, "avatarUrl": profile.avatar_url,
+        "role": "owner", "createdAt": 0, "username": "local",
+    })
+}
+
 /// `BackendSession` for the local library: a stable owner so the shared UI is
-/// `authed`; `site.attachmentStorage = 'local'` (21 §4, Q4).
+/// `authed`; `site.attachmentStorage = 'local'` (21 §4, Q4). Name and avatar
+/// come from the stored local profile.
 #[tauri::command]
 pub async fn session_load(context: Ctx<'_>) -> Result<Value, AppError> {
     run("session_load", &context, |lib| {
         let id = lib.library_id()?;
         Ok(json!({
-            "user": {
-                "id": id, "login": "local", "name": "Local", "avatarUrl": "",
-                "role": "owner", "createdAt": 0, "username": "local",
-            },
+            "user": local_user(&id, &lib.local_profile()?),
             "site": {
                 "name": "AutoNote", "initialized": true, "registrationOpen": false,
                 "r2Enabled": false, "kvEnabled": false, "attachmentStorage": "local",
@@ -221,6 +232,17 @@ pub async fn session_load(context: Ctx<'_>) -> Result<Value, AppError> {
             },
             "settings": lib.settings_get()?,
         }))
+    })
+    .await
+}
+
+/// Updates the local owner's display name or avatar; returns the `PublicUser`.
+#[tauri::command]
+pub async fn session_update_profile(context: Ctx<'_>, body: Value) -> Result<Value, AppError> {
+    run("session_update_profile", &context, move |lib| {
+        let patch: LocalProfilePatch = parse_input(body)?;
+        let profile = lib.local_profile_save(&patch)?;
+        Ok(local_user(&lib.library_id()?, &profile))
     })
     .await
 }

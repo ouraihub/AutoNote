@@ -3,6 +3,7 @@
   import { SvelteMap } from 'svelte/reactivity'
   import {
     Archive,
+    Camera,
     Check,
     ChevronRight,
     Clock,
@@ -49,6 +50,7 @@
   import SectionLabel from '@app/components/primitives/SectionLabel.svelte'
   import SearchButton from '@app/components/primitives/SearchButton.svelte'
   import Avatar from '@app/components/primitives/Avatar.svelte'
+  import AvatarPicker from '@app/features/settings/AvatarPicker.svelte'
   import { Button } from '@app/components/ui/button'
   import { Input } from '@app/components/ui/input'
   import * as DropdownMenu from '@app/components/ui/dropdown-menu'
@@ -95,6 +97,7 @@
   const user = $derived(session.user)
   const displayName = $derived(user ? user.name || user.username : '')
   let narrow = $state(false)
+  let avatarOpen = $state(false)
   let busy = $state(false)
   let feedback = $state('')
   let dialog = $state<'folder' | 'tag' | null>(null)
@@ -594,6 +597,9 @@
       {/if}
       <DropdownMenu.Content class="w-[252px]">
         <DropdownMenu.Group>
+          <DropdownMenu.Item onclick={() => (avatarOpen = true)}
+            ><Camera size={13} />{i18n.t('settings.change_avatar')}</DropdownMenu.Item
+          >
           <DropdownMenu.Item onclick={() => ui.openPanel('settings')}
             ><Settings size={13} />{i18n.t('common.settings')}</DropdownMenu.Item
           >
@@ -620,6 +626,7 @@
         </DropdownMenu.Group>
       </DropdownMenu.Content>
     </DropdownMenu.Root>
+    {#if avatarOpen}<AvatarPicker onClose={() => (avatarOpen = false)} />{/if}
   {/if}
 {/snippet}
 

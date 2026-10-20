@@ -30,7 +30,7 @@ import { HttpSharePort } from './ports/share'
 import { HttpBackupPort } from './ports/backup'
 import { HttpUpdatePort } from './ports/update'
 import { HttpRemoteMcpPort } from './ports/mcp'
-import { HttpAiPort } from './ports/ai'
+import { createHttpAiHostPort } from './ports/ai-host'
 
 export interface WebBackendDeps {
   fetch: FetchLike
@@ -253,7 +253,6 @@ export function createWebBackend(deps: WebBackendDeps): Backend {
       throw new BackendError('conflict', 409, 'Local changes are still pending')
   }
   const settingsPort = new HttpSettingsPort({ transport, bus, clientId: deps.clientId })
-  const ai = new HttpAiPort({ transport })
   return {
     kind: 'web',
     capabilities: {
@@ -262,7 +261,6 @@ export function createWebBackend(deps: WebBackendDeps): Backend {
       share: true,
       remoteBackup: true,
       semanticSearch: true,
-      ai: true,
       realtime: deps.sockets !== null,
       mcp: 'remote',
       remoteSync: false,
@@ -271,6 +269,11 @@ export function createWebBackend(deps: WebBackendDeps): Backend {
     changes,
     session: {
       load: async (options) => adoptSession(await sessionPort.load(options)),
+      updateProfile: async (...args) => {
+        const value = await sessionPort.updateProfile(...args)
+        emitChange({ kind: 'settings' })
+        return value
+      },
       logout: async (options) => {
         await sessionPort.logout(options)
         accountController.abort()
@@ -295,11 +298,6 @@ export function createWebBackend(deps: WebBackendDeps): Backend {
           return value
         },
         setPassword: (...args) => account.setPassword(...args),
-        updateProfile: async (...args) => {
-          const value = await account.updateProfile(...args)
-          emitChange({ kind: 'settings' })
-          return value
-        },
         updateRegistration: async (...args) => {
           const value = await account.updateRegistration(...args)
           emitChange({ kind: 'settings' })
@@ -337,7 +335,7 @@ export function createWebBackend(deps: WebBackendDeps): Backend {
     search: new HttpSearchPort({ transport }),
     files: new HttpFilesPort({ transport, ...(deps.resolveFileUrl ? { resolveFileUrl: deps.resolveFileUrl } : {}) }),
     transfer: new HttpTransferPort({ transport, logger: deps.logger, clock: deps.clock }),
-    ai,
+    aiHost: createHttpAiHostPort(transport),
     share: new HttpSharePort({ transport }),
     backup: new HttpBackupPort({ transport }),
     mcp: new HttpRemoteMcpPort({ transport }),
@@ -383,7 +381,6 @@ export type { BackupPortDeps } from './ports/backup'
 export { HttpRemoteMcpPort } from './ports/mcp'
 export type { RemoteMcpPortDeps } from './ports/mcp'
 export { HttpUpdatePort } from './ports/update'
-export { HttpAiPort } from './ports/ai'
 export type { UpdatePortDeps } from './ports/update'
 export { browserSocketFactory } from '../sync'
 export type { SocketFactory, SyncSocket } from '../sync'

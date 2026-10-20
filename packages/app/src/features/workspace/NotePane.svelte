@@ -3,7 +3,7 @@
   import { SvelteMap } from 'svelte/reactivity'
   import { Text } from '@codemirror/state'
   import type { EditorView } from '@codemirror/view'
-  import type { WritingSelection } from '../../root/types'
+  import type { WritingSelection, WritingSnapshot } from '../../root/types'
   import type { WorkspacePane } from '../../state/layout-prefs'
   import type { EditorServices } from '../../editor/services'
   import type { LivePreviewServices } from '../../editor/live-preview'
@@ -85,6 +85,11 @@
   const registerFlush = getRegisterFlush()
   let view = $state.raw<EditorView | null>(null)
   let selection = $state<WritingSelection>({ from: 0, to: 0, docLength: 0, text: '', doc: Text.empty })
+  let editorGeneration = $state(0)
+  $effect.pre(() => {
+    void noteId
+    untrack(() => editorGeneration += 1)
+  })
   let headings = $state.raw<readonly MarkdownHeading[]>([])
   let preview = $state.raw<HTMLElement | null>(null)
   let fileInput = $state<HTMLInputElement>()
@@ -112,6 +117,18 @@
       if (ui.insertAtCursor === insert) ui.insertAtCursor = null
     }
   })
+  function writeSuggestion(text: string, snapshot: WritingSnapshot, replace: boolean): boolean {
+    const target = view
+    if (!active || notes.panes[pane] !== snapshot.noteId || !target || target !== snapshot.view || !target.dom.isConnected || target.compositionStarted ||
+        noteId !== snapshot.noteId || editorGeneration !== snapshot.editorGeneration || notes.summaries[noteId]?.rev !== snapshot.revision ||
+        notes.summaries[noteId]?.deletedAt !== null || !target.state.doc.eq(snapshot.doc)) return false
+    const from = replace ? snapshot.from : snapshot.cursorOffset
+    const to = replace ? snapshot.to : from
+    const insert = replace || from === target.state.doc.lineAt(from).from ? text : `\n\n${text}`
+    target.dispatch({ changes: { from, to, insert }, selection: { anchor: from + insert.length }, scrollIntoView: true })
+    target.focus()
+    return true
+  }
   const folders = $derived(notes.readOrganizeSnapshot().folders)
   const noteFolder = $derived(note?.folderId ? folders.find((folder) => folder.id === note.folderId) : undefined)
   const folderLabel = $derived(
@@ -432,7 +449,7 @@
           {liveServices}
           placeholder={i18n.t('editor.start_writing')}
           onChange={(value) => notes.editContent(noteId, value)}
-          onViewReady={(next) => (view = next)}
+          onViewReady={(next) => { view = next; untrack(() => editorGeneration += 1) }}
           onSelectionChange={(next) => (selection = next)}
         />
         {#if extensions.writingToolbar && view}
@@ -440,22 +457,12 @@
           <WritingToolbar
             {view}
             {selection}
+            {noteId}
             noteTitle={note?.title ?? ''}
-            onReplace={(text, snapshot) => {
-              if (
-                snapshot.docLength !== view!.state.doc.length ||
-                snapshot.text !== view!.state.sliceDoc(snapshot.from, snapshot.to)
-              )
-                return false
-              view!.dispatch({
-                changes: { from: snapshot.from, to: snapshot.to, insert: text },
-                selection: { anchor: snapshot.from + text.length },
-                scrollIntoView: true,
-              })
-              view!.focus()
-              return true
-            }}
-            onInsert={(text) => ui.insertAtCursor?.(text)}
+            noteRev={note?.rev ?? 0}
+            {editorGeneration}
+            onReplace={(text, snapshot) => writeSuggestion(text, snapshot, true)}
+            onInsert={(text, snapshot) => writeSuggestion(text, snapshot, false)}
           />
         {/if}
       </div>

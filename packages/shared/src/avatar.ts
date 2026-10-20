@@ -5,6 +5,17 @@ export const AVATAR_SOURCE_FILE_MAX_BYTES = 8 * 1024 * 1024
 export const AVATAR_STORED_MAX_BYTES = 128 * 1024
 export const AVATAR_PROFILE_BODY_MAX_BYTES = 256 * 1024
 const GENERATED_SEED_PATTERN = /^[a-zA-Z0-9_-]{16,64}$/
+export const PRESET_AVATAR_COUNT = 12
+
+export function presetAvatarPreference(index: number): string {
+  return `preset:${String(index).padStart(2, '0')}`
+}
+
+export function presetAvatarIndex(value: string | null | undefined): number | null {
+  const match = /^preset:(\d{2})$/.exec(value ?? '')
+  const index = match ? Number(match[1]) : 0
+  return index >= 1 && index <= PRESET_AVATAR_COUNT ? index : null
+}
 
 export function generatedAvatarPreference(seed: string): string {
   return `${GENERATED_AVATAR_PREFIX}${seed}`

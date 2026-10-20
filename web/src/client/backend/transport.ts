@@ -15,6 +15,7 @@ export interface RequestSpec {
   readonly form?: FormData
   readonly signal?: AbortSignal | undefined
   readonly timeoutMs?: number
+  readonly allowErrorStatus?: boolean
 }
 
 export interface HttpTransportDeps {
@@ -76,7 +77,7 @@ export class HttpTransport {
     const current = this.#captureCurrent?.()
     const response = await this.#request(spec)
     if (spec.signal?.aborted || current?.() === false) throw new BackendError('cancelled', 0, 'Request superseded')
-    if (!response.ok) {
+    if (!response.ok && !spec.allowErrorStatus) {
       const payload = isJsonResponse(response) ? parseJson(await response.text()) : undefined
       if (spec.signal?.aborted || current?.() === false) throw new BackendError('cancelled', 0, 'Request superseded')
       throw errorFromResponse(response, payload)

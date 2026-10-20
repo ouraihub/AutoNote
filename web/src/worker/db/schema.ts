@@ -2,6 +2,14 @@
 import type { DatabaseState, Env } from '../env'
 import { getMeta, setMeta } from './metadata'
 
+const AI_TURN_IMAGES = [
+  `CREATE TABLE IF NOT EXISTS ai_turn_images (
+    user_id TEXT NOT NULL, turn_id TEXT NOT NULL, idx INTEGER NOT NULL,
+    mime TEXT NOT NULL, object_key TEXT, created_at INTEGER NOT NULL,
+    PRIMARY KEY(user_id, turn_id, idx)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_turn_images_object ON ai_turn_images(object_key, created_at)`,
+]
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS app_meta (
@@ -336,38 +344,65 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
      ON fts_index_queue(user_id, created_at, note_id)`,
   `CREATE TABLE IF NOT EXISTS ai_providers (
     id TEXT PRIMARY KEY, user_id TEXT NOT NULL, name TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1, notes TEXT NOT NULL DEFAULT '', preset_id TEXT,
     position INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_ai_providers_user ON ai_providers(user_id, position, id)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_providers_preset ON ai_providers(user_id, preset_id) WHERE preset_id IS NOT NULL`,
   `CREATE TABLE IF NOT EXISTS ai_endpoints (
     id TEXT PRIMARY KEY, user_id TEXT NOT NULL, provider_id TEXT NOT NULL,
     slug TEXT NOT NULL, base_url TEXT NOT NULL, protocol TEXT NOT NULL,
-    key_ciphertext TEXT, position INTEGER NOT NULL,
+    position INTEGER NOT NULL, image_base_url TEXT, headers TEXT NOT NULL DEFAULT '{}', image_edit_base_url TEXT,
     UNIQUE(user_id, provider_id, slug)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_ai_endpoints_user ON ai_endpoints(user_id, provider_id, position, id)`,
+  `CREATE TABLE IF NOT EXISTS ai_endpoint_keys (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, endpoint_id TEXT NOT NULL,
+    label TEXT NOT NULL DEFAULT '', enabled INTEGER NOT NULL DEFAULT 1,
+    key_ciphertext TEXT NOT NULL, position INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_endpoint_keys ON ai_endpoint_keys(user_id, endpoint_id, position, id)`,
   `CREATE TABLE IF NOT EXISTS ai_models (
     user_id TEXT NOT NULL, endpoint_id TEXT NOT NULL, model_id TEXT NOT NULL,
     model_type TEXT NOT NULL, type_source TEXT NOT NULL, context_window INTEGER,
     can_vision INTEGER NOT NULL DEFAULT 0, position INTEGER NOT NULL,
+    native_web_search INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY(user_id, endpoint_id, model_id)
   )`,
   `CREATE TABLE IF NOT EXISTS ai_roles (
-    user_id TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('chat','writing')),
+    user_id TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('chat','writing','painting')),
     endpoint_id TEXT, model_id TEXT, PRIMARY KEY(user_id, role)
   )`,
-  `CREATE TABLE IF NOT EXISTS ai_conversations (
-    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL,
+  `CREATE TABLE IF NOT EXISTS ai_chat_conversations (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT NOT NULL, scope TEXT,
     created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_ai_conversations_user ON ai_conversations(user_id, updated_at DESC, id DESC)`,
-  `CREATE TABLE IF NOT EXISTS ai_messages (
-    id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, user_id TEXT NOT NULL,
-    role TEXT NOT NULL CHECK(role IN ('user','assistant')), content TEXT NOT NULL,
-    status TEXT NOT NULL CHECK(status IN ('done','failed','interrupted')),
-    model_id TEXT, created_at INTEGER NOT NULL
+  `CREATE INDEX IF NOT EXISTS idx_ai_chat_conversations_user ON ai_chat_conversations(user_id, scope, updated_at DESC, id DESC)`,
+  `CREATE TABLE IF NOT EXISTS ai_chat_turns (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, conversation_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('running','completed','failed','cancelled')),
+    input TEXT NOT NULL, messages TEXT NOT NULL DEFAULT '[]', model_id TEXT, error_code TEXT,
+    input_tokens INTEGER, output_tokens INTEGER, created_at INTEGER NOT NULL,
+    UNIQUE(conversation_id, seq)
   )`,
-  `CREATE INDEX IF NOT EXISTS idx_ai_messages_conversation ON ai_messages(user_id, conversation_id, created_at, id)`,
+  ...AI_TURN_IMAGES,
+  `CREATE TABLE IF NOT EXISTS ai_search_provider_configs (
+    user_id TEXT NOT NULL, capability TEXT NOT NULL CHECK (capability IN ('search', 'fetch')),
+    provider TEXT NOT NULL, base_url TEXT, basic_username TEXT, PRIMARY KEY(user_id, capability, provider)
+  )`,
+  `CREATE TABLE IF NOT EXISTS ai_search_defaults (
+    user_id TEXT NOT NULL, capability TEXT NOT NULL CHECK (capability IN ('search', 'fetch')),
+    provider TEXT NOT NULL, PRIMARY KEY(user_id, capability)
+  )`,
+  `CREATE TABLE IF NOT EXISTS ai_search_keys (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, capability TEXT NOT NULL CHECK (capability IN ('search', 'fetch')),
+    provider TEXT NOT NULL, key_ciphertext TEXT NOT NULL, position INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_ai_search_keys_scope ON ai_search_keys(user_id, capability, provider, position, id)`,
+  `CREATE TABLE IF NOT EXISTS ai_search_preferences (
+    user_id TEXT PRIMARY KEY, preferences TEXT NOT NULL
+  )`,
 ]
 
 interface SchemaMigration {
@@ -549,6 +584,133 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `CREATE INDEX IF NOT EXISTS idx_versions_user ON note_versions(user_id)`,
     ],
   },
+  {
+    version: 13,
+    skipIfColumnExists: { table: 'ai_models', column: 'max_output' },
+    statements: [
+      `ALTER TABLE ai_models ADD COLUMN max_output INTEGER`,
+      `ALTER TABLE ai_models ADD COLUMN supports_tools INTEGER`,
+    ],
+  },
+  {
+    version: 14,
+    statements: [
+      `DROP INDEX IF EXISTS idx_ai_messages_conversation`,
+      `DROP INDEX IF EXISTS idx_ai_conversations_user`,
+      `DROP TABLE IF EXISTS ai_messages`,
+      `DROP TABLE IF EXISTS ai_conversations`,
+    ],
+  },
+  {
+    version: 16,
+    statements: [
+      `ALTER TABLE ai_models ADD COLUMN reasoning TEXT`,
+      `ALTER TABLE ai_chat_turns ADD COLUMN cache_read_tokens INTEGER`,
+      `ALTER TABLE ai_chat_turns ADD COLUMN cache_write_tokens INTEGER`,
+      `ALTER TABLE ai_chat_turns ADD COLUMN reasoning_tokens INTEGER`,
+      `ALTER TABLE ai_chat_turns ADD COLUMN reasoning_effort TEXT`,
+      `ALTER TABLE ai_chat_turns ADD COLUMN reasoning_text TEXT`,
+      `ALTER TABLE ai_chat_turns ADD COLUMN context_usage TEXT`,
+      `ALTER TABLE ai_chat_turns ADD COLUMN endpoint_id TEXT`,
+    ],
+  },
+  {
+    version: 17,
+    statements: [
+      `ALTER TABLE ai_chat_conversations ADD COLUMN selected_turn_id TEXT`,
+      `ALTER TABLE ai_chat_conversations ADD COLUMN revision TEXT NOT NULL DEFAULT ''`,
+      `ALTER TABLE ai_chat_turns ADD COLUMN parent_id TEXT`,
+      `ALTER TABLE ai_chat_turns ADD COLUMN question_id TEXT NOT NULL DEFAULT ''`,
+      `ALTER TABLE ai_chat_turns ADD COLUMN supersedes_id TEXT`,
+      `ALTER TABLE ai_chat_turns ADD COLUMN kind TEXT NOT NULL DEFAULT 'reply' CHECK(kind IN ('reply','translation'))`,
+      `UPDATE ai_chat_turns SET question_id = id, parent_id = (
+        SELECT previous.id FROM ai_chat_turns previous
+        WHERE previous.conversation_id = ai_chat_turns.conversation_id AND previous.user_id = ai_chat_turns.user_id
+          AND previous.seq < ai_chat_turns.seq ORDER BY previous.seq DESC LIMIT 1
+      )`,
+      `UPDATE ai_chat_conversations SET selected_turn_id = (
+        SELECT id FROM ai_chat_turns WHERE conversation_id = ai_chat_conversations.id
+          AND user_id = ai_chat_conversations.user_id AND status = 'completed' ORDER BY seq DESC LIMIT 1
+      )`,
+    ],
+  },
+  {
+    version: 18,
+    skipIfColumnExists: { table: 'ai_models', column: 'native_web_search' },
+    statements: [
+      `ALTER TABLE ai_models ADD COLUMN native_web_search INTEGER NOT NULL DEFAULT 0`,
+    ],
+  },
+  {
+    version: 19,
+    statements: AI_TURN_IMAGES,
+  },
+  {
+    version: 20,
+    statements: [
+      `CREATE TABLE ai_roles_v20 (
+        user_id TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('chat','writing','painting')),
+        endpoint_id TEXT, model_id TEXT, PRIMARY KEY(user_id, role)
+      )`,
+      `INSERT INTO ai_roles_v20 (user_id, role, endpoint_id, model_id) SELECT user_id, role, endpoint_id, model_id FROM ai_roles`,
+      `DROP TABLE ai_roles`,
+      `ALTER TABLE ai_roles_v20 RENAME TO ai_roles`,
+    ],
+  },
+  {
+    version: 21,
+    skipIfColumnExists: { table: 'ai_turn_images', column: 'kind' },
+    statements: [
+      `ALTER TABLE ai_turn_images ADD COLUMN kind TEXT NOT NULL DEFAULT 'input' CHECK(kind IN ('input','generated'))`,
+    ],
+  },
+  {
+    version: 22,
+    skipIfColumnExists: { table: 'ai_providers', column: 'enabled' },
+    statements: [`ALTER TABLE ai_providers ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1`],
+  },
+  {
+    // Multi-key endpoints (docs/34 §4): drop the single key column; old keys are not migrated.
+    version: 23,
+    statements: [
+      `CREATE TABLE ai_endpoints_v23 (
+        id TEXT PRIMARY KEY, user_id TEXT NOT NULL, provider_id TEXT NOT NULL,
+        slug TEXT NOT NULL, base_url TEXT NOT NULL, protocol TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        UNIQUE(user_id, provider_id, slug)
+      )`,
+      `INSERT INTO ai_endpoints_v23 (id, user_id, provider_id, slug, base_url, protocol, position) SELECT id, user_id, provider_id, slug, base_url, protocol, position FROM ai_endpoints`,
+      `DROP TABLE ai_endpoints`,
+      `ALTER TABLE ai_endpoints_v23 RENAME TO ai_endpoints`,
+      `CREATE INDEX IF NOT EXISTS idx_ai_endpoints_user ON ai_endpoints(user_id, provider_id, position, id)`,
+    ],
+  },
+  {
+    version: 24,
+    skipIfColumnExists: { table: 'ai_endpoints', column: 'image_base_url' },
+    statements: [
+      `ALTER TABLE ai_endpoints ADD COLUMN image_base_url TEXT`,
+      `ALTER TABLE ai_endpoints ADD COLUMN headers TEXT NOT NULL DEFAULT '{}'`,
+    ],
+  },
+  {
+    version: 25,
+    skipIfColumnExists: { table: 'ai_endpoints', column: 'image_edit_base_url' },
+    statements: [`ALTER TABLE ai_endpoints ADD COLUMN image_edit_base_url TEXT`],
+  },
+  {
+    version: 26,
+    skipIfColumnExists: { table: 'ai_providers', column: 'notes' },
+    statements: [`ALTER TABLE ai_providers ADD COLUMN notes TEXT NOT NULL DEFAULT ''`],
+  },
+  {
+    version: 27,
+    skipIfColumnExists: { table: 'ai_providers', column: 'preset_id' },
+    statements: [
+      `ALTER TABLE ai_providers ADD COLUMN preset_id TEXT`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_providers_preset ON ai_providers(user_id, preset_id) WHERE preset_id IS NOT NULL`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -597,12 +759,14 @@ const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ai_note_embeddings: ['user_id', 'note_id', 'model', 'vector', 'indexed_at'],
   ai_index_queue: ['user_id', 'note_id', 'kind', 'created_at'],
   fts_index_queue: ['user_id', 'note_id', 'kind', 'created_at'],
-  ai_providers: ['id', 'user_id', 'name', 'position', 'created_at', 'updated_at'],
-  ai_endpoints: ['id', 'user_id', 'provider_id', 'slug', 'base_url', 'protocol', 'key_ciphertext', 'position'],
-  ai_models: ['user_id', 'endpoint_id', 'model_id', 'model_type', 'type_source', 'context_window', 'can_vision', 'position'],
+  ai_providers: ['id', 'user_id', 'name', 'enabled', 'notes', 'preset_id', 'position', 'created_at', 'updated_at'],
+  ai_endpoints: ['id', 'user_id', 'provider_id', 'slug', 'base_url', 'protocol', 'position', 'image_base_url', 'headers', 'image_edit_base_url'],
+  ai_endpoint_keys: ['id', 'user_id', 'endpoint_id', 'label', 'enabled', 'key_ciphertext', 'position'],
+  ai_models: ['user_id', 'endpoint_id', 'model_id', 'model_type', 'type_source', 'context_window', 'can_vision', 'position', 'max_output', 'supports_tools', 'reasoning', 'native_web_search'],
   ai_roles: ['user_id', 'role', 'endpoint_id', 'model_id'],
-  ai_conversations: ['id', 'user_id', 'title', 'created_at', 'updated_at'],
-  ai_messages: ['id', 'conversation_id', 'user_id', 'role', 'content', 'status', 'model_id', 'created_at'],
+  ai_chat_conversations: ['id', 'user_id', 'title', 'scope', 'created_at', 'updated_at', 'selected_turn_id', 'revision'],
+  ai_chat_turns: ['id', 'user_id', 'conversation_id', 'seq', 'status', 'input', 'messages', 'model_id', 'endpoint_id', 'error_code', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'reasoning_tokens', 'reasoning_effort', 'reasoning_text', 'context_usage', 'created_at', 'parent_id', 'question_id', 'supersedes_id', 'kind'],
+  ai_turn_images: ['user_id', 'turn_id', 'idx', 'mime', 'object_key', 'created_at', 'kind'],
 } as const
 
 const REQUIRED_TABLES = [
@@ -636,10 +800,16 @@ const REQUIRED_TABLES = [
   'fts_index_queue',
   'ai_providers',
   'ai_endpoints',
+  'ai_endpoint_keys',
   'ai_models',
   'ai_roles',
-  'ai_conversations',
-  'ai_messages',
+  'ai_chat_conversations',
+  'ai_chat_turns',
+  'ai_turn_images',
+  'ai_search_provider_configs',
+  'ai_search_defaults',
+  'ai_search_keys',
+  'ai_search_preferences',
 ] as const
 
 const REQUIRED_INDEXES = [
@@ -685,8 +855,10 @@ const REQUIRED_INDEXES = [
   'idx_fts_index_queue_due',
   'idx_ai_providers_user',
   'idx_ai_endpoints_user',
-  'idx_ai_conversations_user',
-  'idx_ai_messages_conversation',
+  'idx_ai_endpoint_keys',
+  'idx_ai_chat_conversations_user',
+  'idx_ai_search_keys_scope',
+  'idx_ai_turn_images_object',
 ] as const
 
 

@@ -1,5 +1,33 @@
 @import 'tailwindcss';
+@import '@ouraihub/aether-ui/tokens.css';
 @source '../';
+@source '../../../../node_modules/@ouraihub/aether-ui/src';
+
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+:is(:root, [data-app-root]) {
+  --color-background: var(--bg-base);
+  --color-foreground: var(--text-primary);
+  --color-card: var(--bg-surface);
+  --color-card-foreground: var(--text-primary);
+  --color-popover: var(--bg-overlay);
+  --color-popover-foreground: var(--text-primary);
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--accent-contrast);
+  --color-secondary: var(--bg-raised);
+  --color-secondary-foreground: var(--text-primary);
+  --color-muted: var(--bg-inset);
+  --color-muted-foreground: var(--text-secondary);
+  --color-accent: var(--accent-soft);
+  --color-accent-foreground: var(--text-primary);
+  --color-destructive: var(--danger);
+  --color-border: var(--border-subtle);
+  --color-input: var(--border-subtle);
+  --color-ring: var(--accent-ring);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+}
 
 @theme inline {
   --color-background: var(--bg-base);
@@ -17,10 +45,36 @@
   --color-accent: var(--accent-soft);
   --color-accent-foreground: var(--text-primary);
   --color-destructive: var(--danger);
-  --color-border: var(--border-default);
-  --color-input: var(--border-default);
+  --color-border: var(--border-subtle);
+  --color-input: var(--border-subtle);
   --color-ring: var(--accent-ring);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
   --radius-sm: var(--r-sm);
   --radius-md: var(--r-md);
   --radius-lg: var(--r-lg);
+}
+
+@layer base {
+  *,
+  ::before,
+  ::after,
+  ::backdrop {
+    border-color: var(--color-border);
+  }
+}
+
+@layer utilities {
+  :is(
+    [data-slot='select-content'],
+    [data-slot='dropdown-menu-content'],
+    [data-slot='dropdown-menu-sub-content'],
+    [data-slot='dialog-overlay'],
+    [data-slot='dialog-content'],
+    [data-slot='alert-dialog-overlay'],
+    [data-slot='alert-dialog-content']
+  ).z-50 {
+    z-index: 300;
+  }
 }

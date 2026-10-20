@@ -67,10 +67,11 @@
     const section = active
     void retry
     const current = ++sequence
+    const scopeChanged = scope !== undefined && scope !== epoch
     if (scope !== epoch) {
       resources.clear()
       scope = epoch
-      if (selected !== 'appearance') {
+      if (scopeChanged && selected !== 'appearance') {
         selected = 'appearance'
         return
       }

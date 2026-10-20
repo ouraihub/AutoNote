@@ -73,7 +73,6 @@ class FakeAccountPort implements SessionAccountPort {
   }
 
   setPassword = unexpected
-  updateProfile = unexpected
   updateRegistration = unexpected
 }
 
@@ -89,6 +88,8 @@ class FakeSessionPort implements SessionPort {
   load(options?: { signal?: AbortSignal }) {
     return call(this.loads, options?.signal)
   }
+
+  updateProfile = unexpected
 
   logout(options?: { signal?: AbortSignal }) {
     return call(this.logouts, options?.signal)

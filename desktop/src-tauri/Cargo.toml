@@ -1,5 +1,5 @@
 [workspace]
-members = ["core", "sync", "mcp", "shell", "ai"]
+members = ["core", "sync", "mcp", "shell"]
 resolver = "2"
 
 [workspace.package]
@@ -13,7 +13,12 @@ note-core = { path = "core" }
 note-sync = { path = "sync" }
 note-mcp = { path = "mcp" }
 autonote-shell = { path = "shell" }
-note-ai = { path = "ai" }
+aether-observability = { git = "https://github.com/ouraihub/Aether.git", rev = "d7391853cf6427ca3014f7b75d782e655532d3c7" }
+aether-providers = { git = "https://github.com/ouraihub/Aether.git", rev = "d7391853cf6427ca3014f7b75d782e655532d3c7" }
+aether-chat = { git = "https://github.com/ouraihub/Aether.git", rev = "d7391853cf6427ca3014f7b75d782e655532d3c7" }
+aether-mcp-server = { git = "https://github.com/ouraihub/Aether.git", rev = "d7391853cf6427ca3014f7b75d782e655532d3c7" }
+aether-search = { git = "https://github.com/ouraihub/Aether.git", rev = "d7391853cf6427ca3014f7b75d782e655532d3c7" }
+tauri-plugin-aether = { git = "https://github.com/ouraihub/Aether.git", rev = "d7391853cf6427ca3014f7b75d782e655532d3c7" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
@@ -50,6 +55,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2.6.3", features = [] }
 
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
 [dependencies]
 note-core.workspace = true
 autonote-shell.workspace = true
@@ -60,11 +68,16 @@ tauri = { version = "2.11.5", features = ["tray-icon"] }
 tauri-plugin-single-instance = "=2.5.2"
 tauri-plugin-global-shortcut = "=2.4.0"
 tauri-plugin-dialog = "=2.8.1"
+tauri-plugin-opener = "=2.7.1"
 tokio = { version = "=1.53.1", features = ["time"] }
 note-sync.workspace = true
 note-mcp.workspace = true
-note-ai.workspace = true
-tokio-util = "=0.7.19"
+aether-observability.workspace = true
+aether-providers.workspace = true
+aether-chat.workspace = true
+aether-mcp-server.workspace = true
+aether-search.workspace = true
+tauri-plugin-aether = { workspace = true, features = ["providers", "chat", "mcp-server", "search"] }
 zeroize = "=1.8.2"
 getrandom = "0.4"
 

@@ -1,6 +1,6 @@
 import { BrainCircuit, Monitor, RefreshCw, ScrollText } from '@lucide/svelte'
 import type { HostExtensions } from '@app/root'
-import type { BackendCapabilities } from '@app/backend'
+import type { Backend } from '@app/backend'
 import DesktopGeneralSection from './DesktopGeneralSection.svelte'
 import DesktopAboutPanel from './DesktopAboutPanel.svelte'
 import DesktopSyncSection from './DesktopSyncSection.svelte'
@@ -8,8 +8,9 @@ import McpSection from './McpSection.svelte'
 import LogSettings from '../log/LogSettings.svelte'
 import { aiHostExtensions } from '@app/features/ai'
 
-export function desktopSettingsSections(capabilities: BackendCapabilities): HostExtensions {
-  const ai = aiHostExtensions(capabilities, 'desktop-ai')
+export function desktopSettingsSections(backend: Backend): HostExtensions {
+  const { capabilities } = backend
+  const ai = aiHostExtensions(backend)
   return {
     settingsSections: [
       {

@@ -12,6 +12,7 @@
 - Worker 按 Aether 的 DTO 和 `RunEvent` 语义用 TypeScript 实现服务端。这是 24 §2.3「不复制 Provider/Chat/MCP 协议实现」的唯一例外：Worker 无法运行 Aether 的 Rust crate（依赖 reqwest、rusqlite、DPAPI）。
 - Web 工具审批用**无状态续跑**，不用 Durable Object（§6）。
 - 历史数据沿用 24 §1：Web 端旧 AI 配置和对话不迁移，用户重新配置。
+- 2026-10-14聊天首批改造合同见[30](30-AI聊天界面设计与开发规划.md)：已授权CH1–CH6，UI由Aether统一实现。笔记会话继续鉴权，移除上下文时允许本轮context=null但不解除scope和笔记访问限制；写作仍要求context。RunRequest/RunEvent首批不变，Web／IPC均须证明真实出站请求不附本轮笔记正文。
 
 ## 2. aether-ui 的定位
 
@@ -162,3 +163,169 @@ sequenceDiagram
 | `366bec7 feat(ui): ChatPanel host context chip; logs port optional for browser hosts` | `ChatPanel` 新增 `context` 参数（可移除标签，× 只影响下一条消息）；`KitPorts.logs` 改为可选，缺省时日志面板不渲染；`createTauriPorts` 返回类型仍保证有 `logs` |
 
 验证：Aether `pnpm run check` 通过，37 项测试。未在真实 Tauri 窗口验证。
+
+## 9. 阶段 1 实施合同
+
+> 2026-10-12 读代码后制定。依据：Aether `crates/aether-providers`、`crates/aether-chat`、`plugin/tauri-plugin-aether/src/chat.rs`、`packages/ui/src/ports`；AutoNote `web/src/worker/routes/ai.ts`、`web/src/worker/db/schema.ts`、`web/src/client/backend/ports/ai.ts`、桌面 `desktop/src-tauri/src/lib.rs` 的 `AetherHost`。
+
+### 9.1 现状盘点（避免重复实现）
+
+| 项 | 现状 | 阶段 1 处理 |
+| --- | --- | --- |
+| Aether DTO / `RunEvent` 的 JSON 样例 | 不存在。只有 `fixtures/model-classify.json`（36 条）和 `fixtures/sse/` 18 份上游流样本；Rust 测试的期望值写在测试代码里 | 新增，见 9.4 |
+| Worker `/api/ai/runs`、`HttpKitPorts`、`KitPorts` | 不存在 | 新增 |
+| Worker 旧接口 `/api/ai/providers`、`/endpoints/:id/*`、`/roles`、`/conversations`、`/chat`、`/write` | 存在，旧 `AiPort` 合同，`packages/app` 仍在用 | 阶段 1 保留不动；阶段 2 切换界面时一次删除 |
+| D1 AI 表 | `ai_providers`、`ai_endpoints`、`ai_models`、`ai_roles`、`ai_conversations`、`ai_messages`，写在最终 `SCHEMA_STATEMENTS`，迁移号最高 12 | 见 9.2 |
+| 密钥加密 | `encryptAiKey`/`decryptAiKey`（`web/src/worker/lib/crypto.ts`），经 `CredentialVault` DO | 直接复用 |
+| 上游 SSE 解析 | `extractDelta` 只取文本，不取 usage、不判截断、不区分流内错误 | 新写一个按 Aether 映射的解码器，旧的阶段 2 删除 |
+| 私网地址策略 | `assertSafeUrl` + `app_meta` 开关 `setting:ai_allow_private` | 复用 |
+| 桌面宿主逻辑 | `AetherHost`：`purpose` 只允许 `chat`/`writing`；上下文 `autonote-note`；写作作用域 `note:<id>:writing` 且不存会话；角色 `writing` 回落 `chat` | Worker 照搬同一套规则 |
+
+### 9.2 存储
+
+沿用 24 §1：不迁移旧数据。新增迁移 13：
+
+- `ai_models` 增加 `max_output INTEGER`、`supports_tools INTEGER`（NULL 表示未知），对齐 Aether `Model`。
+- 新表 `ai_chat_conversations(id, user_id, title, scope, created_at, updated_at)` 与 `ai_chat_turns(id, user_id, conversation_id, seq, status, input, messages, model_id, error_code, input_tokens, output_tokens, created_at)`，字段语义对齐 Aether `chat.db`，加 `user_id` 隔离。
+- 旧 `ai_conversations`、`ai_messages` 阶段 2 删除旧接口时一并删除。
+
+### 9.3 新接口（`/api/ai/kit/*`）
+
+与旧接口并存到阶段 2，路径前缀区分，鉴权沿用旧路由（登录 + `owner`）。
+
+| `KitPorts` 方法 | 接口 | 说明 |
+| --- | --- | --- |
+| `providers.list` | `GET /providers` | 返回 `Provider[]`，`keyMasked` 打码，`keyReadable` 恒 true |
+| `providers.save` | `PUT /providers` | `ProviderSave` 整体替换；密钥三态（省略保留、空串清除、非空替换）；校验规则照 Aether `store.rs` |
+| `providers.remove` | `DELETE /providers/:id` | 返回剩余 `Provider[]` |
+| `providers.modelOptions` | `GET /model-options?modelType&supportsTools` | 标签 `服务商 · 线路 · 模型` |
+| `providers.probe` | `POST /probe`，body `ProbeTarget` | 上游失败作为 `ProbeResult.error` 返回，不报请求错误 |
+| `chat.run` | `POST /runs`，body `RunRequest`，返回 SSE | 第一条事件 `accepted{runId,conversationId}`，之后是 `RunEvent`，最后恰好一个 `end` |
+| 取消 | 客户端中止 fetch | 服务端感知断开后停止读上游，回合记为 `cancelled` |
+| `chat.approve` | 阶段 1 不实现 | 阶段 3 按 §6 |
+| `chat.history.*` | `GET /conversations?scope`、`GET/DELETE /conversations/:id`、`PATCH /conversations/:id` | 规则照 Aether `store.rs`：最多 200 条、按 `updated_at` 倒序、标题 40 字符 |
+
+请求错误（运行被接受前）返回 HTTP 4xx/5xx + `{ error: KitError }`，不开 SSE；运行被接受后的失败只走 `end{status:'failed', error}`。
+
+### 9.4 共享测试数据
+
+共享数据放在 Aether npm 包内，宿主经 git 依赖安装后即可读取（`@ouraihub/aether-ui/fixtures/*`）：`fixtures/sse/<protocol>/<case>.sse` 是上游流样本；`fixtures/sse/expect.json` 是每份无工具样本的期望结果（文本、usage、终态、错误码与错误信息片段）；`fixtures/model-classify.json` 是模型推断用例。Rust（`aether-chat`、`aether-support`、`aether-providers` 测试）与 Worker（`web/tests/ai-kit.test.ts`）读同一份文件断言，一边改了解析逻辑而另一边没改就会失败。
+
+### 9.5 不做
+
+- 工具调用、审批、`chat.approve`（阶段 3）；MCP 客户端（阶段 4）；技能（Web 不启用，`skills` 非空返回 `unsupported`）。
+- 不改 `packages/app` 界面，不删旧接口（阶段 2）。
+- 角色接口：Aether 没有角色端口，Worker 继续用 `ai_roles` 表做 `select_model`；角色设置界面阶段 2 由 AutoNote 产品层用 `ModelSelect` 实现。
+
+### 9.6 完成情况（2026-10-12）
+
+| 项 | 位置 | 验证 |
+| --- | --- | --- |
+| 共享测试数据 | Aether `1e97487`：fixtures 移入 `packages/ui/fixtures`，新增 `expect.json` | Rust 3 个 crate 测试与 clippy 通过 |
+| 依赖 | `web/package.json`：`@ouraihub/aether-ui` git 依赖锁 `1e97487` | Worker 与客户端类型检查可解析 |
+| D1 迁移 13 | `web/src/worker/db/schema.ts` | 测试经 `initializeDatabase` 建库 |
+| Worker | `web/src/worker/ai/{kit,infer,protocol,providers,history,runs}.ts`、`web/src/worker/routes/ai-kit.ts`，挂在 `/api/ai/kit` | `web/tests/ai-kit.test.ts` 26 项，用 `node:sqlite` 实现的 D1 适配器跑真实 SQL |
+| 客户端 | `web/src/client/backend/ports/kit.ts`（`createHttpKitPorts`）、共享 SSE 读取器 `web/src/client/backend/sse.ts` | `kit.test.ts` 7 项 |
+| 整体 | — | `pnpm run web:check` 通过；web 单测 29 个文件 135 项通过；本地 dev 服务器（Worker + 本地 D1）实测服务商保存、密钥打码、探测（私网拦截、连接失败）、运行前请求错误 |
+| 真实上游 | 本地 dev 服务器（`@cloudflare/vite-plugin`，Worker 运行在 workerd + 本地 D1），中转 `api.easyclaude.com` | 三协议各跑一遍：`anthropic-messages`（`claude-haiku-4-5-20251001`）、`openai-chat` 与 `openai-responses`（`gpt-5.5`）。每种都验证：探测得到 17 个模型；新对话事件顺序 `accepted → round_start → text_delta → usage → end{completed}`，`end` 恰好一个且在最后；续聊带上历史（第二轮正确翻译上一轮回复）；重新生成复用最后一轮；历史 2 轮均 `completed`；流式中途断开后该轮记为 `cancelled` 并保留已输出文本；删除会话和服务商后无残留。另用失效密钥验证 401 → 探测 `unauthorized` + `check_key` 提示、运行 `end{failed, unauthorized}` |
+
+与 Aether 的差异：
+
+- 地址策略沿用旧接口：只允许 `https`，私网主机按字面拦截（`setting:ai_allow_private` 可放开）；Aether 允许 `http://localhost`。Worker 无法在连接时检查 DNS 结果。
+- `KitErrorCode` → HTTP 状态：`bad_request`/`unsupported`/`budget_exceeded` 400，`unauthorized` 401，`forbidden` 403，`not_found` 404，`conflict`/`needs_config`/`cancelled` 409，`rate_limited` 429，`upstream`/`network` 502，`timeout` 504，其余 500。客户端只看响应体里的 `code`。
+- `running` 状态超过 15 分钟的轮次读作 `failed` + `interrupted`（Worker 无法恢复中断的运行）；重新生成会刷新该轮 `created_at`。
+- `keyReadable` 按能否解密计算；`CredentialVault` 不可用时列表不报错，探测和运行返回 `needs_config{reason:'key_unreadable'}`。
+
+未验证：
+
+- 部署到 Cloudflare 线上环境后的运行（本地 workerd 已验证断开取消与 `waitUntil` 终态写入）。
+- 120 秒首包、60 秒空闲超时未有测试实际触发。
+- `web/tests/` 不在任何 tsconfig 内，测试文件本身不经类型检查（由 vitest 运行）。
+
+## 10. 阶段 2 完成情况（2026-10-13）
+
+两端 AI 界面已切到 `@ouraihub/aether-ui`（锁 Aether `666c266`），旧 AI 栈一次删除。AutoNote 6 个提交 `512a95c..82e9e72`，净删约 3600 行。
+
+### 10.1 结构
+
+- 宿主合同 `AiHostPort`（`packages/app/src/backend/port.ts`）：`kit: KitPorts` + AutoNote 自有的 `roles/setRole`（chat、writing，writing 回落 chat）+ `revealKey(endpointId, currentPassword)` 与 `revealNeedsPassword`。Web 用 `createHttpKitPorts`，桌面用 `createTauriPorts`。
+- `AppRoot` 在有 `aiHost` 时调用 `provideKitContext`：i18n 跟随 AutoNote 语言，notify/confirm 走 AutoNote 通知，logger 用 AutoNote 日志。
+- 设置：aether `ProvidersSettings` + AutoNote 角色区（aether `ModelSelect`）+ 显示密钥区（Web 先输当前密码）。
+- 对话：aether `ChatPanel`，`scope` 为 `note:<id>`（无笔记时 `autonote`），`context` 为 `{kind:'autonote-note', id, label}`；按 scope 记住上次会话（AutoNote prefs `ai.chat.last:<scope>`）。
+- 写作：保留 AutoNote 工具栏，改调 `kit.chat.run({ purpose: 'writing', ... })`，输入 JSON 与桌面 `validate_writing` 一致；不写会话历史。
+- 样式：AutoNote `ui.css` 引入 `@ouraihub/aether-ui/tokens.css` 并 `@source` aether 源码，不引入 `styles.css`；颜色沿用 AutoNote 的 `@theme inline` 映射，暗色变体匹配 `data-theme`。
+- Vite：`optimizeDeps.exclude: ['@ouraihub/aether-ui']`（Web、桌面）。aether-ui 以源码发布，Vite 预打包解析不了其中的 `.svelte.ts`。
+
+### 10.2 删除
+
+- `packages/shared/src/ai-types.ts`、`ai-classify.ts`；`Backend.ai` 与 `AiPort`；`packages/app` 的 `EndpointCard`、`ModelPickerDialog`、`chat-session`。
+- Web：`HttpAiPort` 及测试；Worker 旧接口（providers、probe、conversations、chat、write），只保留 `GET/PUT /api/ai/roles` 与 `POST /api/ai/endpoints/:id/key`；D1 迁移 14 删除 `ai_conversations`、`ai_messages`。
+- 桌面：`desktop/src/lib/{chat,settings/ai,writing}` 死代码副本、`ipc/ports/ai.ts`、transport 里的 `aiChat/aiWrite/#chatHistory`；Rust `ai_providers_list/save/delete`、`ai_endpoint_probe` 命令。桌面主窗口新增 `aether:providers` 权限。
+
+### 10.3 顺带修复
+
+- Web 显示密钥此前一直失败：Worker 要求当前密码，旧前端发空 body，恒为 401。现由界面收集密码。
+- 打开笔记即崩溃（`effect_update_depth_exceeded`）：`NotePane` 的 `onViewReady` 在 CodeEditor 挂载 effect 里递增 `editorGeneration`，effect 读写同一状态。改为 `untrack`。来自 `bab490b`，已有的双窗格工作区测试此前就失败，修复后通过。
+
+### 10.4 验证
+
+- `pnpm run app:check`、`pnpm run web:check` 通过；app 测试全过（含此前失败的工作区测试）；web 单测 27 个文件 131 项；桌面 vitest 13 项；桌面 Rust `clippy --workspace --all-targets -D warnings` 与 `test --workspace` 通过。
+- Web（本地 dev 服务器 + workerd + 本地 D1，真实中转 `api.easyclaude.com`，`gpt-5.5`）：设置页显示服务商与角色，控件 30px/13px/8px 圆角与 AutoNote 一致；显示密钥错误密码提示"当前密码不正确"，正确密码显示完整密钥，关闭后清除；对话带笔记上下文回答，插入到笔记、刷新后恢复会话、删除会话（确认对话框）均正常；润色生成预览并显示"使用对话模型"回落提示，写作不写入会话历史；旧 `/api/ai/providers` 返回 404。
+- 桌面（`custom-protocol` 构建的真实 exe，放在隔离目录，WebView2 CDP 驱动）：设置页同上且无密码框，显示密钥直接成功；对话带笔记上下文回答；润色正常；旧命令 `ai_providers_list` 已不存在；完全退出重启后会话恢复。
+- 测试数据（服务商、会话、角色、测试笔记）均已删除；临时脚本与隔离目录已清理。
+
+### 10.5 已知问题
+
+- 新建笔记后立即打开对话，上下文标签显示"未命名笔记"，标题解析晚于面板挂载；发送的内容是正确的。
+- `claude-haiku` 经此中转时不遵循 AutoNote 系统提示词（自称其他身份），gpt 模型正常；疑为中转在 Claude 线路注入了自己的提示词，未核实。
+- 未验证：部署到 Cloudflare 线上；macOS 桌面。
+
+### 10.6 密钥操作区布局修复（2026-10-13）
+
+- 长密钥掩码原本把“替换 / 清除”按钮挤出线路卡片。`SecretInput` 改为可收缩的单行布局，中间省略、保留首尾四字符，按钮不收缩；替换输入和清除撤销状态沿用同一宽度约束。
+- 小屏时 `ProvidersSettings` 的服务商列表移到表单上方，不再占用固定侧栏宽度。
+- AutoNote 用 `patches/@ouraihub__aether-ui@0.1.0.patch` 持久修补已锁定的 Aether UI 包；`pnpm-workspace.yaml` 注册补丁、锁文件记录补丁摘要。Web 和桌面共同生效，不依赖临时修改 `node_modules` 或发布上游提交。以后升级到包含此修复的 Aether 版本时，移除补丁及其注册并重新生成锁文件。
+- 真实 Chromium + 本地 Worker 实测 320/375/414/768/900/1280px：204 字符测试密钥的掩码行无横向溢出，两个按钮均在卡片边框内；替换/取消、清除/撤销、保存清除和保存新密钥的接口读回均通过。桌面复用该组件，正式桌面窗口本次未重跑。
+
+### 10.7 获取模型弹窗优化（2026-10-13）
+
+- 参考 Voynote 的 `ModelPicker.svelte`：移除全选和逐行复选框，未选模型用 `+` 添加，已选模型用 `−` 移除并显示“已选”。增加不区分大小写的 ID 搜索、分类数量、分组数量与折叠、可看图能力提示，批量添加/移除仅作用于当前筛选结果。
+- 保留 AutoNote 的草稿语义：取消或 Esc 不应用选择，确认后更新服务商草稿，仍需保存服务商；重新打开会重置搜索和筛选。模型类型改为无边框的轻量下拉，仍能人工修正分类，保留用户指定的类型来源。
+- 修改已并入 `patches/@ouraihub__aether-ui@0.1.0.patch`，Web/桌面共用，冻结锁文件安装通过。Aether lint/format/typecheck 与 47 项测试通过，两宿主类型检查 0 错误/警告。
+- Chromium 实测 320/375/414/768/1280px：模型行无横向溢出，只有模型列表纵向滚动、底部按钮在弹窗内；加减、过滤批量增删、搜索空结果、分组折叠及搜索展开、取消恢复、Esc 关闭均通过。确认并保存后从真实本地 Worker 读回模型及人工修正的 `modelType/typeSource`。
+- 模型探测响应使用明确的浏览器路由测试数据，不调用真实模型供应商；此次验证界面和保存链路，不宣称上游获取模型或正式桌面窗口已联验。隔离测试服务与数据已清理。
+
+### 10.8 修复补丁覆盖导致密钥布局回退（2026-10-13）
+
+- 用户报告重新打包后“清除”仍跨越卡片右边框。实际原因不是新样式失效：10.7 生成补丁时漏带 10.6 的 `SecretInput` 和 `ProvidersSettings`，覆盖补丁后安装回了旧密钥行。10.6 的 Web 验证只代表当时覆盖后的界面，不代表 10.7 发行包仍含该修复。
+- 重新生成累计补丁，包含密钥行、响应式服务商布局、加减模型选择器、两种语言及行为回归；冻结锁文件安装后实际依赖中已存在全部修复。更新补丁时必须从干净包准备，并带入所有仍需要的修改，不能假定旧补丁会自动合并。
+- 完整 release 编译、NSIS 和便携 ZIP 生成通过；用户正常退出占用的 exe 后完成产物收集与哈希验证，buildId 为 `0.1.0-a3ac6683-945b-447d-9a75-3d2e3efc931c`，入口 `desktop/dist/AutoNote/AutoNote.exe`。
+- 同一打包前端资源在隔离的真实 Tauri/WebView2 窗口验证：960px 窗口中 204 字符测试密钥保持单行和中间省略；密钥行 clientWidth/scrollWidth 均 406px，“清除”右边缘 876px、卡片右边缘 889px，留在框内。替换输入、取消、清除、撤销后尾码读回正常。调试端口只在隔离验证构建中注入，不写入 release 配置。
+
+### 10.9 本地 Web 模型配置故障与能力复核（2026-10-14）
+
+- 用户实际本地 Worker 日志：`ai_models` 缺少 `native_web_search`，导致 providers/list、model-options 和保存返回500。此前只更新CREATE TABLE，旧表未升级。新增migration18按列存在性补齐字段，纳入最终列校验；不清数据库、模型或密钥。旧库回归修复前500、修复后读取/保存/重启保留模型能力与凭据。
+- 真实浏览器进一步发现“获取模型→添加→使用→保存”仍返回400：`ProbedModel.group`通过展开运算符进入Model保存载荷，违反Web严格DTO。共享ModelPicker去除该展开，仅保留明确的模型字段及用户元数据；不放宽Worker校验。Aether正式修订`9f69dbca1a95cd5e6f26c09fb4c7fda44845114d`已发布，两宿主及共享app锁定该UI版本。
+- 本地完整Web `http://localhost:7712/` 实际表单新增测试服务商、加密保存占位密钥、真实HTTP探测OpenRouter公开模型目录、选择`aion-labs/aion-2.0`后保存200并读回模型与hasKey。不是付费模型请求；未使用用户截图中的真实密钥。自建测试服务商/临时验收session验后删除，用户配置不改动。
+- 网络搜索设置实际读回search=11个服务商、fetch=4个服务商，两接口200；真实界面卡片及高级设置渲染，无alert；原偏好不变保存200。此次未重现独立的网络搜索加载故障，不把未知错误归因于模型迁移，也不冒充付费供应商检测通过。
+
+| AI能力 | 桌面与完整Web对照 | 边界 |
+| --- | --- | --- |
+| 模型配置/探测、chat/writing角色、思考/用量 | 均有共享UI和真实后端实现 | 本轮修复旧库和探测后保存故障；不只按入口存在判完成 |
+| 对话历史、编辑/分支/重答/翻译/删除/保存笔记 | 两端端口和后端均已实现 | 不代表本轮逐项重跑真实供应商 |
+| 外部搜索/读取、多Key/偏好、模型原生搜索 | 两端均已实现 | Web仅owner可用；浏览器取密钥需要当前密码 |
+| Markdown导出 | Web未提供原生导出回调，但Aether共享UI已有Blob下载默认实现 | 桌面另提供系统保存对话框；不能把缺原生回调误报成Web完全没有导出 |
+| 工具批准 | Web明确unsupported | Web当前无桌面本地工具执行能力，不加空按钮或伪批准 |
+| 托盘/全局快捷键/本地MCP监听 | 桌面专属 | 不是浏览器需照搬的缺失能力 |
+
+- Demo运行时仍主动移除aiHost，不提供真实模型配置/聊天，不能用于上述功能验收。完整Web使用真实Worker和持久库；Cloudflare Workers AI绑定是语义搜索能力，不是第三方LLM配置开关。旧说明中“没有账号”的判断不准确：本地库已有owner，只是验收浏览器未登录。
+
+- 最终检查：`pnpm run web:check`通过；Web31文件164项与脚本8项通过，桌面Svelte类型检查0错误0警告；Aether UI112项、lint/格式/类型检查通过，frozen依赖安装通过。本次未重新生成桌面安装包、未部署Cloudflare。
+
+### 10.10 已保存模型不可选与思考入口续修（2026-10-14）
+
+- 用户后续截图明确是角色下拉为空，不是配置没落库。实际D1已有两个模型、可读加密凭据；ModelSelect只在挂载时读modelOptions，ProvidersSettings保存后没通知宿主。Aether增加成功保存/删除onchanged；AutoNote共享AiSection刷新角色/密钥线路，并按providerRevision重载两个角色选择器；Web/桌面同修。
+- 实际本地浏览器：新增测试服务商、探测公开模型、保存后不关闭设置即可看到新增角色选项；真实选取已保存模型后HTTP roles读回绑定，刷新后仍保留。测试配置已删除；临时角色选择恢复验收前快照，不改用户模型/凭据。
+- 思考控制不再要求先手工声明：已知模型+线路协议自动解析reasoning，已有null模型立刻生效；聊天内仍临时选择档位。原手工配置保留为覆盖项，不当作正常使用前置流程。详见文档28 §8.5与Aether providers推断规则。
+- Web真实读取已保存Claude Opus/Sonnet5.5的自动档位，输入框Gauge弹层存在，键盘End显示“最大”，刷新恢复“默认”。未发送用户真实模型计费请求；Worker回归验证自动能力的default不带控制、high携带thinking adaptive/output_config，明确不以按钮出现替代参数证明。
+- 最新双端依赖统一到Aether ca39d002；Web166项、脚本8项、共享角色刷新回归和web:check通过。最终桌面包已重新生成，真实WebView2自动能力/最大档HTTP出站/恢复默认/重启读回证据见文档28 §8.5，替代此前“尚未重打包”的阶段记录。

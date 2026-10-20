@@ -6,16 +6,17 @@ import { IpcChangeFeed } from './change-feed'
 import { filesPort } from './ports/files'
 import { transferPort } from './ports/transfer'
 import { IpcMcpPort } from './ports/mcp'
-import { aiPort, type AiPort } from './ports/ai'
+import { aiHostPort } from './ports/ai-host'
 
-export function createIpcBackend(
-  transport: IpcTransport,
-): Backend & { changes: IpcChangeFeed; mcp: IpcMcpPort; ai: AiPort } {
+export function createIpcBackend(transport: IpcTransport): Backend & { changes: IpcChangeFeed; mcp: IpcMcpPort } {
   const changes = new IpcChangeFeed(transport)
   const mcp = new IpcMcpPort(transport)
   const session: Backend['session'] = {
     async load(options) {
       return transport.invoke('session_load', undefined, options)
+    },
+    async updateProfile(body, options) {
+      return transport.invoke('session_update_profile', { body }, options)
     },
     async logout(options) {
       return transport.invoke('session_logout', undefined, options)
@@ -78,7 +79,6 @@ export function createIpcBackend(
     kind: 'desktop',
     capabilities: {
       accounts: false,
-      ai: true,
       totp: false,
       share: false,
       remoteBackup: false,
@@ -98,7 +98,7 @@ export function createIpcBackend(
     transfer: transferPort(transport),
     changes,
     mcp,
-    ai: aiPort(transport),
+    aiHost: aiHostPort(transport),
     async dispose() {
       changes.dispose()
       mcp.dispose()

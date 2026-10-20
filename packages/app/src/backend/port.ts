@@ -49,7 +49,7 @@ import type {
   TagPatch,
   TagPatchResult,
 } from '@shared/backend-types'
-import type { AiPort } from '@shared/ai-types'
+import type { KitPorts, ModelRef } from '@ouraihub/aether-ui/ports'
 import type { ChangeFeed, Unsubscribe } from './change-feed'
 
 export interface CallOptions {
@@ -66,7 +66,6 @@ export interface TransferOptions extends CallOptions {
 
 export interface BackendCapabilities {
   accounts: boolean
-  ai: boolean
   totp: boolean
   share: boolean
   remoteBackup: boolean
@@ -105,7 +104,6 @@ export interface SessionAccountPort {
   login(username: string, password: string, options?: CallOptions): Promise<PasswordLoginResult>
   completeTotpLogin(challengeToken: string, code: string, options?: CallOptions): Promise<TotpLoginResult>
   setPassword(body: { currentPassword: string; newPassword: string }, options?: CallOptions): Promise<{ ok: true }>
-  updateProfile(body: { name?: string; avatarUrl?: string }, options?: CallOptions): Promise<PublicUser>
   updateRegistration(
     enabled: boolean,
     password: string,
@@ -116,6 +114,7 @@ export interface SessionAccountPort {
 export interface SessionPort {
   readonly account?: SessionAccountPort
   load(options?: CallOptions): Promise<BackendSession>
+  updateProfile(body: { name?: string; avatarUrl?: string }, options?: CallOptions): Promise<PublicUser>
   logout(options?: CallOptions): Promise<void>
 }
 
@@ -236,6 +235,22 @@ export interface UpdatePort {
   check(options?: CallOptions): Promise<UpdateCheckResponse>
 }
 
+export type AiRole = 'chat' | 'writing' | 'painting'
+
+export interface AiRoleBinding {
+  role: AiRole
+  binding: (ModelRef & { label: string }) | null
+  isFallback: boolean
+}
+
+export interface AiHostPort {
+  readonly kit: KitPorts
+  roles(options?: CallOptions): Promise<AiRoleBinding[]>
+  setRole(role: AiRole, binding: ModelRef | null, options?: CallOptions): Promise<AiRoleBinding[]>
+  exportMarkdown?(markdown: string): Promise<void>
+  readImage(url: string, options?: CallOptions): Promise<Blob>
+}
+
 export interface Backend {
   readonly kind: 'web' | 'desktop'
   readonly capabilities: BackendCapabilities
@@ -248,7 +263,7 @@ export interface Backend {
   readonly settings: SettingsPort
   readonly transfer: TransferPort
   readonly changes: ChangeFeed
-  readonly ai?: AiPort
+  readonly aiHost?: AiHostPort
   readonly share?: SharePort
   readonly backup?: BackupPort
   readonly mcp?: RemoteMcpPort | LocalMcpPort

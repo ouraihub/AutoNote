@@ -4,6 +4,7 @@ import type {
   ApiErrorCode,
   AttachmentWithUsage,
   Note,
+  PublicUser,
   SessionInfo,
   SiteInfo,
   Tag,
@@ -261,6 +262,10 @@ export function isErrorCode(value: unknown): value is ErrorCode {
 
 export function isBackendSession(value: unknown): value is BackendSession {
   return BackendSessionSchema.safeParse(value).success
+}
+
+export function isPublicUser(value: unknown): value is PublicUser {
+  return PublicUserSchema.safeParse(value).success
 }
 
 export function isNoteWriteResult(value: unknown): value is NoteWriteResult {

@@ -35,14 +35,14 @@ export async function encryptTotpSecret(env: Env, userId: string, secret: string
   return encryptCredential(env, `totp:${userId}`, { secret })
 }
 
-export async function encryptAiKey(env: Env, endpointId: string, apiKey: string): Promise<string> {
-  if (!isValidId(endpointId) || !apiKey || apiKey.length > 4096) throw ApiError.badRequest('Invalid API key')
-  return encryptCredential(env, `ai-endpoint:${endpointId}`, { apiKey })
+export async function encryptAiKey(env: Env, scopeId: string, apiKey: string): Promise<string> {
+  if (!isValidId(scopeId) || !apiKey || apiKey.length > 4096) throw ApiError.badRequest('Invalid API key')
+  return encryptCredential(env, `ai-endpoint:${scopeId}`, { apiKey })
 }
 
-export async function decryptAiKey(env: Env, endpointId: string, stored: string): Promise<string | null> {
-  if (!isValidId(endpointId) || stored.length > 24 * 1024) return null
-  const value = await decryptCredential(env, `ai-endpoint:${endpointId}`, stored)
+export async function decryptAiKey(env: Env, scopeId: string, stored: string): Promise<string | null> {
+  if (!isValidId(scopeId) || stored.length > 24 * 1024) return null
+  const value = await decryptCredential(env, `ai-endpoint:${scopeId}`, stored)
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const key = (value as Record<string, unknown>).apiKey
   return typeof key === 'string' && key.length > 0 && key.length <= 4096 ? key : null

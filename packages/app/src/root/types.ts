@@ -1,4 +1,5 @@
 import type { Text } from '@codemirror/state'
+import type { ImageRef } from '@ouraihub/aether-ui/ports'
 import type { EditorView } from '@codemirror/view'
 import type { Component } from 'svelte'
 import type { FlushResult } from '@shared/backend-types'
@@ -28,6 +29,7 @@ export interface HostPanel {
 export interface WorkspacePanelProps {
   note: { id: string; title: string; content: string } | null
   insert(text: string): void
+  saveNote(markdown: string, images?: readonly ImageRef[]): Promise<void>
   openSettings(sectionId: string): void
   onClose(): void
 }
@@ -46,12 +48,23 @@ export interface WritingSelection {
   doc: Text
 }
 
+export interface WritingSnapshot extends WritingSelection {
+  noteId: string
+  view: EditorView
+  editorGeneration: number
+  revision: number
+  cursorOffset: number
+}
+
 export interface WritingToolbarProps {
   view: EditorView | null
   selection: WritingSelection
+  noteId: string
   noteTitle: string
-  onReplace(text: string, selection: WritingSelection): boolean
-  onInsert(text: string): void
+  noteRev: number
+  editorGeneration: number
+  onReplace(text: string, snapshot: WritingSnapshot): boolean
+  onInsert(text: string, snapshot: WritingSnapshot): boolean
 }
 
 export interface WritingToolbarExtension {

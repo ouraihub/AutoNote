@@ -35,7 +35,7 @@ export class HttpSessionPort implements SessionPort {
   readonly #flush: (() => Promise<void>) | undefined
   readonly #pending: (() => Promise<LogoutPending>) | undefined
   readonly #waitForLocalCommit: (() => Promise<void>) | undefined
-  readonly #account: SessionAccountPort
+  readonly #account: HttpSessionAccountPort
   #epoch = 0
   #cacheWrites: Promise<void> = Promise.resolve()
   #logout: Promise<void> | null = null
@@ -58,6 +58,10 @@ export class HttpSessionPort implements SessionPort {
 
   get account(): SessionAccountPort {
     return this.#account
+  }
+
+  updateProfile(body: { name?: string; avatarUrl?: string }, options?: CallOptions): Promise<PublicUser> {
+    return this.#account.updateProfile(body, options)
   }
 
   async load(options?: CallOptions): Promise<BackendSession> {

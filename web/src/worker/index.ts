@@ -8,6 +8,7 @@ import { createOAuthProvider, providerForScheduled } from './mcp/oauth'
 import { purgeRevokedMcpApiKeys } from './mcp/api-keys'
 import { purgeExpiredMcpOperations } from './mcp/operations'
 import { purgeExpiredOperationalData } from './lib/maintenance'
+import { purgeExpiredChatImages } from './ai/images'
 
 export { SyncHub } from './realtime/sync-hub'
 export { CredentialVault } from './durable/credential-vault'
@@ -42,6 +43,7 @@ export default {
         providerForScheduled(env).purgeExpiredData(env, { batchSize: 100 }),
         drainAiIndexQueue(env, 300),
         drainAllFtsQueues(env.DB),
+        purgeExpiredChatImages(env),
       ])
     })())
   },
