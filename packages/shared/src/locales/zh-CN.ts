@@ -234,7 +234,7 @@ export const ZH_CN_MESSAGES = {
   'download.view_releases': '查看发布说明',
   'download.webview_note': '需要 WebView2；当前 Windows 10 和 Windows 11 通常已自带。',
   'download.title': '把笔记带到桌面。',
-  'download.release_note': '下载文件在 GitHub 桌面版正式发布后可用；私有仓库需要相应的 GitHub 访问权限。',
+  'download.release_note': '安装包托管于公开的 OurAIApps/AutoNote 仓库，无需登录 GitHub 即可下载。',
   'common.off': '已关闭',
   'common.on': '已开启',
   'common.open': '打开',

@@ -241,7 +241,7 @@ export const EN_US_MESSAGES = {
   'download.view_releases': 'Release notes',
   'download.webview_note': 'Requires WebView2, included with current Windows 10 and Windows 11 systems.',
   'download.title': 'Your notes, on your desktop.',
-  'download.release_note': 'Downloads become available after a desktop release is published on GitHub. Private repositories require GitHub access.',
+  'download.release_note': 'Downloads are hosted in the public OurAIApps/AutoNote repository. No GitHub sign-in is required.',
   'common.off': 'Off',
   'common.on': 'On',
   'common.open': 'Open',

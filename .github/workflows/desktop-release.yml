@@ -74,7 +74,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     permissions:
-      contents: write
+      contents: read
       actions: read
     steps:
       - uses: actions/checkout@v7
@@ -96,11 +96,13 @@ jobs:
       - name: Validate successful build and publish verified packages
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
           BUILD_RUN_ID: ${{ inputs.build_run_id || github.run_id }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          if (-not $env:RELEASE_TOKEN) { throw 'Missing RELEASE_TOKEN for OurAIApps/AutoNote' }
           $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:BUILD_RUN_ID" | ConvertFrom-Json
           $sameRunBuild = $env:BUILD_RUN_ID -eq '${{ github.run_id }}' -and '${{ needs.build.result }}' -eq 'success'
           if ($LASTEXITCODE -ne 0 -or ($run.conclusion -ne 'success' -and -not $sameRunBuild) -or $run.event -ne 'push' -or $run.path -ne '.github/workflows/desktop-release.yml' -or $run.head_branch -ne $env:RELEASE_TAG) { throw 'Candidate is not the successful selected tag build' }
@@ -131,5 +133,6 @@ jobs:
 
           本版本通过编译、自动检查及包完整性校验；不代表已完成标准用户安装全生命周期、旧版升级或无 WebView2 虚拟机验收。
           "@
-          gh release create $env:RELEASE_TAG --verify-tag --title "AutoNote Desktop $($manifest.version)" --notes $notes --generate-notes $setupName $portableName
+          $env:GH_TOKEN = $env:RELEASE_TOKEN
+          gh release create $env:RELEASE_TAG --repo OurAIApps/AutoNote --title "AutoNote Desktop $($manifest.version)" --notes $notes $setupName $portableName
           if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }

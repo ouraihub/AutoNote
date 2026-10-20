@@ -5,7 +5,7 @@
   import type { I18nState } from '@app/i18n/runtime.svelte'
 
   let { language }: { language: I18nState } = $props()
-  const releasesUrl = 'https://github.com/ouraihub/AutoNote/releases/latest'
+  const releasesUrl = 'https://github.com/OurAIApps/AutoNote/releases/latest'
 </script>
 
 <svelte:head>
