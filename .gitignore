@@ -15,7 +15,7 @@ desktop/src-tauri/icons/icon.icns
 desktop/src-tauri/icons/generated.iconset/
 
 # Cloudflare local state and secrets
-.wrangler/
+.wrangler*/
 .dev.vars
 .dev.vars.*
 
@@ -36,7 +36,11 @@ desktop/src-tauri/icons/generated.iconset/
 *.db-shm
 *.db-wal
 *.sqlite
+*.sqlite-shm
+*.sqlite-wal
 *.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
 /desktop/data/
 
 # Local tools and editors
