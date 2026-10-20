@@ -26,6 +26,8 @@ desktop/src-tauri/gen/schemas/
 *.key
 *.p12
 *.pfx
+!web/tests/support/ai-loopback-cert.pem
+!web/tests/support/ai-loopback-key.pem
 
 # Local databases and runtime data (desktop keeps its library in data\ next to the exe)
 *.db
