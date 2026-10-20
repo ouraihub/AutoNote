@@ -15,7 +15,7 @@ writeFileSync(path.join(stage, 'window.json'), JSON.stringify({suite:'window',ve
 assert.throws(() => verifyEvidence(stage, release), /Incomplete/, 'Process-only/missing-window matrix must block')
 if (process.platform === 'win32') {
   const missingPortable = path.join(stage, 'no-portable')
-  const result = spawnSync('cmd', ['/d','/c', `call "${path.join(root,'scripts/msvc-env.bat')}"`], { encoding:'utf8', env:{...process.env,CI:'true',GITHUB_ACTIONS:'false',PORTABLE_MSVC_ROOT:missingPortable} })
+  const result = spawnSync('cmd', ['/d','/c', 'call scripts\\msvc-env.bat'], { cwd: root, encoding:'utf8', env:{...process.env,CI:'true',GITHUB_ACTIONS:'false',PORTABLE_MSVC_ROOT:missingPortable} })
   assert.notEqual(result.status, 0, 'Local CI=true must not fall back to installed VS')
   assert.match(result.stderr, /portable MSVC not found/)
   const smoke = spawnSync(process.execPath, [path.join(root,'scripts/smoke-app.mjs')], { encoding:'utf8', env:{...process.env,GITHUB_ACTIONS:'true'} })

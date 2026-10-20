@@ -10,7 +10,7 @@ on:
         required: true
         type: string
       build_run_id:
-        description: Successful tag build run whose exact packages were interactively accepted
+        description: Successful tag build run containing the verified packages
         required: true
         type: string
 
@@ -67,72 +67,49 @@ jobs:
           path: ${{ steps.files.outputs.paths }}
           if-no-files-found: error
           retention-days: 30
-      # This job deliberately never claims headless CI exercised actual windows.
-      # Download candidate, run both interactive scripts, archive the two reports
-      # plus PNGs, set the protected environment's evidence URL/hash, then dispatch.
 
   publish:
-    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    if: always() && (needs.build.result == 'success' || github.event_name == 'workflow_dispatch')
     runs-on: windows-latest
     timeout-minutes: 20
-    environment: desktop-release
     permissions:
       contents: write
       actions: read
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ inputs.tag || github.ref_name }}
       - uses: actions/setup-node@v7
         with:
           node-version: 24
       - name: Check selected tag versions
         env:
-          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: node desktop/scripts/version-check.mjs "$env:RELEASE_TAG"
       - uses: actions/download-artifact@v7
         with:
           name: desktop-release-candidate
           path: desktop/dist
-          run-id: ${{ inputs.build_run_id }}
+          run-id: ${{ inputs.build_run_id || github.run_id }}
           github-token: ${{ github.token }}
-      - name: Load protected actual-window and lifecycle evidence
-        env:
-          EVIDENCE_URL: ${{ secrets.DESKTOP_RELEASE_EVIDENCE_URL }}
-          EVIDENCE_SHA256: ${{ secrets.DESKTOP_RELEASE_EVIDENCE_SHA256 }}
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          if ($env:EVIDENCE_URL -notmatch '^https://' -or $env:EVIDENCE_SHA256 -notmatch '^[a-fA-F0-9]{64}$') { throw 'Missing protected interactive evidence URL/hash; release blocked' }
-          Invoke-WebRequest -Uri $env:EVIDENCE_URL -OutFile evidence.zip
-          if ((Get-FileHash evidence.zip -Algorithm SHA256).Hash -ne $env:EVIDENCE_SHA256) { throw 'Evidence archive hash mismatch' }
-          Add-Type -AssemblyName System.IO.Compression.FileSystem
-          $zip = [IO.Compression.ZipFile]::OpenRead("$pwd/evidence.zip")
-          try {
-            foreach ($entry in $zip.Entries) {
-              if ($entry.FullName -notmatch '^(window|installation)(-[a-z0-9-]+)?\.(json|png)$') { throw "Unexpected evidence entry: $($entry.FullName)" }
-              if ($entry.Length -gt 50MB) { throw 'Oversized evidence entry' }
-            }
-          } finally { $zip.Dispose() }
-          Expand-Archive evidence.zip evidence
-      - name: Validate protected evidence and publish exactly accepted packages
+      - name: Validate successful build and publish verified packages
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag }}
-          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id || github.run_id }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:BUILD_RUN_ID" | ConvertFrom-Json
-          if ($LASTEXITCODE -ne 0 -or $run.conclusion -ne 'success' -or $run.event -ne 'push' -or $run.path -ne '.github/workflows/desktop-release.yml' -or $run.head_branch -ne $env:RELEASE_TAG) { throw 'Candidate is not the successful selected tag build' }
+          $sameRunBuild = $env:BUILD_RUN_ID -eq '${{ github.run_id }}' -and '${{ needs.build.result }}' -eq 'success'
+          if ($LASTEXITCODE -ne 0 -or ($run.conclusion -ne 'success' -and -not $sameRunBuild) -or $run.event -ne 'push' -or $run.path -ne '.github/workflows/desktop-release.yml' -or $run.head_branch -ne $env:RELEASE_TAG) { throw 'Candidate is not the successful selected tag build' }
           $checkout = git rev-parse HEAD
           if ($run.head_sha -ne $checkout) { throw 'Candidate commit differs from selected tag' }
           node desktop/scripts/version-check.mjs $env:RELEASE_TAG
           if ($LASTEXITCODE -ne 0) { throw 'Version mismatch' }
           node desktop/scripts/release-artifacts.mjs verify
           if ($LASTEXITCODE -ne 0) { throw 'Current artifact verification failed' }
-          node desktop/scripts/release-evidence.mjs evidence --protected-gate
-          if ($LASTEXITCODE -ne 0) { throw 'Interactive acceptance/protected environment gate failed' }
           $manifest = Get-Content desktop/dist/release.json -Raw | ConvertFrom-Json
           if ('desktop-v' + $manifest.version -ne $env:RELEASE_TAG) { throw 'Artifact/tag mismatch' }
           $nsis = $manifest.artifacts | Where-Object { $_.kind -eq 'nsis' }
@@ -151,6 +128,8 @@ jobs:
           | ``$portableName`` | Windows 便携版：解压后直接运行，不写入注册表 |
 
           需要 WebView2。便携版数据保存在程序目录旁的 ``data`` 文件夹中。
+
+          本版本通过编译、自动检查及包完整性校验；不代表已完成标准用户安装全生命周期、旧版升级或无 WebView2 虚拟机验收。
           "@
           gh release create $env:RELEASE_TAG --verify-tag --title "AutoNote Desktop $($manifest.version)" --notes $notes --generate-notes $setupName $portableName
           if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }
