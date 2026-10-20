@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync }
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { root, sha256 } from './release-artifacts.mjs'
+import { root } from './release-artifacts.mjs'
 import { verifyCandidate } from './release-candidates.mjs'
 
 if (!['darwin', 'linux'].includes(process.platform)) throw new Error('Native smoke requires macOS or Linux')
@@ -163,8 +163,22 @@ try {
     const desktops = readdirSync(image).filter((name) => name.endsWith('.desktop'))
     if (desktops.length !== 1 || !readFileSync(path.join(image, desktops[0]), 'utf8').includes('AutoNote'))
       throw new Error('AppImage desktop metadata missing')
-    if (sha256(path.join(image, 'usr/bin', binaries[0])) !== sha256(debBinary))
-      throw new Error('AppImage executable differs from version/architecture-checked DEB')
+    const imageBinary = path.join(image, 'usr/bin', binaries[0])
+    const imageType = run('file', ['-b', imageBinary])
+    const buildId = (binary) => run('readelf', ['-n', binary]).match(/Build ID: ([a-f0-9]+)/)?.[1]
+    const debId = buildId(debBinary)
+    if (
+      !imageType.includes('ELF 64-bit LSB') ||
+      !imageType.includes('x86-64') ||
+      !debId ||
+      buildId(imageBinary) !== debId
+    )
+      throw new Error('AppImage executable architecture/build identity differs from DEB')
+    if (
+      !readFileSync(imageBinary).includes(Buffer.from('__TAURI_BUNDLE_TYPE_VAR_APP')) ||
+      !readFileSync(debBinary).includes(Buffer.from('__TAURI_BUNDLE_TYPE_VAR_DEB'))
+    )
+      throw new Error('Linux executable bundle marker mismatch')
     await launch(path.join(image, 'AppRun'), image, 'appimage')
   }
 } finally {
