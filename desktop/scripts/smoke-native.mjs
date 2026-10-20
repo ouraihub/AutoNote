@@ -58,7 +58,7 @@ async function launch(executable, cwd, label) {
         const result = spawnSync('xdotool', ['search', '--onlyvisible', '--name', '^AutoNote$'], { encoding: 'utf8' })
         if (result.status === 0) window = result.stdout.trim().split('\n')[0]
       } else {
-        const script = `import CoreGraphics\nlet windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []\nif windows.contains(where: { ($0[kCGWindowOwnerPID as String] as? Int) == ${child.pid} && ($0[kCGWindowLayer as String] as? Int) == 0 }) { print("visible") }\n`
+        const script = `import Foundation\nimport CoreGraphics\nlet windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []\nif windows.contains(where: { ($0[kCGWindowOwnerPID as String] as? Int) == ${child.pid} && ($0[kCGWindowLayer as String] as? Int) == 0 }) { print("visible") }\n`
         if (run('swift', ['-e', script]) === 'visible') window = 'visible'
       }
       if (window && existsSync(path.join(data, 'library.db'))) break

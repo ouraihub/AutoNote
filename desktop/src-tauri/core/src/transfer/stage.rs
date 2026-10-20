@@ -106,14 +106,18 @@ impl AuthorizedOutput {
         self.directory
             .rename(partial, &self.directory, &self.filename)?;
         #[cfg(not(windows))]
-        self.directory.try_clone()?.into_std_file().sync_all()?;
+        self.directory.open(".")?.sync_all()?;
         Ok(())
     }
     /// Removes this output's own unpublished partial file.
     /// # Errors
     /// Returns filesystem cleanup errors.
     pub fn remove(&self, partial: &str) -> Result<(), Error> {
-        self.directory.remove_file(partial)?;
+        match self.directory.remove_file(partial) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
         Ok(())
     }
 }
