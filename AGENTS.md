@@ -4,7 +4,7 @@
 
 ## 1. 推送前必须通过 `pnpm run ci`
 
-- `pnpm run ci` 依次运行 `web:check`、`web:test`、`web:build`、`desktop:verify`，和 `.github/workflows/web.yml`、`desktop.yml` 的检查步骤一致。
+- `pnpm run ci` 依次运行 `web:check`、`web:test`、`web:build`、`desktop:verify`、`desktop:package:verify`，和 `.github/workflows/web.yml`、`desktop.yml` 的检查步骤一致；原生平台打包与冒烟也是质量门。
 - 改了 `web/src/worker` 或 API，还要跑 e2e：先用 `AUTONOTE_EPHEMERAL_DEV=1 pnpm exec vite --port 7712 --strictPort` 起一个临时实例，再运行 `node web/scripts/e2e.mjs http://localhost:7712`。
 - 只跑改动文件的测试（`vitest run xxx.test.ts`）不算验证。`pnpm run ci` 不通过，不提交、不推送、不汇报“已完成”。
 - 新增 CI 步骤时，同时更新 `pnpm run ci` 和工作流，两边保持一致。

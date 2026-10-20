@@ -59,11 +59,28 @@ pub async fn app_open_log_dir(
     tauri::async_runtime::spawn_blocking(move || {
         std::fs::create_dir_all(&path)
             .map_err(|_| AppError::new(ErrorCode::Internal, "Log folder unavailable"))?;
-        #[cfg(target_os = "windows")]
-        std::process::Command::new("explorer.exe")
+        let opener = if cfg!(target_os = "windows") {
+            "explorer.exe"
+        } else if cfg!(target_os = "macos") {
+            "open"
+        } else {
+            "xdg-open"
+        };
+        let mut child = std::process::Command::new(opener)
             .arg(path)
             .spawn()
             .map_err(|_| AppError::new(ErrorCode::Internal, "Log folder could not be opened"))?;
+        if !cfg!(windows)
+            && !child
+                .wait()
+                .map_err(|_| AppError::new(ErrorCode::Internal, "Log folder could not be opened"))?
+                .success()
+        {
+            return Err(AppError::new(
+                ErrorCode::Internal,
+                "Log folder could not be opened",
+            ));
+        }
         Ok(super::ok(()))
     })
     .await

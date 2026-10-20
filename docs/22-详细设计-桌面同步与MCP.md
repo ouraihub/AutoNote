@@ -18,15 +18,15 @@
 
 桌面 MCP 暴露恰好以下 34 个工具，名称、参数名和结果语义与 Web MCP 的知识库工具保持一致；实现中以共享 DTO 和工具契约夹具防止漂移。云端备份、公开分享及账户管理不是本地知识库操作，不纳入桌面 34 工具，不因 Web 端存在对应能力而暴露。
 
-| 组 | 工具 | 数量 |
-| --- | --- | ---: |
-| 检索 | `search`、`fetch`、`search_notes`、`list_notes`、`read_note`、`get_note_context`、`list_folders`、`list_tags` | 8 |
-| 笔记写入/历史 | `create_note`、`edit_note`、`organize_note`、`trash_note`、`restore_note`、`duplicate_note`、`list_note_versions`、`read_note_version`、`restore_note_version` | 9 |
-| 文件夹/标签 | `create_folder`、`update_folder`、`create_tag`、`update_tag`、`preview_tag_change`、`delete_tag`、`preview_folder_removal`、`remove_folder_and_promote_contents`、`bulk_organize_notes` | 9 |
-| 附件 | `list_attachments`、`read_attachment`、`upload_attachment`、`delete_attachment` | 4 |
-| 属性 | `get_note_properties`、`update_note_properties`、`query_note_properties` | 3 |
-| 图谱 | `explore_note_graph` | 1 |
-| **合计** |  | **34** |
+| 组            | 工具                                                                                                                                                                                    |   数量 |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -----: |
+| 检索          | `search`、`fetch`、`search_notes`、`list_notes`、`read_note`、`get_note_context`、`list_folders`、`list_tags`                                                                           |      8 |
+| 笔记写入/历史 | `create_note`、`edit_note`、`organize_note`、`trash_note`、`restore_note`、`duplicate_note`、`list_note_versions`、`read_note_version`、`restore_note_version`                          |      9 |
+| 文件夹/标签   | `create_folder`、`update_folder`、`create_tag`、`update_tag`、`preview_tag_change`、`delete_tag`、`preview_folder_removal`、`remove_folder_and_promote_contents`、`bulk_organize_notes` |      9 |
+| 附件          | `list_attachments`、`read_attachment`、`upload_attachment`、`delete_attachment`                                                                                                         |      4 |
+| 属性          | `get_note_properties`、`update_note_properties`、`query_note_properties`                                                                                                                |      3 |
+| 图谱          | `explore_note_graph`                                                                                                                                                                    |      1 |
+| **合计**      |                                                                                                                                                                                         | **34** |
 
 每个工具的参数以 `web/src/worker/mcp/server.ts` 的 zod schema 为权威；桌面通过导出的夹具生成同样的 JSON Schema，不自行添加或删除任何字段。写工具中只有实际 schema 声明的 `operation_id` 才参与 MCP 幂等。所有笔记正文和属性修改使用 `expected_rev`；文件夹/标签等字段没有远端 CAS 时，桌面 MCP 不把本地时间戳伪装成强一致 CAS。Ui/MCP 的过期版本只返回 `conflict`，绝不静默 rebase；只有 D5 的远端回放允许按 §7 的规则保留双方版本。
 
@@ -46,16 +46,16 @@ MCP 写操作必须由 `note-core` 在**一个 SQLite transaction** 中完成：
 
 ### 2.1 本文负责
 
-| 范围 | 职责 |
-| --- | --- |
-| `desktop/src-tauri/mcp/` | rmcp server 装配、认证、34 工具适配、schema、结果和调用限制 |
-| `desktop/src-tauri/core/src/store/mcp.rs`、`query/mcp.rs` | MCP 操作幂等记录、MCP 专用只读查询和领域结果 |
-| `desktop/src-tauri/sync/` | 会话、绑定、pull/push、附件传输副本、实时通知和串行调度 |
-| `desktop/src-tauri/core/src/store/sync.rs` | D5 的迁移、绑定/映射/outbox 状态读写 |
-| `desktop/src-tauri/shell/src/credentials/` | Windows DPAPI protect/unprotect；失败不得明文降级 |
-| `desktop/src-tauri/src/commands/{mcp,sync}.rs`、`src/services/{mcp,sync}.rs` | Tauri command 转发、事件和服务组合根 |
-| `desktop/src/lib/ipc/ports/{mcp,sync}.ts`、设置分区 | 前端端口和 MCP/同步设置显示 |
-| `desktop/fixtures/mcp-tools.json` | 34 工具的参数/结果/注解契约夹具 |
+| 范围                                                                         | 职责                                                                                                   |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `desktop/src-tauri/mcp/`                                                     | rmcp server 装配、认证、34 工具适配、schema、结果和调用限制                                            |
+| `desktop/src-tauri/core/src/store/mcp.rs`、`query/mcp.rs`                    | MCP 操作幂等记录、MCP 专用只读查询和领域结果                                                           |
+| `desktop/src-tauri/sync/`                                                    | 会话、绑定、pull/push、附件传输副本、实时通知和串行调度                                                |
+| `desktop/src-tauri/core/src/store/sync.rs`                                   | D5 的迁移、绑定/映射/outbox 状态读写                                                                   |
+| `desktop/src-tauri/shell/src/credentials.rs`                                 | Windows 保持原 DPAPI；macOS/Linux 复用 Aether 系统密钥环 + AEAD 字节凭据接口；失败不得明文降级，详见40 |
+| `desktop/src-tauri/src/commands/{mcp,sync}.rs`、`src/services/{mcp,sync}.rs` | Tauri command 转发、事件和服务组合根                                                                   |
+| `desktop/src/lib/ipc/ports/{mcp,sync}.ts`、设置分区                          | 前端端口和 MCP/同步设置显示                                                                            |
+| `desktop/fixtures/mcp-tools.json`                                            | 34 工具的参数/结果/注解契约夹具                                                                        |
 
 不做分享、备份、语义搜索、OAuth、多账号和远端 settings/profile 同步。桌面使用本地固定用户；同步绑定一个 Web 实例账户，切换绑定必须显式执行重绑定流程。
 
@@ -72,7 +72,7 @@ MCP 写操作必须由 `note-core` 在**一个 SQLite transaction** 中完成：
 desktop/src-tauri/
 ├── core/src/store/{mcp,sync}.rs       # 只能由 core 执行 SQL 和事务
 ├── core/src/query/mcp.rs              # 34 工具的只读查询与边界限制
-├── shell/src/credentials/             # DPAPI；唯一允许 unsafe FFI 的模块
+├── shell/src/credentials.rs          # 平台 SecretStore 适配；Windows DPAPI FFI 在此
 ├── mcp/src/
 │   ├── lib.rs                         # McpServer、McpConfig、TokenStore、StatusSink
 │   ├── transport.rs                   # rmcp server/streamable-http 装配
@@ -112,7 +112,7 @@ JSON-RPC 层按 rmcp 规范返回协议错误；工具本身的领域失败返�
   "error": {
     "code": "conflict",
     "message": "The note changed since expected_rev.",
-    "details": {"resource": "note", "id": "…", "expected": 3, "actual": 4}
+    "details": { "resource": "note", "id": "…", "expected": 3, "actual": 4 }
   }
 }
 ```
@@ -136,57 +136,57 @@ API key scope 冻结为：`notes:read`（全部读取工具）、`notes:write`�
 
 ### 4.1 检索、笔记和图谱
 
-| 工具 | 输入要点 | 权限/危险 | 成功结果 |
-| --- | --- | --- | --- |
-| `search` | `query` 1–512 字符，`mode=auto\|lexical\|semantic\|hybrid` | `notes:read`，只读 | `results[{id,title,url}]`、实际 `mode` |
-| `fetch` | `id` | `notes:read`，只读 | `id,title,text,url,metadata`，正文有最大长度和 `cursor` |
-| `search_notes` | `query`、`limit≤20`、tags/folder/starred/archived、mode | `notes:read`，只读 | `results`、过滤条件回显、`next_cursor` |
-| `list_notes` | `view=all\|recent\|starred\|archived\|trash`、`limit≤50`、cursor | `notes:read`，只读 | 摘要数组、`next_cursor`，不含无界正文 |
-| `read_note` | `note_id`，section/cursor 或行范围，`max_chars≤40000` | `notes:read`，只读 | `note_id,title,rev,text,outline,section,next_cursor` |
-| `get_note_context` | `note_id`、`limit≤30` | `notes:read`，只读 | outline、bounded outgoing/backlinks，最多一跳 |
-| `list_folders` | 空对象 | `notes:read`，只读 | 文件夹 id、层级路径、笔记计数 |
-| `list_tags` | `limit≤200` | `notes:read`，只读 | 私有标签名、颜色、使用计数 |
-| `list_note_versions` | `note_id`、`limit≤50` | `notes:read`，只读 | 历史id/title/size/created_at；不伪造历史rev字段，准确字段以helper结果为准 |
-| `read_note_version` | `note_id,version_id` | `notes:read`，只读 | 指定版本正文及元数据，受大小上限 |
-| `explore_note_graph` | `note_id`、`depth≤3`、`max_nodes≤100` | `notes:read`，只读 | bounded nodes/edges，节点和边均去重 |
+| 工具                 | 输入要点                                                         | 权限/危险          | 成功结果                                                                  |
+| -------------------- | ---------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------- |
+| `search`             | `query` 1–512 字符，`mode=auto\|lexical\|semantic\|hybrid`       | `notes:read`，只读 | `results[{id,title,url}]`、实际 `mode`                                    |
+| `fetch`              | `id`                                                             | `notes:read`，只读 | `id,title,text,url,metadata`，正文有最大长度和 `cursor`                   |
+| `search_notes`       | `query`、`limit≤20`、tags/folder/starred/archived、mode          | `notes:read`，只读 | `results`、过滤条件回显、`next_cursor`                                    |
+| `list_notes`         | `view=all\|recent\|starred\|archived\|trash`、`limit≤50`、cursor | `notes:read`，只读 | 摘要数组、`next_cursor`，不含无界正文                                     |
+| `read_note`          | `note_id`，section/cursor 或行范围，`max_chars≤40000`            | `notes:read`，只读 | `note_id,title,rev,text,outline,section,next_cursor`                      |
+| `get_note_context`   | `note_id`、`limit≤30`                                            | `notes:read`，只读 | outline、bounded outgoing/backlinks，最多一跳                             |
+| `list_folders`       | 空对象                                                           | `notes:read`，只读 | 文件夹 id、层级路径、笔记计数                                             |
+| `list_tags`          | `limit≤200`                                                      | `notes:read`，只读 | 私有标签名、颜色、使用计数                                                |
+| `list_note_versions` | `note_id`、`limit≤50`                                            | `notes:read`，只读 | 历史id/title/size/created_at；不伪造历史rev字段，准确字段以helper结果为准 |
+| `read_note_version`  | `note_id,version_id`                                             | `notes:read`，只读 | 指定版本正文及元数据，受大小上限                                          |
+| `explore_note_graph` | `note_id`、`depth≤3`、`max_nodes≤100`                            | `notes:read`，只读 | bounded nodes/edges，节点和边均去重                                       |
 
 ### 4.2 笔记写入和历史恢复
 
-| 工具 | 输入要点 | 权限/危险 | 成功结果 |
-| --- | --- | --- | --- |
-| `create_note` | `operation_id`、可选 `note_id/title/folder_id`、`content` | `notes:write`，创建可幂等 | `operation_id,note{id,title,rev,folder_id,updated_at}` |
-| `edit_note` | `operation_id,note_id,expected_rev`、operation（replace/replace_section/append/prepend/replace_all）、text、可选 old_text/section/title | `notes:write`，版本保护 | `note`、新 rev、版本 id、变更摘要 |
-| `organize_note` | `operation_id,note_id,expected_rev`、folder/starred/archived/pinned | `notes:write`，版本保护 | 更新后的 note 摘要和 rev |
-| `trash_note` | `operation_id,note_id,expected_rev` | `notes:trash` + `trash_enabled`，危险、可恢复 | 墓碑/删除时间、rev；不永久删除 |
-| `restore_note` | `operation_id,note_id,expected_rev` | `notes:write`，版本保护 | 恢复后的 note 和 rev |
-| `duplicate_note` | `operation_id,note_id` | `notes:write`，可幂等 | 新 note id、标题、rev、folder_id |
-| `restore_note_version` | `operation_id,note_id,version_id,expected_rev` | `notes:write`，版本保护 | 恢复后的 note、新版本 id 和 rev |
+| 工具                   | 输入要点                                                                                                                                | 权限/危险                                     | 成功结果                                               |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------ |
+| `create_note`          | `operation_id`、可选 `note_id/title/folder_id`、`content`                                                                               | `notes:write`，创建可幂等                     | `operation_id,note{id,title,rev,folder_id,updated_at}` |
+| `edit_note`            | `operation_id,note_id,expected_rev`、operation（replace/replace_section/append/prepend/replace_all）、text、可选 old_text/section/title | `notes:write`，版本保护                       | `note`、新 rev、版本 id、变更摘要                      |
+| `organize_note`        | `operation_id,note_id,expected_rev`、folder/starred/archived/pinned                                                                     | `notes:write`，版本保护                       | 更新后的 note 摘要和 rev                               |
+| `trash_note`           | `operation_id,note_id,expected_rev`                                                                                                     | `notes:trash` + `trash_enabled`，危险、可恢复 | 墓碑/删除时间、rev；不永久删除                         |
+| `restore_note`         | `operation_id,note_id,expected_rev`                                                                                                     | `notes:write`，版本保护                       | 恢复后的 note 和 rev                                   |
+| `duplicate_note`       | `operation_id,note_id`                                                                                                                  | `notes:write`，可幂等                         | 新 note id、标题、rev、folder_id                       |
+| `restore_note_version` | `operation_id,note_id,version_id,expected_rev`                                                                                          | `notes:write`，版本保护                       | 恢复后的 note、新版本 id 和 rev                        |
 
 ### 4.3 文件夹、标签及附件
 
-| 工具 | 输入要点 | 权限/危险 | 成功结果 |
-| --- | --- | --- | --- |
-| `create_folder` | 必需operation_id/name；可选folder_id/parent_id/icon/color | `notes:write`，可幂等 | 对齐createMcpFolder结果 |
-| `update_folder` | 必需operation_id/folder_id/expected_updated_at；可选name/parent_id/icon/color | `notes:write`，在本地事务内校验时间戳 | 对齐updateMcpFolder结果；不等同REST接口 |
-| `create_tag` | `operation_id`、可选 tag_id、name、color | `notes:write`，可幂等 | tag 对象 |
-| `update_tag` | `operation_id,tag_id`、name/color | `notes:write`；影响正文时一事务 | tag、受影响笔记数量、rev 摘要 |
-| `preview_tag_change` | `tag_id`、可选 next_name | `notes:read`，只读预览 | 合并目标、受影响笔记 id/count、风险 |
-| `delete_tag` | `operation_id,tag_id` | `notes:write`，危险、可幂等 | 删除状态、受影响笔记数量和版本摘要 |
-| `preview_folder_removal` | `folder_id` | `notes:read`，只读预览 | 将提升的子文件夹/笔记、冲突名、风险 |
-| `remove_folder_and_promote_contents` | `operation_id,folder_id,expected_updated_at` | `notes:write`，危险 | folder 删除、提升清单、冲突状态 |
-| `bulk_organize_notes` | `operation_id`、1–20 项，每项 note_id/expected_rev/变更 | `notes:write`；部分冲突不静默覆盖 | 每项 success/conflict、汇总计数；整体 operation 可重放 |
-| `list_attachments` | 可选 note_id、`limit≤50`、cursor | `notes:read`，只读 | 元数据数组、`next_cursor`，不含 bytes |
-| `read_attachment` | attachment_id、cursor、`max_bytes≤1 MiB` | `notes:read`，只读 | base64 chunk、总长度、next cursor、sha256 |
-| `upload_attachment` | operation_id、filename、mime、data（base64）；attachment_id/note_id可选 | `notes:write`，按解码实际字节限制 | 对齐uploadMcpAttachment结果；不把参数名写成base64 |
-| `delete_attachment` | `operation_id,attachment_id` | `notes:write`，危险、引用保护 | 删除/排队清理状态；被引用时 `conflict` |
+| 工具                                 | 输入要点                                                                      | 权限/危险                             | 成功结果                                               |
+| ------------------------------------ | ----------------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------ |
+| `create_folder`                      | 必需operation_id/name；可选folder_id/parent_id/icon/color                     | `notes:write`，可幂等                 | 对齐createMcpFolder结果                                |
+| `update_folder`                      | 必需operation_id/folder_id/expected_updated_at；可选name/parent_id/icon/color | `notes:write`，在本地事务内校验时间戳 | 对齐updateMcpFolder结果；不等同REST接口                |
+| `create_tag`                         | `operation_id`、可选 tag_id、name、color                                      | `notes:write`，可幂等                 | tag 对象                                               |
+| `update_tag`                         | `operation_id,tag_id`、name/color                                             | `notes:write`；影响正文时一事务       | tag、受影响笔记数量、rev 摘要                          |
+| `preview_tag_change`                 | `tag_id`、可选 next_name                                                      | `notes:read`，只读预览                | 合并目标、受影响笔记 id/count、风险                    |
+| `delete_tag`                         | `operation_id,tag_id`                                                         | `notes:write`，危险、可幂等           | 删除状态、受影响笔记数量和版本摘要                     |
+| `preview_folder_removal`             | `folder_id`                                                                   | `notes:read`，只读预览                | 将提升的子文件夹/笔记、冲突名、风险                    |
+| `remove_folder_and_promote_contents` | `operation_id,folder_id,expected_updated_at`                                  | `notes:write`，危险                   | folder 删除、提升清单、冲突状态                        |
+| `bulk_organize_notes`                | `operation_id`、1–20 项，每项 note_id/expected_rev/变更                       | `notes:write`；部分冲突不静默覆盖     | 每项 success/conflict、汇总计数；整体 operation 可重放 |
+| `list_attachments`                   | 可选 note_id、`limit≤50`、cursor                                              | `notes:read`，只读                    | 元数据数组、`next_cursor`，不含 bytes                  |
+| `read_attachment`                    | attachment_id、cursor、`max_bytes≤1 MiB`                                      | `notes:read`，只读                    | base64 chunk、总长度、next cursor、sha256              |
+| `upload_attachment`                  | operation_id、filename、mime、data（base64）；attachment_id/note_id可选       | `notes:write`，按解码实际字节限制     | 对齐uploadMcpAttachment结果；不把参数名写成base64      |
+| `delete_attachment`                  | `operation_id,attachment_id`                                                  | `notes:write`，危险、引用保护         | 删除/排队清理状态；被引用时 `conflict`                 |
 
 ### 4.4 属性
 
-| 工具 | 输入要点 | 权限/危险 | 成功结果 |
-| --- | --- | --- | --- |
-| `get_note_properties` | `note_id` | `notes:read`，只读 | typed properties、note_id、当前 rev |
-| `update_note_properties` | `operation_id,note_id,expected_rev`、mode merge/replace、properties | `notes:write`，版本保护 | properties、note、新 rev、版本 id |
-| `query_note_properties` | conditions 1–8项，每项key/operator/value?；limit≤50 | `notes:read`，只读 | 对齐queryMcpNoteProperties有界结果，不额外发明分页参数 |
+| 工具                     | 输入要点                                                            | 权限/危险               | 成功结果                                               |
+| ------------------------ | ------------------------------------------------------------------- | ----------------------- | ------------------------------------------------------ |
+| `get_note_properties`    | `note_id`                                                           | `notes:read`，只读      | typed properties、note_id、当前 rev                    |
+| `update_note_properties` | `operation_id,note_id,expected_rev`、mode merge/replace、properties | `notes:write`，版本保护 | properties、note、新 rev、版本 id                      |
+| `query_note_properties`  | conditions 1–8项，每项key/operator/value?；limit≤50                 | `notes:read`，只读      | 对齐queryMcpNoteProperties有界结果，不额外发明分页参数 |
 
 ## 5. MCP 实现和幂等事务
 
@@ -416,6 +416,7 @@ HTTP DTO按现有shared类型解析；请求名用`rev`，不是凭空加`expect
 pull 串行读取当前 epoch。增量请求使用非负整数 `since`，按服务端返回的 `cursor/hasMore/nextKey` 继续；不把 note 响应的 rev 当 cursor。遇到 `full=true`，必须先在 staging 中收集完整快照：首屏保存 `snapshot`/`snapshot_cursor`、`nextKey`，后续请求固定 `since=0&after=<nextKey>&snapshot=<snapshot_cursor>`；后续页重复首屏 cursor，空 facets 不能清空集合。整轮 staging 完成后，再从 snapshot cursor 补拉增量，最后一次性提交 `facetsFull`、notes、deletions 和最终 cursor。页面提交失败保留旧 checkpoint，不能每页推进最终 cursor。
 
 应用 staged 数据时，若本地有未发送更高 `local_rev`，远端正文不能覆盖本地脏内容；保留远端版本和本地待发送内容。拉取事务只更新本页暂存状态或最终合并结果，不更新无关 local_rev。
+
 ### 7.3 push
 
 push 严格按当前 epoch 的 `sync_outbox.created_at,write_id` 顺序取项。发送前检查 `ack_prereq`：附件已上传、绑定仍有效、远端版本仍可验证。写入请求携带该项的 `base_remote_rev`；成功后在 core 事务中记录 remote id/rev、`sent_local_rev`、write_id 并标记对应 outbox acked；不从 note response 推进 cursor，也不确认其间新产生的 local_rev。
@@ -462,20 +463,20 @@ core的公开同步操作为`stage_sync_page(binding,run,page)`、`commit_sync_s
 
 所有command async返回Result，错误按10；网络服务用Tokio，core阻塞操作放blocking池。参数均经验证，凭据参数不日志、不持久明文。
 
-| command | 参数 | 返回 |
-| --- | --- | --- |
-| mcp_status / mcp_start / mcp_stop | 无 | McpLocalStatus（running/endpoint/port/error） |
-| mcp_set_port | port:u16 | McpLocalStatus；运行中先安全重启，端口占用保留旧配置 |
-| mcp_list_keys / mcp_create_key / mcp_revoke_key | 无 / name / id | McpApiKey[] / {key,token} / {ok:true} |
-| mcp_get_preferences / mcp_save_preferences | 无 / {writeEnabled?,trashEnabled?} | McpPreferences |
-| sync_login | origin,username,password | {loginId,result:PasswordLoginResult}；短期loginId关联内存cookie |
-| sync_complete_totp | loginId,challengeToken,code | {loginId,result:TotpLoginResult} |
-| sync_status | 无 | SyncStatus |
-| sync_bind_preview | loginId,strategy | {previewId,counts,conflicts,expiresAt}；不改变本地笔记/远端 |
-| sync_bind_confirm | previewId | SyncStatus；复核本地/远端变化，失效预览重新确认 |
-| sync_unbind | bindingId | SyncStatus；先停engine并隔离未确认队列，不静默删除 |
-| sync_start / sync_stop / sync_now | 无 | SyncStatus |
-| sync_resolve_conflict | conflictId,choice:'local'|'remote'|'keep-both' | SyncStatus |
+| command                                         | 参数                               | 返回                                                            |
+| ----------------------------------------------- | ---------------------------------- | --------------------------------------------------------------- |
+| mcp_status / mcp_start / mcp_stop               | 无                                 | McpLocalStatus（running/endpoint/port/error）                   |
+| mcp_set_port                                    | port:u16                           | McpLocalStatus；运行中先安全重启，端口占用保留旧配置            |
+| mcp_list_keys / mcp_create_key / mcp_revoke_key | 无 / name / id                     | McpApiKey[] / {key,token} / {ok:true}                           |
+| mcp_get_preferences / mcp_save_preferences      | 无 / {writeEnabled?,trashEnabled?} | McpPreferences                                                  |
+| sync_login                                      | origin,username,password           | {loginId,result:PasswordLoginResult}；短期loginId关联内存cookie |
+| sync_complete_totp                              | loginId,challengeToken,code        | {loginId,result:TotpLoginResult}                                |
+| sync_status                                     | 无                                 | SyncStatus                                                      |
+| sync_bind_preview                               | loginId,strategy                   | {previewId,counts,conflicts,expiresAt}；不改变本地笔记/远端     |
+| sync_bind_confirm                               | previewId                          | SyncStatus；复核本地/远端变化，失效预览重新确认                 |
+| sync_unbind                                     | bindingId                          | SyncStatus；先停engine并隔离未确认队列，不静默删除              |
+| sync_start / sync_stop / sync_now               | 无                                 | SyncStatus                                                      |
+| sync_resolve_conflict                           | conflictId,choice:'local'          | 'remote'                                                        | 'keep-both' | SyncStatus |
 
 SyncStatus含bindingId/epoch/phase/localCursor/remoteCursor/pending/blocked/conflicts/online/errorCode，不含cookie或正文。服务状态事件`autonote://sync-status`/`autonote://mcp-status`仅给宿主设置；领域变化仍走library-changed，互不代替。MCP返回的引用URL使用`autonote://note/<id>`稳定标识；不是公开HTTP分享，22的MCP客户端说明明确这一点。
 

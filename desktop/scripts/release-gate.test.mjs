@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { verifyEvidence } from './release-evidence.mjs'
 import { root } from './release-artifacts.mjs'
 
-const stage = mkdtempSync(path.join(tmpdir(), 'AutoNote-gate-fixture-'))
+const stage = realpathSync(mkdtempSync(path.join(tmpdir(), 'AutoNote-gate-fixture-')))
 const release = { version:'0.1.0', buildId:'current', artifacts:[{kind:'nsis',sha256:'a'.repeat(64)},{kind:'portable',sha256:'b'.repeat(64)}] }
 assert.throws(() => verifyEvidence(stage, release), /ENOENT/, 'Missing interactive evidence must block')
 writeFileSync(path.join(stage, 'window.json'), JSON.stringify({suite:'window',version:'0.1.0',buildId:'old',status:'passed',cases:[]}))

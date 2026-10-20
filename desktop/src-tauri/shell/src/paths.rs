@@ -1,29 +1,58 @@
-//! Data directory layout.
-//!
-//! All runtime data lives in `<exe dir>\data`, never under `%APPDATA%`: the
-//! system drive is the one most likely to be wiped on reinstall, and a copied
-//! folder must carry its library with it. The install directory therefore has
-//! to be writable.
+//! Runtime data roots: portable beside the executable on Windows, user-owned on Unix.
 
 use std::path::{Path, PathBuf};
 
-/// Resolves the data root for the running executable.
+/// Resolves the single platform-specific runtime data root.
 ///
 /// # Errors
-/// When the executable path cannot be determined. There is deliberately no
-/// fallback to cwd/TEMP/APPDATA: that would silently open an empty library.
+/// Returns an error instead of falling back to cwd or a temporary library.
 pub fn data_dir() -> std::io::Result<PathBuf> {
-    let exe = std::env::current_exe()?;
-    let dir = exe.parent().ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "executable has no parent directory",
-        )
-    })?;
-    Ok(dir.join("data"))
+    #[cfg(windows)]
+    {
+        let exe = std::env::current_exe()?;
+        let dir = exe
+            .parent()
+            .ok_or_else(|| invalid_directory("executable has no parent"))?;
+        Ok(dir.join("data"))
+    }
+    #[cfg(not(windows))]
+    user_data_dir(std::env::var_os("HOME"), std::env::var_os("XDG_DATA_HOME"))
 }
 
-/// Creates and probes the executable-side runtime directories before opening a library.
+fn invalid_directory(message: &str) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidInput, message)
+}
+
+#[cfg(not(windows))]
+fn user_data_dir(
+    home: Option<std::ffi::OsString>,
+    xdg: Option<std::ffi::OsString>,
+) -> std::io::Result<PathBuf> {
+    #[cfg(target_os = "linux")]
+    if let Some(xdg) = xdg.filter(|value| !value.is_empty()) {
+        let root = PathBuf::from(xdg);
+        if !root.is_absolute() {
+            return Err(invalid_directory("XDG_DATA_HOME must be absolute"));
+        }
+        return Ok(root.join("com.autonote.desktop"));
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = xdg;
+    let home = PathBuf::from(home.ok_or_else(|| invalid_directory("HOME unavailable"))?);
+    if !home.is_absolute() {
+        return Err(invalid_directory("HOME must be absolute"));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        Ok(home.join("Library/Application Support/com.autonote.desktop"))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(home.join(".local/share/com.autonote.desktop"))
+    }
+}
+
+/// Creates and probes required directories inside the resolved runtime data root.
 /// Logs are excluded: unavailable logging must not prevent durable note saves.
 ///
 /// # Errors
@@ -63,22 +92,21 @@ pub fn log_file(data_dir: &Path) -> PathBuf {
     data_dir.join("logs").join("autonote.log")
 }
 
-/// WebView2 user data (cache, localStorage) inside `data_dir`; must be set
-/// before the first WebView exists, or WebView2 picks `%LOCALAPPDATA%`.
+/// Host-owned WebView data on Windows/Linux. Set before creating the first window.
 #[must_use]
 pub fn webview_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("webview")
 }
 
-/// Portable host-only configuration.
+/// Host-only configuration in the resolved runtime root.
 pub fn desktop_prefs_file(data_dir: &Path) -> PathBuf {
     data_dir.join("desktop-prefs.json")
 }
-/// Portable normal window bounds.
+/// Normal window bounds in the resolved runtime root.
 pub fn window_state_file(data_dir: &Path) -> PathBuf {
     data_dir.join("window-state.json")
 }
-/// Portable local MCP listener state.
+/// Local MCP listener state in the resolved runtime root.
 pub fn mcp_settings_file(data_dir: &Path) -> PathBuf {
     data_dir.join("mcp.json")
 }
@@ -89,6 +117,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(windows)]
     fn data_dir_sits_next_to_the_executable() {
         let exe_dir = std::env::current_exe()
             .unwrap()
@@ -99,6 +128,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn data_dir_is_not_under_app_data() {
         let dir = data_dir().unwrap().to_string_lossy().to_ascii_lowercase();
         for var in ["APPDATA", "LOCALAPPDATA"] {
@@ -109,6 +139,34 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn user_root_rejects_missing_or_relative_home() {
+        assert!(user_data_dir(None, None).is_err());
+        assert!(user_data_dir(Some("relative".into()), None).is_err());
+        let root = user_data_dir(Some("/home/test".into()), None).unwrap();
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            root,
+            PathBuf::from("/home/test/Library/Application Support/com.autonote.desktop")
+        );
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(
+            root,
+            PathBuf::from("/home/test/.local/share/com.autonote.desktop")
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn xdg_root_takes_precedence_and_rejects_relative_paths() {
+        assert_eq!(
+            user_data_dir(None, Some("/custom".into())).unwrap(),
+            PathBuf::from("/custom/com.autonote.desktop")
+        );
+        assert!(user_data_dir(Some("/home/test".into()), Some("relative".into())).is_err());
     }
 
     #[test]

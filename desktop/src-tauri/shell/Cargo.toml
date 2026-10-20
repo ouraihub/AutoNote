@@ -15,8 +15,12 @@ note-sync.workspace = true
 note-core.workspace = true
 zeroize = "=1.8.2"
 
+[target.'cfg(not(windows))'.dependencies]
+aether-providers.workspace = true
+
 [dev-dependencies]
 tempfile.workspace = true
+aether-providers.workspace = true
 
 [lints]
 workspace = true

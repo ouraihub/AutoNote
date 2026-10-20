@@ -527,7 +527,7 @@ fn open_context(
     let library = Arc::new(library);
     let sync = note_sync::SyncService::new(
         library.clone(),
-        Arc::new(autonote_shell::credentials::DpapiSecretStore),
+        Arc::new(autonote_shell::credentials::PlatformSecretStore),
         sink.clone(),
     )
     .map_err(|_| Error::invalid("startup", "Sync service unavailable"))?;
@@ -714,8 +714,8 @@ pub fn run() {
                 });
             }
             sink.bind(app.handle().clone());
-            // The config window has `create: false`: built here so WebView2
-            // never touches %LOCALAPPDATA% before data_directory is set.
+            // Build the window after configuring the host-owned WebView data directory.
+            // macOS WebKit uses its system-managed cache instead.
             let config = app
                 .config()
                 .app
@@ -725,9 +725,10 @@ pub fn run() {
                 .cloned()
                 .ok_or("main window config missing")?;
             let data_dir = app.state::<AppContext>().data_dir.clone();
-            let window = tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?
-                .data_directory(autonote_shell::paths::webview_dir(&data_dir))
-                .build()?;
+            let builder = tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?;
+            #[cfg(not(target_os = "macos"))]
+            let builder = builder.data_directory(autonote_shell::paths::webview_dir(&data_dir));
+            let window = builder.build()?;
             window::restore(&window, &data_dir);
             let tray_available = tray::install(app.handle()).is_ok();
             app.state::<window::DesktopState>()

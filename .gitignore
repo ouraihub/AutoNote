@@ -11,6 +11,8 @@ worker-configuration.d.ts
 # Rust / Tauri
 target/
 desktop/src-tauri/gen/schemas/
+desktop/src-tauri/icons/icon.icns
+desktop/src-tauri/icons/generated.iconset/
 
 # Cloudflare local state and secrets
 .wrangler/

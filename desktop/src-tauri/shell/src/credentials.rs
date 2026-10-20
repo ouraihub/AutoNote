@@ -1,13 +1,13 @@
-//! Current-user Windows DPAPI. There is deliberately no plaintext fallback.
+//! Platform credential protection; Windows keeps the original current-user DPAPI format.
 #![cfg_attr(windows, allow(unsafe_code))]
 
 use note_core::{AppError, ErrorCode};
 use note_sync::SecretStore;
 
 #[derive(Default)]
-pub struct DpapiSecretStore;
+pub struct PlatformSecretStore;
 
-impl SecretStore for DpapiSecretStore {
+impl SecretStore for PlatformSecretStore {
     fn protect(&self, value: &[u8]) -> Result<Vec<u8>, AppError> {
         crypt(value, true)
     }
@@ -17,6 +17,7 @@ impl SecretStore for DpapiSecretStore {
     }
 }
 
+#[cfg(windows)]
 fn unavailable() -> AppError {
     AppError::new(
         ErrorCode::StorageUnavailable,
@@ -25,8 +26,18 @@ fn unavailable() -> AppError {
 }
 
 #[cfg(not(windows))]
-fn crypt(_value: &[u8], _protect: bool) -> Result<Vec<u8>, AppError> {
-    Err(unavailable())
+fn crypt(value: &[u8], protect: bool) -> Result<Vec<u8>, AppError> {
+    if protect {
+        aether_providers::secrets::protect(value)
+    } else {
+        aether_providers::secrets::unprotect(value).map(|mut secret| std::mem::take(&mut *secret))
+    }
+    .map_err(|_| {
+        AppError::new(
+            ErrorCode::StorageUnavailable,
+            "System credential store unavailable or credential unreadable",
+        )
+    })
 }
 
 #[cfg(windows)]
@@ -135,7 +146,7 @@ mod tests {
 
     #[test]
     fn credential_boundary() -> Result<(), AppError> {
-        let store = DpapiSecretStore;
+        let store = PlatformSecretStore;
         #[cfg(windows)]
         {
             use zeroize::Zeroizing;
@@ -148,10 +159,7 @@ mod tests {
         }
         #[cfg(not(windows))]
         {
-            assert!(
-                matches!(store.protect(b"secret"), Err(error) if error.code() == ErrorCode::StorageUnavailable)
-            );
-            assert!(store.unprotect(b"secret").is_err());
+            assert!(store.unprotect(b"not-a-platform-blob").is_err());
         }
         Ok(())
     }

@@ -1,10 +1,10 @@
-//! Portable host preferences, separate from domain settings and WebView prefs.
+//! Host preferences, separate from domain settings and WebView prefs.
 use serde::{Deserialize, Serialize};
 use std::io::{self, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Host-only settings persisted beside the executable.
+/// Host-only settings persisted under the resolved runtime data root.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DesktopPrefs {

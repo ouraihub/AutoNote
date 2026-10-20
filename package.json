@@ -17,7 +17,8 @@
     "web:build": "pnpm --filter autonote-web build",
     "desktop:dev": "pnpm --filter autonote-desktop dev:app",
     "desktop:verify": "pnpm run app:check && pnpm --filter autonote-desktop verify",
-    "ci": "pnpm run web:check && pnpm run web:test && pnpm run web:build && pnpm run desktop:verify"
+    "desktop:package:verify": "pnpm --filter autonote-desktop package:verify",
+    "ci": "pnpm run web:check && pnpm run web:test && pnpm run web:build && pnpm run desktop:verify && pnpm run desktop:package:verify"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

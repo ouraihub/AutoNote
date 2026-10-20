@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { currentArtifacts, noLinks, root, sha256 } from './release-artifacts.mjs'
 
-const stage = mkdtempSync(path.join(tmpdir(), 'AutoNote-release-fixture-'))
+const stage = realpathSync(mkdtempSync(path.join(tmpdir(), 'AutoNote-release-fixture-')))
 const desktop = path.join(stage, 'desktop')
 const target = path.join(desktop, 'src-tauri/target/x86_64-pc-windows-msvc/release')
 mkdirSync(path.join(desktop, 'scripts'), { recursive: true })

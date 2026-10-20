@@ -6,72 +6,123 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Exact desktop-v version built by the completed tag run
+        description: Exact desktop-v version; select this tag as the workflow ref too
         required: true
         type: string
       build_run_id:
-        description: Successful tag build run containing the verified packages
-        required: true
+        description: Optional successful all-platform candidate run; blank builds the selected tag fresh
+        required: false
         type: string
 
 permissions:
   contents: read
 
+concurrency:
+  group: desktop-release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   build:
-    if: github.event_name == 'push'
-    runs-on: windows-latest
-    timeout-minutes: 60
+    name: Build (${{ matrix.platform }})
+    if: github.event_name == 'push' || inputs.build_run_id == ''
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - platform: macos
+            os: macos-14
+            target: aarch64-apple-darwin
+          - platform: linux
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
-      - name: Check all three versions and release tag before building
-        run: node desktop/scripts/version-check.mjs "${{ github.ref_name }}"
+      - name: Require exact tag workflow ref and version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"
+          node desktop/scripts/version-check.mjs "$RELEASE_TAG"
+      - name: Install Linux build, package and real desktop smoke dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev patchelf libfuse2 libsecret-1-dev gnome-keyring dbus-x11 xvfb xdotool openbox imagemagick
+      - name: Require native Apple Silicon
+        if: runner.os == 'macOS'
+        run: test "$(uname -m)" = arm64
       - name: Install pinned Rust toolchain and release target
         working-directory: desktop
+        shell: bash
         run: |
           rustup show
-          rustup target add x86_64-pc-windows-msvc
+          rustup target add ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop/src-tauri
       - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
         with:
           arch: x64
       - name: Enforce explicit GitHub runner compiler branch
+        if: runner.os == 'Windows'
         shell: cmd
         run: call desktop\scripts\msvc-env.bat
       - run: pnpm install --frozen-lockfile
-      - name: Build verified executable, required NSIS and clean portable ZIP
-        working-directory: desktop
-        shell: cmd
-        run: scripts\build-app.bat
-      - name: Validate current packages (not real-window acceptance)
-        run: node desktop/scripts/release-artifacts.mjs verify
-      - name: Select only this build's packages
-        id: files
-        shell: pwsh
-        run: |
-          $m = Get-Content desktop/dist/release.json -Raw | ConvertFrom-Json
-          $files = @('desktop/dist/release.json') + @($m.artifacts | ForEach-Object { 'desktop/dist/' + $_.path })
-          'paths<<ARTIFACTS' >> $env:GITHUB_OUTPUT
-          $files >> $env:GITHUB_OUTPUT
-          'ARTIFACTS' >> $env:GITHUB_OUTPUT
-      - uses: actions/upload-artifact@v6
+      - name: Full checks, native packages, real secure store and packaged launch gates
+        run: pnpm run ci
+      - name: Verify exact platform candidate manifest
+        run: node desktop/scripts/release-candidates.mjs verify desktop/dist/candidate-${{ matrix.platform }}/candidate.json
+      - name: Upload Windows candidates only
+        if: matrix.platform == 'windows'
+        uses: actions/upload-artifact@v6
         with:
-          name: desktop-release-candidate
-          path: ${{ steps.files.outputs.paths }}
+          name: candidate-windows
+          path: |
+            desktop/dist/candidate-windows/candidate.json
+            desktop/dist/candidate-windows/AutoNote-windows-setup.exe
+            desktop/dist/candidate-windows/AutoNote-windows-portable.zip
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload macOS candidates only
+        if: matrix.platform == 'macos'
+        uses: actions/upload-artifact@v6
+        with:
+          name: candidate-macos
+          path: |
+            desktop/dist/candidate-macos/candidate.json
+            desktop/dist/candidate-macos/AutoNote-macos-arm64.dmg
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload Linux candidates only
+        if: matrix.platform == 'linux'
+        uses: actions/upload-artifact@v6
+        with:
+          name: candidate-linux
+          path: |
+            desktop/dist/candidate-linux/candidate.json
+            desktop/dist/candidate-linux/AutoNote-linux-x64.AppImage
+            desktop/dist/candidate-linux/AutoNote-linux-x64.deb
           if-no-files-found: error
           retention-days: 30
 
   publish:
     needs: build
-    if: always() && (needs.build.result == 'success' || github.event_name == 'workflow_dispatch')
-    runs-on: windows-latest
+    if: always() && (needs.build.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.build_run_id != ''))
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -86,53 +137,30 @@ jobs:
       - name: Check selected tag versions
         env:
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-        run: node desktop/scripts/version-check.mjs "$env:RELEASE_TAG"
+        run: node desktop/scripts/version-check.mjs "$RELEASE_TAG"
       - uses: actions/download-artifact@v7
         with:
-          name: desktop-release-candidate
-          path: desktop/dist
+          name: candidate-windows
+          path: desktop/dist/candidates/candidate-windows
           run-id: ${{ inputs.build_run_id || github.run_id }}
           github-token: ${{ github.token }}
-      - name: Validate successful build and publish verified packages
+      - uses: actions/download-artifact@v7
+        with:
+          name: candidate-macos
+          path: desktop/dist/candidates/candidate-macos
+          run-id: ${{ inputs.build_run_id || github.run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v7
+        with:
+          name: candidate-linux
+          path: desktop/dist/candidates/candidate-linux
+          run-id: ${{ inputs.build_run_id || github.run_id }}
+          github-token: ${{ github.token }}
+      - name: Verify all source/run identities and hashes; publish five public packages atomically
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
           BUILD_RUN_ID: ${{ inputs.build_run_id || github.run_id }}
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          if (-not $env:RELEASE_TOKEN) { throw 'Missing RELEASE_TOKEN for OurAIApps/AutoNote' }
-          $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:BUILD_RUN_ID" | ConvertFrom-Json
-          $sameRunBuild = $env:BUILD_RUN_ID -eq '${{ github.run_id }}' -and '${{ needs.build.result }}' -eq 'success'
-          if ($LASTEXITCODE -ne 0 -or ($run.conclusion -ne 'success' -and -not $sameRunBuild) -or $run.event -ne 'push' -or $run.path -ne '.github/workflows/desktop-release.yml' -or $run.head_branch -ne $env:RELEASE_TAG) { throw 'Candidate is not the successful selected tag build' }
-          $checkout = git rev-parse HEAD
-          if ($run.head_sha -ne $checkout) { throw 'Candidate commit differs from selected tag' }
-          node desktop/scripts/version-check.mjs $env:RELEASE_TAG
-          if ($LASTEXITCODE -ne 0) { throw 'Version mismatch' }
-          node desktop/scripts/release-artifacts.mjs verify
-          if ($LASTEXITCODE -ne 0) { throw 'Current artifact verification failed' }
-          $manifest = Get-Content desktop/dist/release.json -Raw | ConvertFrom-Json
-          if ('desktop-v' + $manifest.version -ne $env:RELEASE_TAG) { throw 'Artifact/tag mismatch' }
-          $nsis = $manifest.artifacts | Where-Object { $_.kind -eq 'nsis' }
-          $portable = $manifest.artifacts | Where-Object { $_.kind -eq 'portable' }
-          if ($null -eq $nsis -or $null -eq $portable) { throw 'Release manifest is missing NSIS or portable artifact' }
-          $setupName = 'AutoNote-windows-setup.exe'
-          $portableName = 'AutoNote-windows-portable.zip'
-          Copy-Item ('desktop/dist/' + $nsis.path) $setupName
-          Copy-Item ('desktop/dist/' + $portable.path) $portableName
-          $notes = @"
-          ## 下载
-
-          | 文件 | 说明 |
-          |---|---|
-          | ``$setupName`` | Windows 安装版：安装到当前用户目录，可正常卸载 |
-          | ``$portableName`` | Windows 便携版：解压后直接运行，不写入注册表 |
-
-          需要 WebView2。便携版数据保存在程序目录旁的 ``data`` 文件夹中。
-
-          本版本通过编译、自动检查及包完整性校验；不代表已完成标准用户安装全生命周期、旧版升级或无 WebView2 虚拟机验收。
-          "@
-          $env:GH_TOKEN = $env:RELEASE_TOKEN
-          gh release create $env:RELEASE_TAG --repo OurAIApps/AutoNote --title "AutoNote Desktop $($manifest.version)" --notes $notes $setupName $portableName
-          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }
+          ALL_BUILDS_PASSED: ${{ needs.build.result == 'success' }}
+        run: node desktop/scripts/publish-release.mjs

@@ -20,11 +20,11 @@ set "MANIFEST=%~dp0..\src-tauri\Cargo.toml"
 
 call "%~dp0msvc-env.bat" || exit /b 1
 
-set "SUBCOMMAND=%1"
+set "SUBCOMMAND=%~1"
 shift
 set "ARGS="
 :collect
-if "%1"=="" goto dispatch
+if "%~1"=="" goto dispatch
 set "ARGS=%ARGS% %1"
 shift
 goto collect

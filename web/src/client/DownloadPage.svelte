@@ -44,9 +44,32 @@
           <Download size={16} aria-hidden="true" />{language.t('download.portable_title')}
         </a>
       </div>
+      <div class="option">
+        <h2>{language.t('download.macos_title')}</h2>
+        <p>{language.t('download.macos_description')}</p>
+        <a class="download" href={`${releasesUrl}/download/AutoNote-macos-arm64.dmg`} rel="external">
+          <Download size={16} aria-hidden="true" />{language.t('download.macos_title')}
+        </a>
+      </div>
+      <div class="option">
+        <h2>{language.t('download.appimage_title')}</h2>
+        <p>{language.t('download.appimage_description')}</p>
+        <a class="download" href={`${releasesUrl}/download/AutoNote-linux-x64.AppImage`} rel="external">
+          <Download size={16} aria-hidden="true" />{language.t('download.appimage_title')}
+        </a>
+      </div>
+      <div class="option">
+        <h2>{language.t('download.deb_title')}</h2>
+        <p>{language.t('download.deb_description')}</p>
+        <a class="download" href={`${releasesUrl}/download/AutoNote-linux-x64.deb`} rel="external">
+          <Download size={16} aria-hidden="true" />{language.t('download.deb_title')}
+        </a>
+      </div>
       <div class="notes">
         <p>{language.t('download.webview_note')}</p>
         <p>{language.t('download.data_note')}</p>
+        <p>{language.t('download.macos_note')}</p>
+        <p>{language.t('download.linux_note')}</p>
         <p>{language.t('download.release_note')}</p>
       </div>
     </section>
@@ -121,6 +144,9 @@
     color: var(--text-secondary);
     line-height: 1.7;
     margin: 0;
+  }
+  .notes p {
+    overflow-wrap: anywhere;
   }
   .lede {
     font-size: 16px;
