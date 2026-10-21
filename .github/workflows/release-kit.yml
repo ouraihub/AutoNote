@@ -1,0 +1,31 @@
+name: Release PR
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # No path filter: docs-only pushes skip web.yml/desktop.yml but their commits still get checked.
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: ouraihub/release-kit/check@v0
+
+  release-pr:
+    if: github.event_name == 'push'
+    needs: check
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: ouraihub/release-kit@v0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

@@ -9,7 +9,7 @@
   },
   "scripts": {
     "lint": "pnpm --filter autonote-desktop exec svelte-kit sync && eslint packages/app/src web/src/client desktop/src",
-  "format:check": "prettier --check packages/app/src/backend packages/app/src/foundation packages/app/src/i18n packages/app/src/log packages/app/src/platform packages/app/src/root packages/app/src/theme packages/app/src/styles/{tokens,ui}.css packages/app/src/state/{merge,selectors,layout-prefs,prefs-writer,ui,notes,note-writes}*.ts packages/app/src/features/auth/*.svelte packages/app/src/features/auth/*.test.ts web/src/client/App.svelte web/src/client/main.ts web/src/client/backend web/src/client/local desktop/src/routes/+page.svelte desktop/src/lib/ipc/*.ts desktop/src/lib/log/*.svelte desktop/src/lib/log/*.ts desktop/src/lib/prefs/*.ts desktop/src/lib/settings/*.svelte eslint.config.js",
+    "format:check": "prettier --check packages/app/src/backend packages/app/src/foundation packages/app/src/i18n packages/app/src/log packages/app/src/platform packages/app/src/root packages/app/src/theme packages/app/src/styles/{tokens,ui}.css packages/app/src/state/{merge,selectors,layout-prefs,prefs-writer,ui,notes,note-writes}*.ts packages/app/src/features/auth/*.svelte packages/app/src/features/auth/*.test.ts web/src/client/App.svelte web/src/client/main.ts web/src/client/backend web/src/client/local desktop/src/routes/+page.svelte desktop/src/lib/ipc/*.ts desktop/src/lib/log/*.svelte desktop/src/lib/log/*.ts desktop/src/lib/prefs/*.ts desktop/src/lib/settings/*.svelte eslint.config.js",
     "app:check": "pnpm run lint && pnpm run format:check && pnpm --filter @autonote/app typecheck",
     "web:dev": "pnpm --filter autonote-web dev",
     "web:check": "pnpm run app:check && pnpm --filter autonote-web i18n:check && pnpm --filter autonote-web comments:check && pnpm --filter autonote-web typecheck && pnpm --filter @autonote/shared typecheck",
@@ -18,10 +18,11 @@
     "desktop:dev": "pnpm --filter autonote-desktop dev:app",
     "desktop:verify": "pnpm run app:check && pnpm --filter autonote-desktop verify",
     "desktop:package:verify": "pnpm --filter autonote-desktop package:verify",
-    "ci": "pnpm run web:check && pnpm run web:test && pnpm run web:build && pnpm run desktop:verify && pnpm run desktop:package:verify"
+    "ci": "release-kit check && pnpm run web:check && pnpm run web:test && pnpm run web:build && pnpm run desktop:verify && pnpm run desktop:package:verify"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@ouraihub/release-kit": "github:ouraihub/release-kit#f5703e5ee7c348e91d22178a3ba1a106da5fa0aa",
     "eslint": "10.11.0",
     "eslint-plugin-import-x": "4.17.1",
     "eslint-plugin-svelte": "3.23.0",

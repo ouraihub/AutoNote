@@ -20,8 +20,11 @@ on:
       - package.json
       - .github/workflows/desktop.yml
       - .github/workflows/desktop-release.yml
+      - .release-please-manifest.json
   workflow_dispatch:
 
+# Main runs queue instead of cancelling; GitHub keeps only one pending run per group, so a release
+# merge pushed close to another commit can be superseded and must be re-run by hand.
 concurrency:
   group: desktop-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -95,3 +98,19 @@ jobs:
           if-no-files-found: error
           retention-days: 30
           compression-level: 0
+
+  # Tags only a merged release PR, and only after every native build passed; desktop-release.yml
+  # then publishes these exact candidates.
+  tag:
+    needs: verify
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - uses: ouraihub/release-kit/tag@v0
+        with:
+          token: ${{ secrets.RELEASE_TOKEN }}

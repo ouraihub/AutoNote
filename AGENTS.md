@@ -4,7 +4,7 @@
 
 ## 1. 推送前必须通过 `pnpm run ci`
 
-- `pnpm run ci` 依次运行 `web:check`、`web:test`、`web:build`、`desktop:verify`、`desktop:package:verify`，和 `.github/workflows/web.yml`、`desktop.yml` 的检查步骤一致；原生平台打包与冒烟也是质量门。
+- `pnpm run ci` 依次运行 `release-kit check`、`web:check`、`web:test`、`web:build`、`desktop:verify`、`desktop:package:verify`，和 `.github/workflows/release-kit.yml`、`web.yml`、`desktop.yml` 的检查步骤一致；原生平台打包与冒烟也是质量门。
 - 改了 `web/src/worker` 或 API，还要跑 e2e：先用 `AUTONOTE_EPHEMERAL_DEV=1 pnpm exec vite --port 7712 --strictPort` 起一个临时实例，再运行 `node web/scripts/e2e.mjs http://localhost:7712`。
 - 只跑改动文件的测试（`vitest run xxx.test.ts`）不算验证。`pnpm run ci` 不通过，不提交、不推送、不汇报“已完成”。
 - 新增 CI 步骤时，同时更新 `pnpm run ci` 和工作流，两边保持一致。
@@ -33,3 +33,17 @@
 
 - 到 GitHub Actions 看结果：`gh run list -R ouraihub/AutoNote -L 3`，需要先登录。失败就立刻修复。
 - 不要部署到 Cloudflare，除非用户明确要求。
+
+## 6. 提交信息和代码注释
+
+提交和代码由 `release-kit check` 检查（`pnpm run ci` 第一步；每次推送和 PR 由 `release-kit.yml` 执行），不合规 CI 直接失败。规则全文见 [release-kit 规则](https://github.com/ouraihub/release-kit#规则)，要点：
+
+- 格式 `<type>(<scope>): <中文摘要>`，一条提交只做一件事，标题不超过 72 个字符。`feat`/`fix`/`perf` 的标题会原样进入 CHANGELOG，写用户能看到的效果，例如 `fix(sync): 未绑定账号时禁用同步按钮`。
+- 正文默认不写。只有 diff 看不出原因时，写 1–3 行"为什么"。不写文件列表、字段清单、`Verified:`/`验证：`、AI 署名，这些已经在 diff、CI 和 PR 里。
+- 提交、代码注释、标识符里不写参考或对标项目名（禁用词在 `release-kit.json`）。来源只写进 `docs/` 设计文档。注释写行为和约束，不写"参考 xx 实现"。
+- 同一个问题的多次修补，推送前合并成一条。
+
+## 7. 版本和发布
+
+- 不要手改版本号，也不要手动打 tag。版本号、`CHANGELOG.md` 和发布 PR 由 release-please 维护，合并发布 PR 就是发版。
+- 合并后的提交只构建一次。Desktop 三个平台全部成功后，`release-kit tag` 自动打 `desktop-v<版本>`，`desktop-release.yml` 复用这次构建的包发布到 OurAIApps，不重新编译。流程见 `docs/42`。
