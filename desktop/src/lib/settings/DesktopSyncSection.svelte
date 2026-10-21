@@ -267,13 +267,13 @@
             {i18n.t('desktopSync.metadataRisk')}
           </p>{/if}
         <div class="flex flex-wrap gap-2">
-          <Button size="sm" disabled={busy} onclick={() => void run(() => syncPort.start())}
+          <Button size="sm" disabled={busy || !currentBinding} onclick={() => void run(() => syncPort.start())}
             >{i18n.t('desktopSync.start')}</Button
           >
-          <Button size="sm" disabled={busy} onclick={() => void run(() => syncPort.stop())}
+          <Button size="sm" disabled={busy || !currentBinding} onclick={() => void run(() => syncPort.stop())}
             >{i18n.t('desktopSync.stop')}</Button
           >
-          <Button size="sm" disabled={busy} onclick={() => void run(() => syncPort.now())}
+          <Button size="sm" disabled={busy || !currentBinding} onclick={() => void run(() => syncPort.now())}
             >{i18n.t('settings.sync_now')}</Button
           >
           {#if currentBinding}<Button size="sm" variant="ghost" disabled={busy} onclick={() => void unbind()}
