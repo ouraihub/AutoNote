@@ -49,6 +49,8 @@ function makeClient() {
         method,
         headers: {
           'X-AutoNote-Client': '1',
+          // Fresh connection per request: on the Windows vite dev server a keep-alive socket reused after error responses fails with `fetch failed`.
+          Connection: 'close',
           ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
           ...(jar.cookie ? { Cookie: jar.cookie } : {}),
           ...headers,
