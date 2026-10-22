@@ -58,16 +58,20 @@ export function inferModel(modelId: string): Inferred {
 }
 
 // ponytail: bounded known-family rules; add a catalog only when provider-specific metadata is needed.
-export function inferReasoning(modelId: string, protocol: Protocol, maxOutput: number | null): ReasoningConfig | null {
+export function inferReasoning(modelId: string, protocol: Protocol, baseUrl: string, maxOutput: number | null): ReasoningConfig | null {
   const name = modelId.toLowerCase().split('/').at(-1) ?? ''
   const normalized = name.replaceAll('.', '-')
+  if (protocol === 'openai-chat') {
+    const vendor = vendorReasoning(normalized, baseUrl)
+    if (vendor) return vendor
+  }
   const matches = (prefix: string): boolean => {
     if (normalized === prefix) return true
     if (!normalized.startsWith(`${prefix}-`)) return false
     const suffix = normalized.slice(prefix.length + 1).split('-')[0] ?? ''
     return !/^\d+$/.test(suffix) || suffix.length >= 4
   }
-  if (protocol === 'anthropic-messages') {
+  const claude = (budgetOutput: number | null): ReasoningConfig | null => {
     const families = ['opus', 'sonnet', 'haiku']
     const newest = families.some((family) => matches(`claude-${family}-5-5`))
     const adaptive = newest || families.some((family) => matches(`claude-${family}-5`)) ||
@@ -77,17 +81,61 @@ export function inferReasoning(modelId: string, protocol: Protocol, maxOutput: n
       efforts: [...(matches('claude-opus-5-5') ? [] : ['none'] as const), 'low', 'medium', 'high', ...(newest ? ['xhigh'] as const : []), 'max'],
     }
     const budget = ['claude-3-7-sonnet', 'claude-sonnet-4-5', 'claude-sonnet-4', 'claude-opus-4-5', 'claude-opus-4-1', 'claude-opus-4', 'claude-haiku-4-5'].some(matches)
-    const budgetTokens = Math.min(8192, (maxOutput ?? 8193) - 1)
+    const budgetTokens = Math.min(8192, (budgetOutput ?? 8193) - 1)
     if (budget && budgetTokens >= 1024) return { dialect: 'anthropic-budget', efforts: ['none', 'low', 'medium', 'high'], budgetTokens }
     return null
   }
-  if (['o1', 'o3', 'o4-mini'].some(matches) && !matches('o1-mini') && !matches('o1-preview'))
-    return { dialect: 'openai', efforts: ['low', 'medium', 'high'] }
-  if (/-(?:chat|pro|codex)(?:-|$)/.test(normalized)) return null
-  if (matches('gpt-5-1')) return { dialect: 'openai', efforts: ['none', 'low', 'medium', 'high'] }
-  if (['2', '3', '4', '5', '6'].some((minor) => matches(`gpt-5-${minor}`)))
-    return { dialect: 'openai', efforts: ['none', 'low', 'medium', 'high', 'xhigh'] }
-  if (matches('gpt-5'))
-    return { dialect: 'openai', efforts: ['minimal', 'low', 'medium', 'high'] }
+  if (protocol === 'anthropic-messages') return claude(maxOutput)
+  // OpenAI Chat/Responses lines (official or relay) send `reasoning_effort`; a known family keeps its efforts there.
+  const openai = (efforts: ReasoningConfig['efforts']): ReasoningConfig => ({ dialect: 'openai', efforts })
+  if (normalized.startsWith('claude')) {
+    const config = claude(null)
+    return config && openai(config.efforts)
+  }
+  if (normalized.includes('non-reasoning')) return null
+  const any = (...prefixes: string[]): boolean => prefixes.some(matches)
+  if ((matches('o1') && !normalized.includes('-mini') && !normalized.includes('-preview')) || any('o3', 'o4-mini', 'gpt-oss'))
+    return openai(['low', 'medium', 'high'])
+  if (any('grok-4-3')) return openai(['none', 'low', 'medium', 'high'])
+  if (any('grok-4-6', 'grok-4-7')) return openai(['low', 'medium', 'high', 'xhigh'])
+  if (any('grok-3-mini')) return openai(['low', 'high'])
+  if (any('gpt-5-1-codex-max')) return openai(['medium', 'high', 'xhigh'])
+  if (any('gpt-5-1-codex')) return openai(['medium', 'high'])
+  if (any('gpt-5-codex')) return openai(['low', 'medium', 'high'])
+  if (any('gpt-5-2-codex', 'gpt-5-3-codex', 'gpt-5-4-codex', 'gpt-5-5-codex', 'gpt-5-6-codex'))
+    return openai(['low', 'medium', 'high', 'xhigh'])
+  if (/-(?:chat|pro|codex)/.test(normalized)) return null
+  if (any('gpt-5-1')) return openai(['none', 'low', 'medium', 'high'])
+  if (any('gpt-5-2', 'gpt-5-3', 'gpt-5-4', 'gpt-5-5', 'gpt-5-6')) return openai(['none', 'low', 'medium', 'high', 'xhigh'])
+  if (any('gpt-5')) return openai(['minimal', 'low', 'medium', 'high'])
+  return null
+}
+
+/** Official vendor endpoints switch reasoning with their own fields (docs/28 RT4); a relay serving the same model keeps the OpenAI dialect. */
+function vendorReasoning(name: string, baseUrl: string): ReasoningConfig | null {
+  const host = (baseUrl.split('://').at(-1) ?? '').split(/[/:?]/)[0]?.toLowerCase() ?? ''
+  const on = (...domains: string[]): boolean => domains.some((domain) => host === domain || host.endsWith(`.${domain}`))
+  const starts = (...prefixes: string[]): boolean => prefixes.some((prefix) => name.startsWith(prefix))
+  const thinking = (efforts: ReasoningConfig['efforts']): ReasoningConfig => ({ dialect: 'thinking-type', efforts })
+  const toggle = thinking(['none', 'auto'])
+  if (on('deepseek.com')) {
+    if (starts('deepseek-v4', 'deepseek-v5')) return thinking(['none', 'low', 'high', 'max'])
+    return starts('deepseek-chat', 'deepseek-v3') ? toggle : null
+  }
+  if (on('bigmodel.cn', 'z.ai')) {
+    if (starts('glm-5-3')) return thinking(['low', 'high', 'max'])
+    return starts('glm-5', 'glm-4-5', 'glm-4-6', 'glm-4-7') ? toggle : null
+  }
+  if (on('volces.com')) return starts('doubao-seed') ? toggle : null
+  if (on('moonshot.cn', 'moonshot.ai')) {
+    if (starts('kimi-k3')) return thinking(['none', 'low', 'high', 'max'])
+    return starts('kimi-k2-5', 'kimi-k2-6', 'kimi-k2-7', 'kimi-k2-8', 'kimi-k2-9') && !name.includes('-code') ? toggle : null
+  }
+  if (on('aliyuncs.com') && name.startsWith('qwen3') && !name.startsWith('qwen3-8-') && !/instruct|coder|thinking/.test(name))
+    return {
+      dialect: 'qwen',
+      efforts: ['none', 'auto', 'low', 'medium', 'high', 'max'],
+      budgetTokens: starts('qwen3-max', 'qwen3-5', 'qwen3-6', 'qwen3-7') ? 81_920 : 38_912,
+    }
   return null
 }

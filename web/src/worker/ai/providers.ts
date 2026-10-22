@@ -40,8 +40,8 @@ import { authHeaders } from './protocol'
 
 const PROTOCOLS = ['anthropic-messages', 'openai-chat', 'openai-responses'] as const
 const MODEL_TYPES = ['chat', 'image', 'video', 'tts', 'stt', 'embedding', 'rerank', 'unknown'] as const
-const EFFORTS = ['default', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
-const DIALECTS = ['openai', 'anthropic-budget', 'anthropic-adaptive'] as const
+const EFFORTS = ['default', 'none', 'auto', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
+const DIALECTS = ['openai', 'anthropic-budget', 'anthropic-adaptive', 'thinking-type', 'qwen'] as const
 const tokenLimit = z.number().int().min(0).max(0xffff_ffff).nullable().default(null)
 const ReasoningSchema = z
   .strictObject({
@@ -136,19 +136,25 @@ export function validateReasoning(
   modelType: ModelType,
   maxOutput: number | null,
 ): void {
+  const switchStyle = config.dialect === 'thinking-type' || config.dialect === 'qwen'
   if (
     modelType !== 'chat' ||
     !config.efforts.length ||
     config.efforts.includes('default') ||
+    (config.efforts.includes('auto') && !switchStyle) ||
     new Set(config.efforts).size !== config.efforts.length
   )
     throw badRequest('reasoning', 'invalid_efforts')
-  if ((config.dialect === 'openai') === (protocol === 'anthropic-messages'))
-    throw badRequest('reasoning', 'protocol_mismatch')
+  const fits = config.dialect === 'anthropic-budget' || config.dialect === 'anthropic-adaptive'
+    ? protocol === 'anthropic-messages'
+    : config.dialect === 'openai' ? protocol !== 'anthropic-messages' : protocol === 'openai-chat'
+  if (!fits) throw badRequest('reasoning', 'protocol_mismatch')
   const budget = config.budgetTokens
   if (config.dialect === 'anthropic-budget') {
     if (budget == null || budget < 1024 || budget >= (maxOutput ?? 4096))
       throw badRequest('reasoning', 'invalid_budget')
+  } else if (config.dialect === 'qwen') {
+    if (budget === 0) throw badRequest('reasoning', 'invalid_budget')
   } else if (budget != null) throw badRequest('reasoning', 'unexpected_budget')
 }
 
@@ -157,11 +163,12 @@ function readReasoning(
   modelId: string,
   modelType: ModelType,
   protocol: Protocol,
+  baseUrl: string,
   maxOutput: number | null,
 ): ReasoningConfig | null {
   if (raw === 'none') return null
   if (raw !== null) return ReasoningSchema.parse(JSON.parse(raw))
-  return modelType === 'chat' ? inferReasoning(modelId, protocol, maxOutput) : null
+  return modelType === 'chat' ? inferReasoning(modelId, protocol, baseUrl, maxOutput) : null
 }
 
 const label80 = (field: string, raw: string | null): string | null => {
@@ -392,7 +399,7 @@ export async function listProviders(env: Env, userId: string): Promise<Provider[
               maxOutput: model.maxOutput,
               canVision: model.canVision !== 0,
               supportsTools: flag(model.supportsTools),
-              reasoning: readReasoning(model.reasoning, model.id, model.modelType, row.protocol, model.maxOutput),
+              reasoning: readReasoning(model.reasoning, model.id, model.modelType, row.protocol, row.baseUrl, model.maxOutput),
               nativeWebSearch: model.nativeWebSearch !== 0,
               pricing: model.pricing === null ? null : (JSON.parse(model.pricing) as ModelPricing),
             })),
@@ -699,7 +706,7 @@ export async function revealKey(env: Env, userId: string, keyId: string, current
 export async function modelOptions(db: D1Database, userId: string, filter: ModelFilter): Promise<ModelOption[]> {
   const { results } = await db
     .prepare(
-      `SELECT p.name AS provider, e.slug, e.protocol, m.endpoint_id AS endpointId, m.model_id AS modelId, m.name, m.model_type AS modelType, m.supports_tools AS supportsTools, m.context_window AS contextWindow, m.max_output AS maxOutput, m.reasoning, m.native_web_search AS nativeWebSearch, m.can_vision AS canVision
+      `SELECT p.name AS provider, e.slug, e.protocol, e.base_url AS baseUrl, m.endpoint_id AS endpointId, m.model_id AS modelId, m.name, m.model_type AS modelType, m.supports_tools AS supportsTools, m.context_window AS contextWindow, m.max_output AS maxOutput, m.reasoning, m.native_web_search AS nativeWebSearch, m.can_vision AS canVision
        FROM ai_models m
        JOIN ai_endpoints e ON e.id = m.endpoint_id AND e.user_id = m.user_id
        JOIN ai_providers p ON p.id = e.provider_id AND p.user_id = m.user_id
@@ -711,6 +718,7 @@ export async function modelOptions(db: D1Database, userId: string, filter: Model
       provider: string
       slug: string
       protocol: Protocol
+      baseUrl: string
       endpointId: string
       modelId: string
       name: string | null
@@ -736,7 +744,7 @@ export async function modelOptions(db: D1Database, userId: string, filter: Model
       modelType: row.modelType,
       supportsTools: flag(row.supportsTools),
       contextWindow: row.contextWindow,
-      reasoning: readReasoning(row.reasoning, row.modelId, row.modelType, row.protocol, row.maxOutput),
+      reasoning: readReasoning(row.reasoning, row.modelId, row.modelType, row.protocol, row.baseUrl, row.maxOutput),
       nativeWebSearch: row.nativeWebSearch !== 0,
       canVision: row.canVision !== 0,
     }))
@@ -778,7 +786,7 @@ export async function resolveModel(env: Env, userId: string, model: ModelRef): P
     apiKeys: await rotatedKeys(env, userId, row.endpointId),
     modelId: model.modelId,
     endpointId: row.endpointId,
-    reasoning: readReasoning(row.reasoning, model.modelId, row.modelType, row.protocol, row.maxOutput),
+    reasoning: readReasoning(row.reasoning, model.modelId, row.modelType, row.protocol, row.baseUrl, row.maxOutput),
     contextWindow: row.contextWindow,
     maxOutput: row.maxOutput,
     supportsTools: flag(row.supportsTools),
@@ -891,7 +899,7 @@ export async function probe(
         maxOutput: inferred.maxOutput,
         canVision: inferred.canVision,
         supportsTools: inferred.supportsTools,
-        reasoning: inferred.modelType === 'chat' ? inferReasoning(id, protocol, inferred.maxOutput) : null,
+        reasoning: inferred.modelType === 'chat' ? inferReasoning(id, protocol, baseUrl, inferred.maxOutput) : null,
         nativeWebSearch: false,
         name: null,
         groupName: inferred.group,

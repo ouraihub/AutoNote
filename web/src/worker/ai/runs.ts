@@ -57,7 +57,7 @@ export const RunRequestSchema = z.strictObject({
   translateTurnId: z.string().nullable().optional(),
   targetLanguage: z.string().nullable().optional(),
   webSearch: z.boolean().optional().default(false),
-  reasoningEffort: z.enum(['default', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']).default('default'),
+  reasoningEffort: z.enum(['default', 'none', 'auto', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']).default('default'),
   language: z.string(),
   images: ImagesSchema,
   generateImage: z.boolean().optional().default(false),
@@ -216,11 +216,15 @@ export async function prepareRun(env: Env, userId: string, req: RunRequestInput)
   if (req.reasoningEffort !== 'default') {
     const config = connection.reasoning
     if (!config?.efforts.includes(req.reasoningEffort)) throw badRequest('reasoningEffort', 'unsupported')
+    const ratio: Record<string, number> = { minimal: 0.05, low: 0.1, medium: 0.5, high: 0.8, xhigh: 0.9, max: 1 }
     if (config.dialect === 'anthropic-budget' && req.reasoningEffort !== 'none') {
       if (maxOutput <= 1024 || config.budgetTokens == null) throw badRequest('reasoningEffort', 'invalid_budget')
-      const ratio: Record<string, number> = { minimal: 0.05, low: 0.1, medium: 0.5, high: 0.8, xhigh: 0.9, max: 1 }
       reasoningBudget = Math.min(maxOutput - 1, Math.max(1024, Math.floor(config.budgetTokens * (ratio[req.reasoningEffort] ?? 1))))
     }
+    // Qwen: an explicit effort scales the declared budget; `none`/`auto` leave it out.
+    const qwenRatio = ratio[req.reasoningEffort]
+    if (config.dialect === 'qwen' && config.budgetTokens != null && qwenRatio !== undefined)
+      reasoningBudget = Math.max(1, Math.floor(config.budgetTokens * qwenRatio))
   }
   const contextWindow = connection.contextWindow ?? 32_000
   const parts = [req.purpose === 'writing' ? WRITING_PROMPT : req.language.startsWith('zh') ? CHAT_PROMPT_ZH : CHAT_PROMPT_EN]
@@ -439,7 +443,7 @@ async function streamRound(
   emit: (event: RunEvent) => void,
 ): Promise<{ calls: ToolCall[]; truncated: boolean }> {
   const { connection } = run
-  const encoded = requestBody({ protocol: connection.protocol, endpointId: connection.endpointId, model: connection.modelId, system: run.system, history: run.history, input: run.input, images: run.images, maxOutput: run.maxOutput, reasoningEffort: run.reasoningEffort, reasoning: connection.reasoning, reasoningBudget: run.reasoningBudget, nativeWebSearch: run.nativeWebSearch, tools: run.tools, turn })
+  const encoded = requestBody({ protocol: connection.protocol, endpointId: connection.endpointId, baseUrl: connection.baseUrl, model: connection.modelId, system: run.system, history: run.history, input: run.input, images: run.images, maxOutput: run.maxOutput, reasoningEffort: run.reasoningEffort, reasoning: connection.reasoning, reasoningBudget: run.reasoningBudget, nativeWebSearch: run.nativeWebSearch, tools: run.tools, turn })
   const body = JSON.stringify(encoded)
   state.requestChars = charCount(body)
   const known = connection.apiKeys

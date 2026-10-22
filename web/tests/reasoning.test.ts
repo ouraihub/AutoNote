@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Protocol } from '@ouraihub/aether-ui/ports'
-import { addKey, chatModel, createHarness, frames } from './support/ai-kit-harness'
+import { addKey, chatModel, createHarness, fixture, frames } from './support/ai-kit-harness'
 import { initializeDatabase } from '../src/worker/db/schema'
 import type { Env } from '../src/worker/env'
 import { inferReasoning } from '../src/worker/ai/infer'
@@ -148,15 +148,50 @@ describe('reasoning and usage', () => {
     expect(await h.env.DB.prepare('SELECT reasoning FROM ai_models').first('reasoning')).toBeNull()
   })
 
-  it('does not infer unsupported protocols or model families and bounds legacy budgets', () => {
-    expect(inferReasoning('anthropic/claude-opus-5-5', 'anthropic-messages', 8192)?.efforts).not.toContain('none')
-    expect(inferReasoning('claude-sonnet-5-5', 'openai-chat', 8192)).toBeNull()
-    expect(inferReasoning('claude-3-5-sonnet', 'anthropic-messages', 8192)).toBeNull()
-    expect(inferReasoning('unknown', 'openai-chat', 8192)).toBeNull()
-    expect(inferReasoning('o1-mini', 'openai-chat', 8192)).toBeNull()
-    expect(inferReasoning('gpt-5-chat-latest', 'openai-chat', 8192)).toBeNull()
-    expect(inferReasoning('gpt-5.2', 'openai-responses', 8192)?.efforts).toContain('xhigh')
-    expect(inferReasoning('claude-sonnet-4-5', 'anthropic-messages', 4096)?.budgetTokens).toBe(4095)
-    expect(inferReasoning('claude-sonnet-4-5', 'anthropic-messages', 1024)).toBeNull()
+  it('matches every shared reasoning fixture entry', () => {
+    const cases = JSON.parse(fixture('reasoning-infer.json').toString()) as { id: string; protocol: Protocol; baseUrl?: string; maxOutput: number | null; expect: unknown }[]
+    expect(cases.length).toBeGreaterThanOrEqual(25)
+    for (const { id, protocol, baseUrl = 'https://relay.example/v1', maxOutput, expect: config } of cases)
+      expect(inferReasoning(id, protocol, baseUrl, maxOutput), `${id} ${protocol} ${baseUrl}`).toEqual(config)
+  })
+
+  it('writes each line its own reasoning fields from inferred capabilities', async () => {
+    const h = await createHarness()
+    const lines = [
+      { slug: 'ds', baseUrl: 'https://api.deepseek.com', protocol: 'openai-chat', model: 'deepseek-v4-pro' },
+      { slug: 'qw', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', protocol: 'openai-chat', model: 'qwen3-max' },
+      { slug: 'relay', baseUrl: 'https://relay.example/v1', protocol: 'openai-chat', model: 'claude-sonnet-4-5' },
+      { slug: 'resp', baseUrl: 'https://relay.example/v1', protocol: 'openai-responses', model: 'gpt-5.2' },
+      { slug: 'oai', baseUrl: 'https://api.openai.com/v1', protocol: 'openai-responses', model: 'gpt-5.2' },
+    ] as const
+    // Own user: the per-user AI request window (20/min) is shared across this file.
+    const user = 'user-lines'
+    const saved = await h.json<{ endpoints: { id: string; slug: string }[] }[]>(user, 'PUT', '/providers', {
+      name: 'Lines', endpoints: lines.map(({ slug, baseUrl, protocol, model }) => ({ slug, baseUrl, protocol, models: [chatModel(model)] })),
+    })
+    const endpoint = (slug: string) => saved.body[0]!.endpoints.find((e) => e.slug === slug)!.id
+    for (const { slug } of lines) await addKey(h, user, endpoint(slug), 'test-key')
+    upstream.mockImplementation(async (url) => String(url).endsWith('/responses')
+      ? sse({ type: 'response.output_text.delta', delta: 'A' }, { type: 'response.completed', response: { output: [], usage: { input_tokens: 1, output_tokens: 1 } } })
+      : sse({ choices: [{ delta: { content: 'A' } }] }, '[DONE]'))
+    const send = async (slug: string, modelId: string, reasoningEffort: string) => {
+      upstream.mockClear()
+      const response = await h.call(user, 'POST', '/runs', { purpose: 'chat', skills: [], input: 'q', regenerate: false, language: 'en-US', model: { endpointId: endpoint(slug), modelId }, reasoningEffort })
+      expect(frames(await response.text()).at(-1), `${slug} ${reasoningEffort}`).toMatchObject({ status: 'completed' })
+      await h.settle()
+      return JSON.parse(String(upstream.mock.calls[0]![1]?.body)) as Record<string, unknown>
+    }
+    const pick = (body: Record<string, unknown>) =>
+      Object.fromEntries(['thinking', 'reasoning_effort', 'enable_thinking', 'thinking_budget', 'reasoning'].filter((key) => key in body).map((key) => [key, body[key]]))
+    expect(pick(await send('ds', 'deepseek-v4-pro', 'default'))).toEqual({})
+    expect(pick(await send('ds', 'deepseek-v4-pro', 'none'))).toEqual({ thinking: { type: 'disabled' } })
+    expect(pick(await send('ds', 'deepseek-v4-pro', 'high'))).toEqual({ thinking: { type: 'enabled' }, reasoning_effort: 'high' })
+    expect(pick(await send('qw', 'qwen3-max', 'none'))).toEqual({ enable_thinking: false })
+    expect(pick(await send('qw', 'qwen3-max', 'auto'))).toEqual({ enable_thinking: true })
+    expect(pick(await send('qw', 'qwen3-max', 'low'))).toEqual({ enable_thinking: true, thinking_budget: 8192 })
+    expect(pick(await send('relay', 'claude-sonnet-4-5', 'default'))).toEqual({})
+    expect(pick(await send('relay', 'claude-sonnet-4-5', 'high'))).toEqual({ reasoning_effort: 'high' })
+    expect(pick(await send('resp', 'gpt-5.2', 'high'))).toEqual({ reasoning: { effort: 'high' } })
+    expect(pick(await send('oai', 'gpt-5.2', 'high'))).toEqual({ reasoning: { effort: 'high', summary: 'auto' } })
   })
 })

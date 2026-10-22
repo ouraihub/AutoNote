@@ -250,6 +250,8 @@ export interface ModelRequest {
   images?: readonly ImagePart[]
   maxOutput: number
   endpointId: string
+  /** Canonical endpoint API base; decides vendor-only fields such as the Responses `summary`. */
+  baseUrl: string
   reasoningEffort: ReasoningEffort
   reasoning: ReasoningConfig | null
   reasoningBudget: number | null
@@ -317,9 +319,19 @@ export function requestBody(request: ModelRequest): Record<string, unknown> {
     else if (effort !== 'default') { body.thinking = { type: 'adaptive' }; body.output_config = { effort } }
   } else if (request.protocol === 'openai-chat') {
     if (system) messages.unshift({ role: 'system', content: system })
-    body = { model, max_tokens: maxOutput, stream: true, stream_options: { include_usage: true }, messages, ...(effort === 'default' ? {} : { reasoning_effort: effort }) }
+    body = { model, max_tokens: maxOutput, stream: true, stream_options: { include_usage: true }, messages }
+    const dialect = request.reasoning?.dialect
+    if (effort !== 'default' && dialect === 'thinking-type') {
+      body.thinking = { type: effort === 'none' ? 'disabled' : 'enabled' }
+      if (effort !== 'none' && effort !== 'auto') body.reasoning_effort = effort
+    } else if (effort !== 'default' && dialect === 'qwen') {
+      body.enable_thinking = effort !== 'none'
+      if (request.reasoningBudget !== null) body.thinking_budget = request.reasoningBudget
+    } else if (effort !== 'default') body.reasoning_effort = effort
   } else {
-    body = { model, max_output_tokens: maxOutput, stream: true, input: messages, store: false, include: ['reasoning.encrypted_content'], ...(system ? { instructions: system } : {}), ...(effort === 'default' ? {} : { reasoning: { effort, summary: 'auto' } }) }
+    // Third-party Responses servers may reject `summary` with 400.
+    const summary = /^https:\/\/api\.openai\.com(?:\/|$)/.test(request.baseUrl) ? { summary: 'auto' } : {}
+    body = { model, max_output_tokens: maxOutput, stream: true, input: messages, store: false, include: ['reasoning.encrypted_content'], ...(system ? { instructions: system } : {}), ...(effort === 'default' ? {} : { reasoning: { effort, ...summary } }) }
   }
   const tools: Record<string, unknown>[] = (request.tools ?? []).map(({ name, description, parameters }) =>
     anthropic ? { name, description, input_schema: parameters } : responses ? { type: 'function', name, description, parameters } : { type: 'function', function: { name, description, parameters } })
