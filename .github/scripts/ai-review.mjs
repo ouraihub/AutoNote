@@ -30,7 +30,9 @@ const system = [
   rules,
 ].join('\n')
 
-const response = await fetch(`${AI_BASE_URL.replace(/\/+$/, '')}/chat/completions`, {
+// Same rule as web/src/worker/ai/kit.ts apiBase(): a base without /v1 gets it appended.
+const base = AI_BASE_URL.trim().replace(/\/+$/, '')
+const response = await fetch(`${base.endsWith('/v1') ? base : `${base}/v1`}/chat/completions`, {
   method: 'POST',
   headers: { 'content-type': 'application/json', authorization: `Bearer ${AI_API_KEY}` },
   body: JSON.stringify({
