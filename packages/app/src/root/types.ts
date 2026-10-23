@@ -3,6 +3,7 @@ import type { ImageRef } from '@ouraihub/aether-ui/ports'
 import type { EditorView } from '@codemirror/view'
 import type { Component } from 'svelte'
 import type { FlushResult } from '@shared/backend-types'
+import type { MessageKey } from '@shared/locales/en-US'
 import type { Backend } from '@app/backend'
 import type { Logger } from '@app/log/logger'
 import type { Clock } from '@app/platform/clock'
@@ -78,6 +79,14 @@ export interface HostExtensions {
   readonly writingToolbar?: WritingToolbarExtension
   onNoteOpened?(id: string): void
   subscribeIntents?(listener: (intent: 'new-note') => void): () => void
+  /** Replaces "log out" in the account menu for a host without accounts; null hides it. */
+  subscribeAccountAction?(listener: (action: HostAccountAction | null) => void): () => void
+}
+
+export interface HostAccountAction {
+  labelKey: MessageKey
+  destructive: boolean
+  run: { settingsSection: string } | (() => Promise<void>)
 }
 
 export interface AppDeps {

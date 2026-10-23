@@ -1183,6 +1183,8 @@ export const ZH_CN_MESSAGES = {
   'desktopSync.start': '启动同步',
   'desktopSync.stop': '停止同步',
   'desktopSync.unbind': '解除绑定',
+  'desktopSync.menuSignIn': '登录同步…',
+  'desktopSync.menuUnbind': '解除同步绑定',
   'folders.icon': '图标',
   'folders.includes_subfolders': '包含所有子文件夹中的笔记',
   'folders.move_to': '移动到…',

@@ -68,6 +68,7 @@
     "packages/app/src/features/settings/AttachmentManager.svelte:3763:line:a67ab3b30620321f",
     "packages/app/src/features/settings/accountCloud.ts:157:line:36c5fe17649673fa",
     "packages/app/src/markdown/data-attr.ts:353:line:ce90cf057b65082e",
+    "packages/app/src/root/types.ts:2295:block:c956ade705a7b10d",
     "packages/app/src/state/mutations.ts:590:block:5bcfae0e49f726b5",
     "packages/app/src/state/note-writes.ts:1067:block:0b76b5b833c26905",
     "packages/app/src/styles/tokens.css:3753:css:bb14aaa721d11d37",

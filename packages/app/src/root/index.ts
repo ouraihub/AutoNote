@@ -10,7 +10,7 @@ import { UiState } from '../state/ui.svelte'
 import AppRoot from './AppRoot.svelte'
 import type { AppDeps, AppHandle } from './types'
 
-export type { AppDeps, AppHandle, HostExtensions, HostPanel, HostSettingsSection } from './types'
+export type { AppDeps, AppHandle, HostAccountAction, HostExtensions, HostPanel, HostSettingsSection } from './types'
 export {
   getBackend,
   getClock,

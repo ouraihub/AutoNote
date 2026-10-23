@@ -1236,6 +1236,8 @@ export const EN_US_MESSAGES = {
   'desktopSync.start': 'Start sync',
   'desktopSync.stop': 'Stop sync',
   'desktopSync.unbind': 'Unbind',
+  'desktopSync.menuSignIn': 'Sign in to sync…',
+  'desktopSync.menuUnbind': 'Unbind sync',
   'folders.icon': 'Icon',
   'folders.includes_subfolders': 'Includes notes in subfolders',
   'folders.move_to': 'Move to…',

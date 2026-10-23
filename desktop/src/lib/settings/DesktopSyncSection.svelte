@@ -7,6 +7,7 @@
   import { listenSyncStatus } from '../ipc/transport'
   import type { MessageKey } from '@shared/locales/en-US'
   import { syncPort, type BindPreview, type SyncStatus } from '../ipc/ports/remote-sync'
+  import { confirmUnbind } from './sync-unbind'
 
   const i18n = getI18n()
   const notifier = getNotifier()
@@ -95,18 +96,11 @@
       loginId = undefined
     }
   }
-  async function unbind(): Promise<void> {
-    if (
-      busy ||
-      !(await notifier.confirm({
-        titleKey: 'desktopSync.unbindTitle',
-        bodyKey: 'desktopSync.unbindBody',
-        danger: true,
-      }))
-    )
-      return
-    await run(() => syncPort.unbind())
-  }
+  const unbind = () =>
+    step(async () => {
+      const next = await confirmUnbind(notifier)
+      if (next) status = next
+    })
   const phaseLabel = (phase: SyncStatus['phase']) => i18n.t(`desktopSync.phase_${phase}` as MessageKey)
   const time = (at: number) => new Date(at).toLocaleString(i18n.locale)
 </script>

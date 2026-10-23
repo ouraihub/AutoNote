@@ -13,6 +13,7 @@
     FolderPlus,
     Hash,
     Inbox,
+    LogIn,
     LogOut,
     Moon,
     MoreHorizontal,
@@ -32,6 +33,7 @@
   import type { MessageKey } from '@shared/locales/en-US'
   import type { FolderNode } from '@app/state/selectors'
   import type { ViewKind } from '@shared/types'
+  import type { HostAccountAction } from '@app/root/types'
   import { buildFolderTree, folderPath, selectNavigation } from '@app/state/selectors'
   import {
     getBackend,
@@ -98,6 +100,12 @@
   const displayName = $derived(user ? user.name || user.username : '')
   let narrow = $state(false)
   let avatarOpen = $state(false)
+  let accountAction = $state<HostAccountAction | null>(null)
+  onMount(() => extensions.subscribeAccountAction?.((action) => (accountAction = action)))
+  function runAccountAction(action: HostAccountAction): void {
+    if (typeof action.run === 'function') void action.run()
+    else ui.openSettings(action.run.settingsSection)
+  }
   let busy = $state(false)
   let feedback = $state('')
   let dialog = $state<'folder' | 'tag' | null>(null)
@@ -618,12 +626,25 @@
             )}</DropdownMenu.Item
           >
         </DropdownMenu.Group>
-        <DropdownMenu.Separator />
-        <DropdownMenu.Group>
-          <DropdownMenu.Item variant="destructive" onclick={() => void session.logout()}
-            ><LogOut size={13} />{i18n.t('sidebar.log_out')}</DropdownMenu.Item
-          >
-        </DropdownMenu.Group>
+        {#if accountAction || session.canSignIn}
+          <DropdownMenu.Separator />
+          <DropdownMenu.Group>
+            {#if accountAction}
+              {@const action = accountAction}
+              <DropdownMenu.Item
+                variant={action.destructive ? 'destructive' : 'default'}
+                onclick={() => runAccountAction(action)}
+                >{#if action.destructive}<LogOut size={13} />{:else}<LogIn size={13} />{/if}{i18n.t(
+                  action.labelKey as MessageKey,
+                )}</DropdownMenu.Item
+              >
+            {:else}
+              <DropdownMenu.Item variant="destructive" onclick={() => void session.logout()}
+                ><LogOut size={13} />{i18n.t('sidebar.log_out')}</DropdownMenu.Item
+              >
+            {/if}
+          </DropdownMenu.Group>
+        {/if}
       </DropdownMenu.Content>
     </DropdownMenu.Root>
     {#if avatarOpen}<AvatarPicker onClose={() => (avatarOpen = false)} />{/if}
