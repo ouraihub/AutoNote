@@ -29,8 +29,11 @@
 - 不从 `pnpm run ci` 或 `.github/workflows/` 里删步骤。确实需要调整时，先说明理由并取得用户同意。
 - `web/scripts/comment-allowlist.json` 只为确有必要的注释添加条目。不要为了消除报错整体重新生成。
 
-## 5. 推送之后
+## 5. 改动走 PR，审查和合并都不需要人工
 
+- main 受分支保护，不能直推。改动推到新分支，用 `gh pr create` 开 PR。
+- PR 由 `ai-review.yml` 调用模型审查。审查通过、必需检查全绿后自动合并；发布 PR 也走同一流程，合并即发版。
+- 审查要求修改时，按 PR 上的意见修改后推到同一分支，会重新审查。不要关掉审查、跳过检查，也不要用管理员权限合并。
 - 到 GitHub Actions 看结果：`gh run list -R ouraihub/AutoNote -L 3`，需要先登录。失败就立刻修复。
 - 不要部署到 Cloudflare，除非用户明确要求。
 
