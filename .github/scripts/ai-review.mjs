@@ -43,7 +43,7 @@ const response = await fetch(`${AI_BASE_URL.replace(/\/+$/, '')}/chat/completion
   }),
   signal: AbortSignal.timeout(300_000),
 })
-if (!response.ok) throw new Error(`Model request failed: HTTP ${response.status}`)
+if (!response.ok) throw new Error(`Model request failed: HTTP ${response.status} ${(await response.text()).slice(0, 500)}`)
 const text = (await response.json()).choices?.[0]?.message?.content ?? ''
 const result = parseVerdict(text)
 if (!result) finish('request_changes', ['The model did not return a valid verdict; failing closed.'])
