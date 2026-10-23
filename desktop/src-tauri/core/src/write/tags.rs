@@ -72,7 +72,7 @@ fn record(w: &mut super::WriteTx<'_>, id: &str, op: &str) -> Result<(), Error> {
         "INSERT INTO changes(entity,entity_id,op,at) VALUES('tag',?1,?2,?3)",
         params![id, op, w.now.get()],
     )?;
-    w.changes.tags_changed = true;
+    w.mark(super::DirtyEntity::Tag, id);
     Ok(())
 }
 

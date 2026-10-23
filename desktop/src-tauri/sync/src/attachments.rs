@@ -1,9 +1,7 @@
-//! Attachment IDs change only in transport copies, never in local source notes.
+//! Attachment ids change only in request copies, never in local notes (22 §7.5).
 use crate::remote::{ATTACHMENT_MAX_BYTES, CallOptions, RemoteClient, RemoteError};
 use crate::service::blocking;
-use note_core::sync::{AttachmentMap, AttachmentState, Binding, SyncEntity};
 use note_core::{AppError, Attachment, AttachmentId, ErrorCode, Library, Note};
-use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
@@ -13,7 +11,6 @@ use std::sync::Arc;
 pub enum AttachmentError {
     Core(AppError),
     Remote(RemoteError),
-    UnknownOutcome { local_id: String },
     InvalidResponse,
 }
 impl From<note_core::Error> for AttachmentError {
@@ -37,25 +34,13 @@ impl AttachmentError {
         match self {
             Self::Core(error) => error.code(),
             Self::Remote(error) => error.code,
-            Self::UnknownOutcome { .. } => ErrorCode::Conflict,
             Self::InvalidResponse => ErrorCode::InvalidResponse,
         }
     }
     /// Converts the attachment failure to an application error.
     pub fn app_error(&self) -> AppError {
-        AppError::new(self.code(), "Attachment synchronization paused or failed")
+        AppError::new(self.code(), "Attachment synchronization failed")
     }
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct UploadIntent {
-    local_id: String,
-    sha256: String,
-    size: u64,
-    filename: String,
-    note_id: Option<String>,
-    known_remote_ids: HashSet<String>,
 }
 
 fn digest(bytes: &[u8]) -> String {
@@ -70,32 +55,16 @@ fn check(options: &CallOptions) -> Result<(), AttachmentError> {
     }
     Ok(())
 }
-
-async fn maps(
-    library: &Arc<Library>,
-    binding: &Binding,
-) -> Result<Vec<AttachmentMap>, AttachmentError> {
-    let binding = binding.clone();
-    Ok(blocking(library, move |lib| lib.sync_attachment_maps(&binding)).await?)
-}
-async fn persist(
-    library: &Arc<Library>,
-    binding: &Binding,
-    map: &AttachmentMap,
-) -> Result<(), AttachmentError> {
-    let binding = binding.clone();
-    let map = map.clone();
-    Ok(blocking(library, move |lib| {
-        lib.sync_put_attachment_map(&binding, &map)
-    })
-    .await?)
-}
 async fn source(
     library: &Arc<Library>,
     id: &str,
-) -> Result<(Vec<u8>, Attachment, String), AttachmentError> {
+) -> Result<Option<(Vec<u8>, Attachment, String)>, AttachmentError> {
     let id: AttachmentId = id.parse()?;
-    Ok(blocking(library, move |lib| lib.files_sync_source(&id)).await?)
+    match blocking(library, move |lib| lib.files_sync_source(&id)).await {
+        Ok(found) => Ok(Some(found)),
+        Err(error) if error.code() == ErrorCode::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// Scans every page. A repeated continuation is an invalid response, not a partial success.
@@ -119,271 +88,139 @@ async fn remote_files(
     }
 }
 
-/// Read-only preview count; neither metadata nor attachment bytes are adopted.
-/// Counts remote attachments without adopting metadata or bytes.
-///
-/// # Errors
-/// Returns a remote, cancellation, timeout, or invalid-response error.
-pub async fn remote_attachment_count(
-    remote: &RemoteClient,
-    options: &CallOptions,
-) -> Result<u64, RemoteError> {
-    remote_files(remote, options)
-        .await
-        .map(|files| files.len() as u64)
-        .map_err(|error| match error {
-            AttachmentError::Remote(error) => error,
-            _ => RemoteError::new(ErrorCode::InvalidResponse),
-        })
-}
-
-/// Frozen full-note outbox payload and its local-ID acknowledgement prerequisites.
-/// Prepares a frozen note payload for outbound synchronization.
-///
-/// # Errors
-/// Returns an attachment, local storage, remote, cancellation, timeout, or invalid-response error.
-pub async fn prepare_outbound(
-    library: &Arc<Library>,
-    remote: &RemoteClient,
-    binding: &Binding,
-    payload: &serde_json::Value,
-    options: &CallOptions,
-) -> Result<(serde_json::Value, Vec<String>), AttachmentError> {
-    let note: Note =
-        serde_json::from_value(payload.clone()).map_err(|_| AttachmentError::InvalidResponse)?;
-    let mut ids: Vec<String> = references(&note.content)?
-        .into_iter()
-        .map(|range| note.content[range].to_owned())
-        .collect();
-    ids.sort();
-    ids.dedup();
-    let transport = prepare_note(library, remote, binding, &note, options).await?;
-    Ok((
-        serde_json::to_value(transport).map_err(|_| AttachmentError::InvalidResponse)?,
-        ids,
-    ))
-}
-
-fn candidate(intent: &UploadIntent, file: &Attachment) -> bool {
-    !intent.known_remote_ids.contains(file.id.as_str())
-        && file.filename == intent.filename
-        && file.size == intent.size
-        && file.note_id.as_ref().map(|id| id.as_str()) == intent.note_id.as_deref()
+/// Whether a remote file could be an earlier upload of this local one.
+fn candidate(local: &Attachment, file: &Attachment) -> bool {
+    file.filename == local.filename && file.size == local.size
 }
 fn unique_match(matches: &[String]) -> Option<&str> {
     (matches.len() == 1).then(|| matches[0].as_str())
 }
 
-/// Unknown outcomes never issue another POST. Full pagination and each candidate's
-/// actual downloaded bytes are necessary because the Worker list has no checksum.
-async fn reconcile(
-    library: &Arc<Library>,
-    remote: &RemoteClient,
-    binding: &Binding,
-    map: &mut AttachmentMap,
-    options: &CallOptions,
-) -> Result<String, AttachmentError> {
-    let intent: UploadIntent = serde_json::from_value(
-        map.upload_intent
-            .clone()
-            .ok_or(AttachmentError::InvalidResponse)?,
-    )
-    .map_err(|_| AttachmentError::InvalidResponse)?;
-    if intent.local_id != map.local_attachment_id
-        || intent.sha256 != map.sha256
-        || i64::try_from(intent.size).ok() != Some(map.size)
-    {
-        return Err(AttachmentError::InvalidResponse);
-    }
-    map.state = AttachmentState::UnknownOutcome;
-    persist(library, binding, map).await?;
-    let mut matches = Vec::new();
-    for file in remote_files(remote, options).await? {
-        if !candidate(&intent, &file) {
-            continue;
-        }
-        let bytes = remote.download_file(file.id.as_str(), options).await?;
-        if bytes.len() as u64 == intent.size && digest(&bytes) == intent.sha256 {
-            let id = file.id.to_string();
-            if !matches.contains(&id) {
-                matches.push(id);
-            }
-        }
-    }
-    let Some(id) = unique_match(&matches) else {
-        return Err(AttachmentError::UnknownOutcome {
-            local_id: map.local_attachment_id.clone(),
-        });
-    };
-    map.remote_attachment_id = Some(id.to_owned());
-    map.state = AttachmentState::Ready;
-    persist(library, binding, map).await?;
-    Ok(id.to_owned())
-}
-
-/// Produces the outgoing note DTO only after every real referenced attachment is confirmed.
-/// Existing unknown upload outcomes pause; they are not silently retried.
-/// Resolves every referenced attachment and rewrites a transport note.
+/// Uploads unmapped local attachments and returns the request copy of `note`
+/// with remote ids. A lost upload response is recovered by matching remote
+/// candidates by name, size and digest; at worst one orphan remains remotely.
 ///
 /// # Errors
-/// Returns an attachment, local storage, remote, cancellation, timeout, or invalid-response error.
+/// Returns a local storage, remote, cancellation, timeout or invalid-response error.
 pub async fn prepare_note(
     library: &Arc<Library>,
     remote: &RemoteClient,
-    binding: &Binding,
     note: &Note,
     options: &CallOptions,
 ) -> Result<Note, AttachmentError> {
     let ranges = references(&note.content)?;
     let mut replacements = HashMap::new();
-    let mut maps = maps(library, binding).await?;
+    let mut listing: Option<Vec<Attachment>> = None;
     for range in &ranges {
         let local_id = &note.content[range.clone()];
         if replacements.contains_key(local_id) {
             continue;
         }
         check(options)?;
-        if let Some(map) = maps
-            .iter_mut()
-            .find(|map| map.local_attachment_id == local_id)
+        let id = local_id.to_owned();
+        if let Some(remote_id) =
+            blocking(library, move |lib| lib.sync_attachment_remote(&id)).await?
         {
-            match map.state {
-                AttachmentState::Ready => {
-                    replacements.insert(
-                        local_id.to_owned(),
-                        map.remote_attachment_id
-                            .clone()
-                            .ok_or(AttachmentError::InvalidResponse)?,
-                    );
-                    continue;
-                }
-                AttachmentState::Uploading | AttachmentState::UnknownOutcome => {
-                    replacements.insert(
-                        local_id.to_owned(),
-                        reconcile(library, remote, binding, map, options).await?,
-                    );
-                    continue;
-                }
-                _ => {}
-            }
+            replacements.insert(local_id.to_owned(), remote_id);
+            continue;
         }
-        let (bytes, metadata, sha256) = source(library, local_id).await?;
-        let known_remote_ids = remote_files(remote, options)
-            .await?
-            .into_iter()
-            .map(|file| file.id.to_string())
-            .collect();
-        // A new remote note does not exist yet; associate only a confirmed remote note ID.
-        let key = binding.clone();
-        let id = note.summary.id.to_string();
-        let note_id = blocking(library, move |lib| {
-            lib.sync_map_for_local(&key, SyncEntity::Note, &id)
-        })
-        .await?
-        .map(|mapping| mapping.remote_id);
-        let intent = UploadIntent {
-            local_id: local_id.to_owned(),
-            sha256: sha256.clone(),
-            size: metadata.size,
-            filename: metadata.filename.clone(),
-            note_id,
-            known_remote_ids,
+        // A reference to a file this library does not have is sent unchanged.
+        let Some((bytes, metadata, sha256)) = source(library, local_id).await? else {
+            replacements.insert(local_id.to_owned(), local_id.to_owned());
+            continue;
         };
-        let mut map = AttachmentMap {
-            binding_id: binding.binding_id.clone(),
-            binding_epoch: binding.binding_epoch,
-            local_attachment_id: local_id.to_owned(),
-            remote_attachment_id: None,
-            sha256,
-            size: i64::try_from(metadata.size).map_err(|_| AttachmentError::InvalidResponse)?,
-            upload_intent: Some(
-                serde_json::to_value(&intent).map_err(|_| AttachmentError::InvalidResponse)?,
-            ),
-            state: AttachmentState::Uploading,
-        };
-        check(options)?;
-        // Durable before POST, including the baseline remote ID set. A crash after
-        // this commit is conservatively unknown even if the POST never left the host.
-        persist(library, binding, &map).await?;
-        let result = remote
-            .upload_file(
-                &metadata.filename,
-                &metadata.mime,
-                bytes,
-                intent.note_id.as_deref(),
-                options,
-            )
-            .await;
-        match result {
-            Ok(file)
-                if file.filename == intent.filename
-                    && file.size == intent.size
-                    && file.note_id.as_ref().map(|id| id.as_str()) == intent.note_id.as_deref()
-                    && !intent.known_remote_ids.contains(file.id.as_str()) =>
+        if listing.is_none() {
+            listing = Some(remote_files(remote, options).await?);
+        }
+        let mut matches = Vec::new();
+        for file in listing
+            .iter()
+            .flatten()
+            .filter(|file| candidate(&metadata, file))
+        {
+            let mapped_local = file.id.to_string();
+            if blocking(library, move |lib| lib.sync_attachment_local(&mapped_local))
+                .await?
+                .is_some()
             {
-                map.remote_attachment_id = Some(file.id.to_string());
-                map.state = AttachmentState::Ready;
-                persist(library, binding, &map).await?;
-                replacements.insert(local_id.to_owned(), file.id.to_string());
-                maps.push(map);
+                continue;
             }
-            result => {
-                map.state = AttachmentState::UnknownOutcome;
-                persist(library, binding, &map).await?;
-                return match result {
-                    Err(error) => Err(error.into()),
-                    Ok(_) => Err(AttachmentError::InvalidResponse),
-                };
+            let downloaded = remote.download_file(file.id.as_str(), options).await?;
+            if downloaded.len() as u64 == metadata.size && digest(&downloaded) == sha256 {
+                matches.push(file.id.to_string());
             }
         }
+        let remote_id = if let Some(found) = unique_match(&matches) {
+            found.to_owned()
+        } else {
+            let uploaded = remote
+                .upload_file(&metadata.filename, &metadata.mime, bytes, None, options)
+                .await?;
+            if uploaded.size != metadata.size {
+                return Err(AttachmentError::InvalidResponse);
+            }
+            if let Some(files) = listing.as_mut() {
+                files.push(uploaded.clone());
+            }
+            uploaded.id.to_string()
+        };
+        let (local, mapped_remote, hash, size) = (
+            local_id.to_owned(),
+            remote_id.clone(),
+            sha256.clone(),
+            metadata.size,
+        );
+        blocking(library, move |lib| {
+            lib.sync_attachment_map(&local, &mapped_remote, &hash, size)
+        })
+        .await?;
+        replacements.insert(local_id.to_owned(), remote_id);
     }
     let mut transport = note.clone();
     transport.content = rewrite(&note.content, &ranges, &replacements)?;
     Ok(transport)
 }
 
-/// Downloads to the core's restricted stage and publishes only verified objects.
-/// The returned local-reference note belongs in the caller's pull transaction.
-/// No server-supplied hash exists: the stored digest is local integrity evidence only.
-/// Materializes every referenced remote attachment into local storage.
+/// Downloads remote attachments a note references and returns the local copy
+/// of `note` with local ids. Bytes are size-checked and published with their
+/// mapping in one core transaction. No server hash exists: the digest is local
+/// integrity evidence only.
 ///
 /// # Errors
-/// Returns an attachment, local storage, remote, cancellation, timeout, or invalid-response error.
+/// Returns a local storage, remote, cancellation, timeout or invalid-response error.
 pub async fn materialize_note(
     library: &Arc<Library>,
     remote: &RemoteClient,
-    binding: &Binding,
     note: &Note,
     options: &CallOptions,
 ) -> Result<Note, AttachmentError> {
     let ranges = references(&note.content)?;
     let mut replacements = HashMap::new();
-    let maps = maps(library, binding).await?;
-    let mut listing = None;
+    let mut listing: Option<Vec<Attachment>> = None;
     for range in &ranges {
         let remote_id = &note.content[range.clone()];
         if replacements.contains_key(remote_id) {
             continue;
         }
         check(options)?;
-        if let Some(map) = maps.iter().find(|map| {
-            map.remote_attachment_id.as_deref() == Some(remote_id)
-                && matches!(map.state, AttachmentState::Ready)
-        }) {
-            let (bytes, _, hash) = source(library, &map.local_attachment_id).await?;
-            if i64::try_from(bytes.len()).ok() != Some(map.size) || hash != map.sha256 {
-                return Err(AttachmentError::InvalidResponse);
-            }
-            replacements.insert(remote_id.to_owned(), map.local_attachment_id.clone());
+        let id = remote_id.to_owned();
+        if let Some(local) = blocking(library, move |lib| lib.sync_attachment_local(&id)).await? {
+            replacements.insert(remote_id.to_owned(), local);
             continue;
         }
         if listing.is_none() {
             listing = Some(remote_files(remote, options).await?);
         }
-        let metadata = listing
-            .as_ref()
-            .and_then(|files| files.iter().find(|file| file.id.as_str() == remote_id))
-            .ok_or(AttachmentError::InvalidResponse)?;
+        // A reference to a file the server no longer has stays as written.
+        let Some(metadata) = listing
+            .iter()
+            .flatten()
+            .find(|file| file.id.as_str() == remote_id)
+            .cloned()
+        else {
+            replacements.insert(remote_id.to_owned(), remote_id.to_owned());
+            continue;
+        };
         if metadata.size > ATTACHMENT_MAX_BYTES as u64 {
             return Err(RemoteError::new(ErrorCode::PayloadTooLarge).into());
         }
@@ -392,14 +229,21 @@ pub async fn materialize_note(
             return Err(AttachmentError::InvalidResponse);
         }
         let hash = digest(&bytes);
-        let window = format!("sync:{}:{}", binding.binding_id, binding.binding_epoch);
-        let metadata = metadata.clone();
-        let key = binding.clone();
+        let (id, digest_copy, size) = (remote_id.to_owned(), hash.clone(), metadata.size);
+        if let Some(local) = blocking(library, move |lib| {
+            lib.sync_adopt_attachment(&id, &digest_copy, size)
+        })
+        .await?
+        {
+            replacements.insert(remote_id.to_owned(), local);
+            continue;
+        }
         let id = remote_id.to_owned();
         let options = options.clone();
         let local = blocking(library, move |lib| {
+            let window = "sync";
             let begin = lib.files_upload_begin(
-                &window,
+                window,
                 &metadata.filename,
                 &metadata.mime,
                 metadata.size,
@@ -411,21 +255,12 @@ pub async fn materialize_note(
                     if options.cancel.is_cancelled() {
                         return Err(note_core::Error::Cancelled);
                     }
-                    if std::time::Instant::now() >= options.deadline {
-                        return Err(note_core::Error::invalid(
-                            "deadline",
-                            "attachment staging deadline expired",
-                        ));
-                    }
-                    offset = lib.files_upload_chunk(&window, &begin.upload_id, offset, chunk)?;
+                    offset = lib.files_upload_chunk(window, &begin.upload_id, offset, chunk)?;
                 }
-                if options.cancel.is_cancelled() {
-                    return Err(note_core::Error::Cancelled);
-                }
-                lib.files_sync_finish(&window, &begin.upload_id, &key, &id, &hash)
+                lib.files_sync_finish(window, &begin.upload_id, &id, &hash)
             })();
             if staged.is_err() {
-                lib.files_upload_cancel(&window, &begin.upload_id)?;
+                lib.files_upload_cancel(window, &begin.upload_id)?;
             }
             staged
         })
@@ -435,26 +270,6 @@ pub async fn materialize_note(
     let mut local = note.clone();
     local.content = rewrite(&note.content, &ranges, &replacements)?;
     Ok(local)
-}
-
-/// Startup repair never removes referenced official files or retries uncertain POSTs.
-/// Repairs staged files and marks interrupted uploads as uncertain.
-///
-/// # Errors
-/// Returns a local storage error when repair or persistence fails.
-pub async fn recover(library: &Arc<Library>, binding: &Binding) -> Result<(), AttachmentError> {
-    let binding = binding.clone();
-    Ok(blocking(library, move |lib| {
-        lib.files_recover()?;
-        for mut map in lib.sync_attachment_maps(&binding)? {
-            if matches!(map.state, AttachmentState::Uploading) {
-                map.state = AttachmentState::UnknownOutcome;
-                lib.sync_put_attachment_map(&binding, &map)?;
-            }
-        }
-        Ok(())
-    })
-    .await?)
 }
 
 fn rewrite(
@@ -645,19 +460,6 @@ mod tests {
         assert!(unique_match(&[]).is_none());
         assert!(unique_match(&[local.to_owned(), remote.to_owned()]).is_none());
         assert_eq!(unique_match(&[remote.to_owned()]), Some(remote));
-        let intent = UploadIntent {
-            local_id: local.to_owned(),
-            sha256: digest(b"real bytes"),
-            size: 10,
-            filename: "image.png".to_owned(),
-            note_id: None,
-            known_remote_ids: HashSet::from([local.to_owned()]),
-        };
-        let round_trip: UploadIntent = serde_json::to_value(&intent)
-            .and_then(serde_json::from_value)
-            .map_err(|_| AttachmentError::InvalidResponse)?;
-        assert!(round_trip.known_remote_ids.contains(local));
-        assert_eq!(round_trip.sha256, digest(b"real bytes"));
         Ok(())
     }
 }

@@ -1,9 +1,9 @@
-//! One durable binding and one serial engine. Network cancellation never erases writes.
+//! One binding, one background loop, one serial round: pull, then push (22 §7.6).
 use crate::{
     SessionCookie, SiteOrigin,
     remote::{self, CallOptions, PasswordLoginResult, RemoteClient},
 };
-use note_core::sync::{BindPolicy, Binding, SyncCookie};
+use note_core::sync::{Binding, BindingState, MergeCounts, RemoteBatch, SyncCookie};
 use note_core::{AppError, ErrorCode, Library};
 use serde::Serialize;
 use serde_json::Value;
@@ -34,24 +34,6 @@ pub trait SecretStore: Send + Sync {
 pub trait StatusSink: Send + Sync {
     fn changed(&self, status: &SyncStatus);
 }
-#[derive(Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
-pub enum BindStrategy {
-    #[serde(rename = "keep-local")]
-    KeepLocal,
-    #[serde(rename = "import-remote")]
-    ImportRemote,
-    #[serde(rename = "merge")]
-    Merge,
-}
-impl BindStrategy {
-    fn policy(self) -> BindPolicy {
-        match self {
-            Self::KeepLocal => BindPolicy::ExportLocal,
-            Self::ImportRemote => BindPolicy::ImportCopies,
-            Self::Merge => BindPolicy::Merge,
-        }
-    }
-}
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LoginReply {
@@ -60,40 +42,24 @@ pub struct LoginReply {
 }
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PreviewCounts {
-    pub local: u64,
-    pub remote: u64,
-    pub matched: u64,
-    pub conflicts: u64,
-    pub attachments: u64,
-    pub network_writes: u64,
-}
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct BindPreview {
     pub preview_id: String,
-    pub counts: PreviewCounts,
+    #[serde(flatten)]
+    pub counts: MergeCounts,
     pub expires_at: i64,
 }
+/// Settings-page view of sync; never contains cookies or note bodies.
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncStatus {
-    pub binding_id: Option<String>,
-    pub epoch: Option<i64>,
-    pub phase: String,
-    pub local_cursor: i64,
-    pub remote_cursor: i64,
-    pub pending: u64,
-    pub blocked: u64,
-    pub conflicts: u64,
-    pub online: bool,
-    pub error_code: Option<String>,
-    pub terminal: bool,
+    /// `unbound`, `idle`, `syncing` or `paused`; memory only.
+    pub phase: &'static str,
     pub site_origin: Option<String>,
-    pub account_hint: Option<String>,
-    pub metadata_risk: bool,
-    pub conflict_items: Vec<note_core::sync::ConflictSummary>,
-    pub quarantined: Vec<note_core::sync::QuarantinedSummary>,
+    pub account: Option<String>,
+    pub cursor: i64,
+    pub pending: u64,
+    pub last_success_at: Option<i64>,
+    pub error_code: Option<String>,
 }
 struct Login {
     remote: Arc<RemoteClient>,
@@ -103,7 +69,6 @@ struct Login {
 struct Preview {
     remote: Arc<RemoteClient>,
     user: remote::PublicUser,
-    strategy: BindStrategy,
     snapshot: crate::pull::CollectedSnapshot,
     expires: Instant,
 }
@@ -120,6 +85,7 @@ pub struct SyncService {
     previews: Mutex<HashMap<String, Preview>>,
     runtime: Mutex<Option<Runtime>>,
     active: Mutex<Option<CancellationToken>>,
+    syncing: AtomicBool,
     wake: Notify,
     shutting_down: AtomicBool,
 }
@@ -159,6 +125,7 @@ impl SyncService {
             previews: Mutex::new(HashMap::new()),
             runtime: Mutex::new(None),
             active: Mutex::new(None),
+            syncing: AtomicBool::new(false),
             wake: Notify::new(),
             shutting_down: AtomicBool::new(false),
         }))
@@ -173,6 +140,10 @@ impl SyncService {
     async fn id(&self) -> Result<String, AppError> {
         self.ensure_running()?;
         blocking(&self.library, Library::sync_new_id).await
+    }
+    /// Asks the background loop for a round soon; repeated calls coalesce.
+    pub fn wake(&self) {
+        self.wake.notify_one();
     }
     /// Starts a password login flow.
     ///
@@ -266,14 +237,13 @@ impl SyncService {
                 .map_err(|_| error(ErrorCode::InvalidResponse, "Invalid login response"))?,
         })
     }
-    /// Previews a binding strategy without writing local state.
+    /// Reads the remote snapshot and compares it with local notes by id; writes nothing.
     ///
     /// # Errors
-    /// Returns an expired-login, authentication, network, storage, or synchronization error.
+    /// Returns an expired-login, authentication, network or local read error.
     pub async fn preview(
         &self,
         login_id: &str,
-        strategy: BindStrategy,
         options: &CallOptions,
     ) -> Result<BindPreview, AppError> {
         self.ensure_running()?;
@@ -293,52 +263,18 @@ impl SyncService {
                 })?,
             )
         };
-        let local = blocking(&self.library, Library::notes_snapshot).await?;
         let snapshot = crate::pull::collect(&client, options)
             .await
             .map_err(|error| error.app_error())?;
-        let mut matched = 0;
-        let mut conflicts = 0;
-        for remote in &snapshot.notes {
-            if let Some(summary) = local
-                .notes
-                .iter()
-                .find(|summary| summary.id == remote.summary.id)
-            {
-                let id = summary.id.clone();
-                let note = blocking(&self.library, move |library| library.get_note(&id)).await?;
-                if note.content == remote.content
-                    && note.summary.title == remote.summary.title
-                    && note.summary.folder_id == remote.summary.folder_id
-                    && note.summary.is_starred == remote.summary.is_starred
-                    && note.summary.is_pinned == remote.summary.is_pinned
-                    && note.summary.is_archived == remote.summary.is_archived
-                    && note.summary.deleted_at == remote.summary.deleted_at
-                {
-                    matched += 1;
-                } else {
-                    conflicts += 1;
-                }
-            }
-        }
-        let attachment_count = crate::attachments::remote_attachment_count(&client, options)
-            .await
-            .map_err(|error| error.app_error())?;
+        let remote_notes = snapshot.notes.clone();
+        let counts = blocking(&self.library, move |lib| {
+            lib.sync_merge_counts(&remote_notes)
+        })
+        .await?;
         let id = self.id().await?;
         let reply = BindPreview {
             preview_id: id.clone(),
-            counts: PreviewCounts {
-                local: local.notes.len() as u64,
-                remote: snapshot.notes.len() as u64,
-                matched,
-                conflicts,
-                attachments: attachment_count,
-                network_writes: if strategy == BindStrategy::ImportRemote {
-                    0
-                } else {
-                    local.notes.len() as u64 - matched
-                },
-            },
+            counts,
             expires_at: remote::now()?.get() + 300_000,
         };
         let mut previews = self.previews.lock().await;
@@ -348,25 +284,23 @@ impl SyncService {
             Preview {
                 remote: client,
                 user,
-                strategy,
                 snapshot,
                 expires: Instant::now() + Duration::from_secs(300),
             },
         );
         Ok(reply)
     }
-    /// Commits a previously generated binding preview.
+    /// Binds by merging the previewed snapshot (22 §6.4), then starts syncing.
     ///
     /// # Errors
-    /// Returns preview, authentication, conflict, network, attachment, or local transaction errors.
+    /// Returns preview-expired, remote-changed, authentication, network, attachment
+    /// or local transaction errors; nothing is bound on failure.
     pub async fn confirm(
-        &self,
+        self: &Arc<Self>,
         preview_id: &str,
         options: &CallOptions,
     ) -> Result<SyncStatus, AppError> {
         self.ensure_running()?;
-        self.stop().await?;
-        let _serial = self.serial.lock().await;
         let preview = self
             .previews
             .lock()
@@ -374,72 +308,77 @@ impl SyncService {
             .remove(preview_id)
             .filter(|preview| preview.expires > Instant::now())
             .ok_or_else(|| error(ErrorCode::Conflict, "Sync preview expired; preview again"))?;
-        let session = preview
-            .remote
-            .validate_session(options)
-            .await
-            .map_err(|error| error.app_error())?;
-        if session
-            .user
-            .as_ref()
-            .is_none_or(|user| user.id != preview.user.id)
         {
-            return Err(error(ErrorCode::Unauthenticated, "Remote account changed"));
-        }
-        let latest = preview
-            .remote
-            .sync_page(preview.snapshot.page.cursor.get(), None, None, options)
-            .await
-            .map_err(|error| error.app_error())?;
-        if latest.full
-            || latest.cursor != preview.snapshot.page.cursor
-            || !latest.notes.is_empty()
-            || !latest.deletions.is_empty()
-        {
-            return Err(error(ErrorCode::Conflict, "Remote changed; preview again"));
-        }
-        let prior = blocking(&self.library, Library::sync_current_binding).await?;
-        let binding = Binding {
-            binding_id: self.id().await?,
-            binding_epoch: prior
-                .as_ref()
-                .map_or(1, |state| state.binding.binding_epoch + 1),
-            site_origin: preview
+            let _serial = self.serial.lock().await;
+            let session = preview
                 .remote
-                .origin()
-                .as_url()
-                .origin()
-                .ascii_serialization(),
-            account_hint: preview.user.username.clone(),
-            remote_user_id: preview.user.id.clone(),
-        };
-        let cookie = self.protected_cookie(&preview.remote)?;
-        let mut notes = Vec::with_capacity(preview.snapshot.notes.len());
-        for note in &preview.snapshot.notes {
-            notes.push(
-                crate::attachments::materialize_note(
-                    &self.library,
-                    &preview.remote,
-                    &binding,
-                    note,
-                    options,
-                )
+                .validate_session(options)
                 .await
-                .map_err(|error| error.app_error())?,
-            );
+                .map_err(|error| error.app_error())?;
+            if session
+                .user
+                .as_ref()
+                .is_none_or(|user| user.id != preview.user.id)
+            {
+                return Err(error(ErrorCode::Unauthenticated, "Remote account changed"));
+            }
+            let latest = preview
+                .remote
+                .sync_page(preview.snapshot.page.cursor.get(), None, None, options)
+                .await
+                .map_err(|error| error.app_error())?;
+            if latest.full || latest.cursor != preview.snapshot.page.cursor {
+                return Err(error(ErrorCode::Conflict, "Remote changed; preview again"));
+            }
+            let mut notes = Vec::with_capacity(preview.snapshot.notes.len());
+            for note in &preview.snapshot.notes {
+                notes.push(
+                    crate::attachments::materialize_note(
+                        &self.library,
+                        &preview.remote,
+                        note,
+                        options,
+                    )
+                    .await
+                    .map_err(|error| error.app_error())?,
+                );
+            }
+            let binding = Binding {
+                site_origin: preview
+                    .remote
+                    .origin()
+                    .as_url()
+                    .origin()
+                    .ascii_serialization(),
+                account_hint: preview.user.username.clone(),
+                remote_user_id: preview.user.id.clone(),
+            };
+            let cookie = self.protected_cookie(&preview.remote)?;
+            let snapshot = RemoteBatch {
+                cursor: preview.snapshot.page.cursor.get(),
+                full: true,
+                notes,
+                folders: preview.snapshot.page.folders.clone(),
+                tags: preview.snapshot.page.tags.clone(),
+                deletions: Vec::new(),
+            };
+            blocking(&self.library, move |lib| {
+                lib.sync_bind(&binding, &cookie, &snapshot)
+            })
+            .await?;
+            tracing::info!("sync.bound");
         }
-        let binding_copy = binding.clone();
-        let policy = preview.strategy.policy();
-        let snapshot = note_core::sync::BindingSnapshot {
-            notes,
-            folders: preview.snapshot.page.folders.clone(),
-            tags: preview.snapshot.page.tags.clone(),
-            cursor: preview.snapshot.page.cursor.get(),
-        };
-        blocking(&self.library, move |library| {
-            library.sync_confirm_binding(&binding_copy, &cookie, policy, &snapshot)
-        })
-        .await?;
+        self.start().await
+    }
+    /// Stops syncing and removes the binding; local data stays and becomes pending.
+    ///
+    /// # Errors
+    /// Returns a local transaction error.
+    pub async fn unbind(&self) -> Result<SyncStatus, AppError> {
+        self.stop().await?;
+        let _serial = self.serial.lock().await;
+        blocking(&self.library, Library::sync_unbind).await?;
+        tracing::info!("sync.unbound");
         self.publish().await
     }
     fn protected_cookie(&self, client: &RemoteClient) -> Result<SyncCookie, AppError> {
@@ -451,23 +390,18 @@ impl SyncService {
                 .map_err(|_| error(ErrorCode::Internal, "Session serialization failed"))?,
         );
         Ok(SyncCookie {
-            ciphertext: Some(self.secrets.protect(&bytes)?),
+            ciphertext: self.secrets.protect(&bytes)?,
+            name: record.name.clone(),
             domain: record.domain.clone(),
             path: record.path.clone(),
             expires_at: record.expires_at,
             secure: record.secure,
             host_only: record.host_only,
-            name: record.name.clone(),
             same_site: record.same_site.clone(),
         })
     }
-    async fn client(&self, state: &note_core::sync::SyncState) -> Result<RemoteClient, AppError> {
-        let ciphertext = state
-            .cookie
-            .ciphertext
-            .as_ref()
-            .ok_or_else(|| error(ErrorCode::Unauthenticated, "Sync credentials unavailable"))?;
-        let bytes = Zeroizing::new(self.secrets.unprotect(ciphertext)?);
+    fn client(&self, state: &BindingState) -> Result<RemoteClient, AppError> {
+        let bytes = Zeroizing::new(self.secrets.unprotect(&state.cookie.ciphertext)?);
         let record: crate::session::CookieRecord = serde_json::from_slice(&bytes)
             .map_err(|_| error(ErrorCode::StorageUnavailable, "Sync credentials invalid"))?;
         let origin = SiteOrigin::parse(&state.binding.site_origin)?;
@@ -483,56 +417,24 @@ impl SyncService {
     /// Returns the current synchronization status.
     ///
     /// # Errors
-    /// Returns a local library or status transaction error.
+    /// Returns a local read error.
     pub async fn status(&self) -> Result<SyncStatus, AppError> {
-        let status = blocking(&self.library, Library::sync_status).await?;
-        let local_cursor = blocking(&self.library, Library::notes_snapshot)
-            .await?
-            .cursor
-            .get();
-        let conflict_items = blocking(&self.library, Library::sync_conflicts).await?;
-        let quarantined = blocking(&self.library, Library::sync_quarantined).await?;
+        let state = blocking(&self.library, Library::sync_binding).await?;
+        let pending = blocking(&self.library, Library::sync_pending).await?;
+        let running = self.runtime.lock().await.is_some();
         Ok(SyncStatus {
-            binding_id: status
-                .state
-                .as_ref()
-                .map(|state| state.binding.binding_id.clone()),
-            epoch: status
-                .state
-                .as_ref()
-                .map(|state| state.binding.binding_epoch),
-            phase: status
-                .state
-                .as_ref()
-                .map_or_else(|| "unbound".to_owned(), |state| state.status.clone()),
-            local_cursor,
-            remote_cursor: status.state.as_ref().map_or(0, |state| state.cursor),
-            pending: status.pending,
-            blocked: status.blocked,
-            conflicts: status.conflicts,
-            online: status
-                .state
-                .as_ref()
-                .is_some_and(|state| state.last_error_code.is_none()),
-            error_code: status
-                .state
-                .as_ref()
-                .and_then(|state| state.last_error_code.clone()),
-            terminal: self.runtime.lock().await.is_none(),
-            site_origin: status
-                .state
-                .as_ref()
-                .map(|state| state.binding.site_origin.clone()),
-            account_hint: status
-                .state
-                .as_ref()
-                .map(|state| state.binding.account_hint.clone()),
-            // metadata has no server CAS; any parked metadata conflict means remote may still race.
-            metadata_risk: conflict_items
-                .iter()
-                .any(|item| item.reason == "metadata_conflict"),
-            conflict_items,
-            quarantined,
+            phase: match &state {
+                None => "unbound",
+                Some(_) if self.syncing.load(Ordering::Acquire) => "syncing",
+                Some(_) if running => "idle",
+                Some(_) => "paused",
+            },
+            site_origin: state.as_ref().map(|s| s.binding.site_origin.clone()),
+            account: state.as_ref().map(|s| s.binding.account_hint.clone()),
+            cursor: state.as_ref().map_or(0, |s| s.cursor),
+            pending,
+            last_success_at: state.as_ref().and_then(|s| s.last_success_at),
+            error_code: state.and_then(|s| s.last_error_code),
         })
     }
     async fn publish(&self) -> Result<SyncStatus, AppError> {
@@ -540,10 +442,10 @@ impl SyncService {
         self.sink.changed(&status);
         Ok(status)
     }
-    /// Runs one synchronization cycle.
+    /// Runs one round: pull, then push. The outcome is stored on the binding.
     ///
     /// # Errors
-    /// Returns binding, authentication, network, cancellation, attachment, or local transaction errors.
+    /// Returns binding, authentication, network, cancellation, attachment or local errors.
     pub async fn now(&self, options: &CallOptions) -> Result<SyncStatus, AppError> {
         self.ensure_running()?;
         let _serial = self.serial.lock().await;
@@ -552,155 +454,172 @@ impl SyncService {
             deadline: options.deadline,
         };
         *self.active.lock().await = Some(options.cancel.clone());
-        let options = &options;
-        let state = blocking(&self.library, Library::sync_current_binding)
+        self.syncing.store(true, Ordering::Release);
+        let _ = self.publish().await;
+        let result = self.round(&options).await;
+        self.syncing.store(false, Ordering::Release);
+        self.active.lock().await.take();
+        match &result {
+            // A user stop is not a sync failure.
+            Err(error) if error.code() == ErrorCode::Cancelled => {}
+            outcome => {
+                let code = outcome.as_ref().err().map(|e| e.code().as_str().to_owned());
+                if let Some(code) = &code {
+                    tracing::warn!(code = code.as_str(), "sync.round.failed");
+                }
+                blocking(&self.library, move |lib| {
+                    lib.sync_record_result(code.as_deref())
+                })
+                .await?;
+            }
+        }
+        let status = self.publish().await?;
+        result.map(|()| status)
+    }
+    async fn round(&self, options: &CallOptions) -> Result<(), AppError> {
+        let state = blocking(&self.library, Library::sync_binding)
             .await?
             .ok_or_else(|| error(ErrorCode::BadRequest, "Sync is not bound"))?;
-        let binding = state.binding.clone();
-        let result = async {
-            let remote = self.client(&state).await?;
-            let session = remote
-                .validate_session(options)
-                .await
-                .map_err(|error| error.app_error())?;
-            if session
-                .user
-                .as_ref()
-                .is_none_or(|user| user.id != binding.remote_user_id)
-            {
-                return Err(error(ErrorCode::Unauthenticated, "Remote account changed"));
+        let remote = self.client(&state)?;
+        let session = remote
+            .validate_session(options)
+            .await
+            .map_err(|error| error.app_error())?;
+        match session.user {
+            None => return Err(error(ErrorCode::Unauthenticated, "Sync session expired")),
+            // Never guess that another account is the same person (22 §6.4).
+            Some(user) if user.id != state.binding.remote_user_id => {
+                return Err(error(
+                    ErrorCode::Forbidden,
+                    "Remote account changed; unbind first",
+                ));
             }
-            let copy = binding.clone();
-            blocking(&self.library, move |library| {
-                library.sync_set_status(&copy, "pulling", None)
-            })
-            .await?;
-            self.publish().await?;
-            crate::attachments::recover(&self.library, &binding)
-                .await
-                .map_err(|error| error.app_error())?;
-            crate::pull::pull(&self.library, &remote, &binding, options).await?;
-            let copy = binding.clone();
-            blocking(&self.library, move |library| {
-                library.sync_set_status(&copy, "pushing", None)
-            })
-            .await?;
-            self.publish().await?;
-            crate::push::push(&self.library, &remote, &binding, options).await?;
-            let cookie = self.protected_cookie(&remote)?;
-            let copy = binding.clone();
-            blocking(&self.library, move |library| {
-                library.sync_update_cookie(&copy, &cookie)
-            })
-            .await?;
-            Ok::<(), AppError>(())
+            Some(_) => {}
+        }
+        let result = async {
+            crate::pull::pull(&self.library, &remote, options).await?;
+            crate::push::push(&self.library, &remote, options).await
         }
         .await;
-        self.active.lock().await.take();
-        let copy = binding.clone();
-        let code = result
-            .as_ref()
-            .err()
-            .map(|error| error.code().as_str().to_owned());
-        blocking(&self.library, move |library| {
-            library.sync_set_status(
-                &copy,
-                if code.is_some() { "paused" } else { "idle" },
-                code.as_deref(),
-            )
-        })
-        .await?;
-        self.publish().await?;
-        result?;
-        self.status().await
+        // A renewed cookie is kept even when the round failed later on.
+        let cookie = self.protected_cookie(&remote)?;
+        blocking(&self.library, move |lib| lib.sync_set_cookie(&cookie)).await?;
+        result
     }
-    /// Starts background synchronization for the current binding.
+    /// Starts the background loop; a running loop is left as is.
     ///
     /// # Errors
-    /// Returns a shutdown, binding, or local transaction error.
+    /// Returns a shutdown, binding or local read error.
     pub async fn start(self: &Arc<Self>) -> Result<SyncStatus, AppError> {
         self.ensure_running()?;
-        let mut runtime = self.runtime.lock().await;
-        if blocking(&self.library, Library::sync_current_binding)
-            .await?
-            .is_none()
         {
-            return Err(error(ErrorCode::BadRequest, "Sync is not bound"));
+            let mut runtime = self.runtime.lock().await;
+            if runtime.is_none() {
+                if blocking(&self.library, Library::sync_binding)
+                    .await?
+                    .is_none()
+                {
+                    return Err(error(ErrorCode::BadRequest, "Sync is not bound"));
+                }
+                let cancel = CancellationToken::new();
+                let id = self.id().await?;
+                *runtime = Some(Runtime {
+                    cancel: cancel.clone(),
+                    id: id.clone(),
+                });
+                let service = self.clone();
+                tokio::spawn(async move { service.run(cancel, id).await });
+            }
         }
-        let cancel = CancellationToken::new();
-        let id = self.id().await?;
-        *runtime = Some(Runtime {
-            cancel: cancel.clone(),
-            id: id.clone(),
-        });
-        let service = self.clone();
-        tokio::spawn(async move {
-            service.run(cancel, id).await;
-        });
-        drop(runtime);
         self.publish().await
     }
     async fn run(self: Arc<Self>, cancel: CancellationToken, id: String) {
         let mut subscription = None;
         let mut failures: u32 = 0;
+        let mut socket_failures: u32 = 0;
+        let mut next_socket = Instant::now();
         while !cancel.is_cancelled() {
             let options = CallOptions {
                 cancel: cancel.clone(),
-                deadline: Instant::now() + Duration::from_secs(60),
+                deadline: Instant::now() + Duration::from_secs(120),
             };
             let result = self.now(&options).await;
             if cancel.is_cancelled() {
                 break;
             }
-            if let Err(error) = &result {
-                if matches!(
-                    error.code(),
-                    ErrorCode::Unauthenticated
-                        | ErrorCode::Forbidden
-                        | ErrorCode::Conflict
-                        | ErrorCode::StorageUnavailable
-                        | ErrorCode::InvalidResponse
-                ) {
+            match &result {
+                // Credentials or account need the user; retrying cannot help.
+                Err(e) if matches!(e.code(), ErrorCode::Unauthenticated | ErrorCode::Forbidden) => {
                     break;
                 }
-                failures = failures.saturating_add(1);
+                Err(_) => failures = failures.saturating_add(1),
+                Ok(_) => failures = 0,
+            }
+            let settings = blocking(&self.library, Library::settings_get).await.ok();
+            let realtime = settings.as_ref().is_some_and(|s| s.sync.realtime);
+            let poll = settings.map_or(15_000, |s| u64::from(s.sync.poll_interval_ms));
+            if !realtime {
                 subscription = None;
-            } else {
-                failures = 0;
+            } else if subscription.is_none() && failures == 0 && Instant::now() >= next_socket {
+                let client = blocking(&self.library, Library::sync_binding)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|state| self.client(&state).ok());
+                match client {
+                    Some(client) => match client.subscribe_changes(&options).await {
+                        Ok(socket) => {
+                            subscription = Some(socket);
+                            socket_failures = 0;
+                            // Changes may have landed before the socket opened: pull once more.
+                            continue;
+                        }
+                        Err(_) => {
+                            socket_failures = socket_failures.saturating_add(1);
+                            next_socket = Instant::now() + backoff(socket_failures);
+                        }
+                    },
+                    None => next_socket = Instant::now() + backoff(1),
+                }
             }
-            let settings = blocking(&self.library, Library::settings_get).await;
-            let poll = settings
-                .as_ref()
-                .map_or(30_000, |settings| settings.sync.poll_interval_ms);
-            if subscription.is_none()
-                && settings
-                    .as_ref()
-                    .is_ok_and(|settings| settings.sync.realtime)
-                && let Ok(Some(state)) =
-                    blocking(&self.library, Library::sync_current_binding).await
-                && let Ok(client) = self.client(&state).await
-            {
-                subscription = client.subscribe_changes(&options).await.ok();
-                if subscription.is_some() {
-                    continue;
-                } // Reconnected: pull before consuming notifications.
-            }
-            // ponytail: millisecond jitter is sufficient for one desktop; use OS randomness for a fleet scheduler.
-            let jitter = remote::now().map_or(0, |now| now.get() as u64 % 1000);
-            let delay = Duration::from_millis(if failures > 0 {
-                (1000_u64 << failures.min(6)).min(60_000) + jitter
+            // ponytail: millisecond jitter is enough for one desktop client.
+            let jitter = Duration::from_millis(
+                remote::now().map_or(0, |now| now.get().unsigned_abs() % 1000),
+            );
+            let delay = if failures > 0 {
+                backoff(failures)
+            } else if subscription.is_some() {
+                Duration::from_secs(300)
             } else {
-                poll as u64 + jitter
-            });
-            let heartbeat = CallOptions {
+                Duration::from_millis(poll)
+            } + jitter;
+            // The socket's own deadline outlives the sleep, so a quiet socket is never dropped.
+            let listen = CallOptions {
                 cancel: cancel.clone(),
-                deadline: Instant::now() + delay,
+                deadline: Instant::now() + delay + Duration::from_secs(60),
             };
             tokio::select! {
-                _ = cancel.cancelled() => break,
-                _ = self.wake.notified() => {},
-                _ = tokio::time::sleep(delay) => {},
-                message = async { if let Some(socket) = subscription.as_mut() { socket.changed(&heartbeat).await } else { std::future::pending().await } } => { if message.is_err() { subscription = None; failures = failures.saturating_add(1); } },
+                () = cancel.cancelled() => break,
+                () = self.wake.notified(), if failures == 0 => {
+                    // Debounce bursts of local writes into one round.
+                    tokio::select! {
+                        () = cancel.cancelled() => break,
+                        () = tokio::time::sleep(Duration::from_millis(500)) => {}
+                    }
+                }
+                () = tokio::time::sleep(delay) => {}
+                message = async {
+                    match subscription.as_mut() {
+                        Some(socket) => socket.changed(&listen).await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    if message.is_err() {
+                        subscription = None;
+                        socket_failures = socket_failures.saturating_add(1);
+                        next_socket = Instant::now() + backoff(socket_failures);
+                    }
+                }
             }
         }
         let mut runtime = self.runtime.lock().await;
@@ -710,10 +629,10 @@ impl SyncService {
         drop(runtime);
         let _ = self.publish().await;
     }
-    /// Stops background and active synchronization.
+    /// Stops the background loop and waits for an active round to end.
     ///
     /// # Errors
-    /// Returns a status or local transaction error.
+    /// Returns a local read error.
     pub async fn stop(&self) -> Result<SyncStatus, AppError> {
         if let Some(runtime) = self.runtime.lock().await.take() {
             runtime.cancel.cancel();
@@ -721,75 +640,8 @@ impl SyncService {
         if let Some(active) = self.active.lock().await.take() {
             active.cancel();
         }
-        let _serial = self.serial.lock().await;
-        self.publish().await
-    }
-    /// Stops synchronization and retains outstanding writes in quarantine.
-    /// # Errors
-    /// Rejects changed binding epochs and propagates local transaction/status errors.
-    pub async fn unbind(&self, id: &str, epoch: i64) -> Result<SyncStatus, AppError> {
-        self.stop().await?;
-        let _serial = self.serial.lock().await;
-        let binding = self.require_binding(id, epoch).await?;
-        blocking(&self.library, move |library| {
-            library.sync_quarantine(&binding)
-        })
-        .await?;
-        self.publish().await
-    }
-    async fn require_binding(&self, id: &str, epoch: i64) -> Result<Binding, AppError> {
-        let state = blocking(&self.library, Library::sync_current_binding)
-            .await?
-            .ok_or_else(|| error(ErrorCode::Conflict, "Sync binding changed"))?;
-        if state.binding.binding_id != id || state.binding.binding_epoch != epoch {
-            return Err(error(ErrorCode::Conflict, "Sync binding changed"));
-        }
-        Ok(state.binding)
-    }
-    /// Resolves a conflict using local, remote, or a retained remote note copy.
-    ///
-    /// # Errors
-    /// Returns invalid-choice, stale-binding, unsafe-resolution or local transaction errors.
-    pub async fn resolve_conflict(
-        &self,
-        id: &str,
-        choice: &str,
-        binding_id: &str,
-        epoch: i64,
-    ) -> Result<SyncStatus, AppError> {
-        let _serial = self.serial.lock().await;
-        let binding = self.require_binding(binding_id, epoch).await?;
-        if !matches!(choice, "local" | "remote" | "keep-both") {
-            return Err(error(ErrorCode::BadRequest, "Invalid conflict choice"));
-        }
-        let conflict_id = id.to_owned();
-        let conflict_choice = choice.to_owned();
-        blocking(&self.library, move |library| {
-            library.sync_resolve_conflict(&binding, &conflict_id, &conflict_choice)
-        })
-        .await?;
-        self.publish().await
-    }
-    /// Exports retained writes from the requested current binding epoch.
-    /// # Errors
-    /// Returns stale-binding, database or payload decoding errors.
-    pub async fn export_quarantined(&self, id: &str, epoch: i64) -> Result<Value, AppError> {
-        let binding = self.require_binding(id, epoch).await?;
-        blocking(&self.library, move |library| {
-            library.sync_export_outbox(&binding.binding_id, binding.binding_epoch)
-        })
-        .await
-    }
-    /// Explicitly discards quarantined writes from the current binding epoch.
-    /// # Errors
-    /// Returns stale-binding or local transaction errors.
-    pub async fn discard_quarantined(&self, id: &str, epoch: i64) -> Result<SyncStatus, AppError> {
-        let _serial = self.serial.lock().await;
-        let binding = self.require_binding(id, epoch).await?;
-        blocking(&self.library, move |library| {
-            library.sync_discard_outbox(&binding.binding_id, binding.binding_epoch)
-        })
-        .await?;
+        // Wait for the cancelled round to release the engine before reporting.
+        drop(self.serial.lock().await);
         self.publish().await
     }
     /// Permanently shuts down synchronization.
@@ -810,5 +662,20 @@ impl SyncService {
         self.logins.lock().await.clear();
         self.previews.lock().await.clear();
         Ok(())
+    }
+}
+
+/// 2 s, 4 s, … capped at 60 s.
+fn backoff(attempt: u32) -> Duration {
+    Duration::from_millis((2000_u64 << attempt.saturating_sub(1).min(5)).min(60_000))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn retry_delay_grows_and_caps() {
+        assert_eq!(super::backoff(1).as_secs(), 2);
+        assert_eq!(super::backoff(2).as_secs(), 4);
+        assert_eq!(super::backoff(30).as_secs(), 60);
     }
 }

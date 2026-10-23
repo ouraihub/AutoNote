@@ -271,7 +271,7 @@ pub fn empty_trash(lib: &crate::db::Library, origin: WriteOrigin) -> Result<Writ
     })
 }
 
-fn purge_tx(w: &mut super::WriteTx<'_>, id: &str) -> Result<(), Error> {
+pub(crate) fn purge_tx(w: &mut super::WriteTx<'_>, id: &str) -> Result<(), Error> {
     w.tx.execute("DELETE FROM note_versions WHERE note_id=?1", [id])?;
     w.tx.execute("DELETE FROM note_tags WHERE note_id=?1", [id])?;
     w.tx.execute("DELETE FROM links WHERE source_note_id=?1", [id])?;
@@ -287,6 +287,7 @@ fn purge_tx(w: &mut super::WriteTx<'_>, id: &str) -> Result<(), Error> {
         "INSERT INTO changes(entity,entity_id,op,at) VALUES('note',?1,'delete',?2)",
         params![id, w.now.get()],
     )?;
+    w.mark(super::DirtyEntity::Note, id);
     w.delete(id.to_owned());
     Ok(())
 }

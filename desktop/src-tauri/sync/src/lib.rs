@@ -7,7 +7,5 @@ pub mod service;
 mod session;
 
 pub use remote::{CallOptions, RemoteClient, RemoteError};
-pub use service::{
-    BindPreview, BindStrategy, LoginReply, SecretStore, StatusSink, SyncService, SyncStatus,
-};
+pub use service::{BindPreview, LoginReply, SecretStore, StatusSink, SyncService, SyncStatus};
 pub use session::{SessionCookie, SiteOrigin};

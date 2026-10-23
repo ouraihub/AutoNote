@@ -113,13 +113,16 @@ impl Library {
             work.changes.origin = Some(origin);
             let value = f(&mut work)?;
             let changes = std::mem::take(&mut work.changes);
+            // The one place local edits become pending sync work; sync's own writes never do.
+            if origin != WriteOrigin::Sync {
+                crate::sync::mark_dirty(&work.tx, &changes.touched)?;
+            }
             work.tx.commit()?;
             (value, changes)
         };
         if !changes.notes.is_empty()
             || !changes.deletions.is_empty()
-            || changes.folders_changed
-            || changes.tags_changed
+            || !changes.touched.is_empty()
             || changes.settings_changed
             || changes.import_changed
         {
@@ -353,6 +356,67 @@ mod tests {
             )
             .unwrap();
         assert_eq!(value, "preserved");
+    }
+
+    #[test]
+    fn sync_v7_moves_binding_and_marks_unconfirmed_rows_pending() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("library.db");
+        let mut conn = Connection::open(&path).unwrap();
+        migrate(&mut conn, &MIGRATIONS[..6]).unwrap();
+        let (synced, local, missing) = (
+            "01arz3ndektsv4rrffq69g5fa1",
+            "01arz3ndektsv4rrffq69g5fa2",
+            "01arz3ndektsv4rrffq69g5fa3",
+        );
+        conn.execute_batch(&format!(
+            "INSERT INTO sync_state(binding_id,binding_epoch,site_origin,account_hint,remote_user_id,cookie_ciphertext,cookie_domain,cookie_path,cookie_name,cursor,status,updated_at)
+               VALUES('b',1,'https://example.test','me','u1',x'0102','example.test','/','session',13,'paused',5);
+             INSERT INTO notes(id,title,content,rev,created_at,updated_at) VALUES('{synced}','a','',4,1,1),('{local}','b','',1,1,1);
+             INSERT INTO sync_map(binding_id,binding_epoch,entity,local_id,remote_id,local_rev,remote_rev,state)
+               VALUES('b',1,'note','{synced}','{synced}',0,1,'synced'),('b',1,'note','{missing}','{missing}',0,9,'synced');"
+        ))
+        .unwrap();
+        drop(conn);
+
+        let library = Library::open(&path).unwrap();
+        let state = library.sync_binding().unwrap().unwrap();
+        assert_eq!(state.binding.remote_user_id, "u1");
+        assert_eq!(state.cookie.ciphertext, vec![1, 2]);
+        // The old engine dropped pulled rows; restart from a full snapshot.
+        assert_eq!(state.cursor, 0);
+        let conn = library.conn.lock().unwrap();
+        let item = |id: &str| -> (Option<i64>, bool) {
+            conn.query_row(
+                "SELECT remote_rev,dirty FROM sync_item WHERE entity='note' AND id=?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap()
+        };
+        assert_eq!(item(synced), (Some(1), false));
+        assert_eq!(item(local), (None, true));
+        let old: i64 = conn
+            .query_row("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('sync_state','sync_map','sync_outbox','sync_attachment_map','sync_snapshot','sync_conflict')", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(old, 0);
+    }
+
+    #[test]
+    fn sync_v7_on_unbound_library_marks_everything_pending() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("library.db");
+        let mut conn = Connection::open(&path).unwrap();
+        migrate(&mut conn, &MIGRATIONS[..6]).unwrap();
+        conn.execute_batch(
+            "INSERT INTO notes(id,title,content,created_at,updated_at) VALUES('01arz3ndektsv4rrffq69g5fa1','a','',1,1);
+             INSERT INTO folders(id,name,created_at,updated_at) VALUES('01arz3ndektsv4rrffq69g5fa2','f',1,1);",
+        )
+        .unwrap();
+        drop(conn);
+        let library = Library::open(&path).unwrap();
+        assert!(library.sync_binding().unwrap().is_none());
+        assert_eq!(library.sync_pending().unwrap(), 2);
     }
 
     #[test]

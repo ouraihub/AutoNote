@@ -21,16 +21,32 @@ pub enum WriteOrigin {
     Import,
 }
 
+/// Sync entity kinds whose local edits are pushed by the desktop sync engine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DirtyEntity {
+    Note,
+    Folder,
+    Tag,
+}
+impl DirtyEntity {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Note => "note",
+            Self::Folder => "folder",
+            Self::Tag => "tag",
+        }
+    }
+}
+
 /// The final notes and deletions committed by one transaction.
 #[derive(Debug, Default, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChangeSet {
     pub notes: Vec<NoteSummary>,
     pub deletions: Vec<String>,
+    /// Every note, folder and tag row this transaction created, edited or deleted.
     #[serde(skip)]
-    pub folders_changed: bool,
-    #[serde(skip)]
-    pub tags_changed: bool,
+    pub touched: Vec<(DirtyEntity, String)>,
     #[serde(skip)]
     pub settings_changed: bool,
     /// Bulk import commits are read back from the durable changes feed.
@@ -47,6 +63,16 @@ impl ChangeSet {
         } else {
             self.notes.push(summary);
         }
+    }
+    /// Duplicates are harmless: the dirty upsert in `Library::write` is idempotent.
+    pub(crate) fn mark(&mut self, entity: DirtyEntity, id: &str) {
+        self.touched.push((entity, id.to_owned()));
+    }
+    /// Whether any folder or tag row changed.
+    pub fn organizers_changed(&self) -> bool {
+        self.touched
+            .iter()
+            .any(|(entity, _)| *entity != DirtyEntity::Note)
     }
 }
 
@@ -144,7 +170,11 @@ pub(crate) struct WriteTx<'a> {
 impl WriteTx<'_> {
     pub(crate) fn record_change(&mut self, id: &str, op: &str) -> Result<(), Error> {
         self.tx.execute("INSERT INTO changes (entity, entity_id, op, at) VALUES ('note', ?1, ?2, (SELECT updated_at FROM notes WHERE id=?1))", rusqlite::params![id, op])?;
+        self.changes.mark(DirtyEntity::Note, id);
         Ok(())
+    }
+    pub(crate) fn mark(&mut self, entity: DirtyEntity, id: &str) {
+        self.changes.mark(entity, id);
     }
     pub(crate) fn id(&self) -> Result<String, Error> {
         new_id(self.ids.as_ref(), self.now, &self.tx)
@@ -298,7 +328,7 @@ impl From<crate::dto::PatchNoteBody> for NotePatch {
 }
 
 pub(crate) mod derived;
-mod notes;
+pub(crate) mod notes;
 pub(crate) mod versions;
 pub use folders::{FolderDeleteResult, FolderDeleteStrategy};
 pub use tags::{TagPatchResult, TagRemoveResult};

@@ -1,9 +1,9 @@
-//! Summary pages are checkpoints only after every body and attachment is ready.
+//! Remote pages are read in full, then applied with the cursor in one local transaction.
 use crate::{
     remote::{CallOptions, RemoteClient, RemoteError},
     service::blocking,
 };
-use note_core::sync::Binding;
+use note_core::sync::RemoteBatch;
 use note_core::{
     AppError, DeletedEntity, ErrorCode, Folder, FolderId, Library, Note, NoteId, SyncDeletion,
     SyncResponse, Tag, TagId,
@@ -272,167 +272,119 @@ fn absorb(
         Some(result.site_changed == Some(true) || page.site_changed == Some(true));
 }
 
+/// Downloads attachments referenced by the batch so note bodies carry local ids.
 async fn materialize(
     library: &Arc<Library>,
     remote: &RemoteClient,
-    binding: &Binding,
-    notes: &mut [Note],
+    mut batch: RemoteBatch,
     opts: &CallOptions,
-) -> Result<(), AppError> {
-    for note in notes {
+) -> Result<RemoteBatch, AppError> {
+    for note in &mut batch.notes {
         check(opts).map_err(|error| error.app_error())?;
-        *note = crate::attachments::materialize_note(library, remote, binding, note, opts)
+        *note = crate::attachments::materialize_note(library, remote, note, opts)
             .await
             .map_err(|error| error.app_error())?;
     }
-    Ok(())
+    Ok(batch)
 }
 
-async fn stage(
-    library: &Arc<Library>,
-    remote: &RemoteClient,
-    binding: &Binding,
-    checkpoint: (&str, bool, i64),
-    mut next: CollectedSnapshot,
-    opts: &CallOptions,
-) -> Result<(), AppError> {
-    let (run, first, snapshot) = checkpoint;
-    materialize(library, remote, binding, &mut next.notes, opts).await?;
-    check(opts).map_err(|error| error.app_error())?;
-    let binding = binding.clone();
-    let run = run.to_owned();
-    blocking(library, move |library| {
-        library.sync_stage_page(
-            &binding,
-            &run,
-            first,
-            snapshot,
-            next.page.next_key.as_deref(),
-            &next.notes,
-        )
-    })
-    .await
-}
-
-/// Pulls remote pages with durable snapshot checkpoints.
+/// Reads every remote change since `cursor` (22 §7.2). An empty snapshot needs no restart.
+/// Returns the batch to apply, or the full snapshot when the server requires one.
+///
 /// # Errors
-/// Returns cancellation, stale binding, remote protocol, attachment or local transaction errors.
-pub async fn pull(
+/// Returns cancellation, network or invalid-page errors.
+pub async fn fetch(
     library: &Arc<Library>,
     remote: &RemoteClient,
-    binding: &Binding,
+    cursor: i64,
     opts: &CallOptions,
-) -> Result<(), AppError> {
-    for restart in 0..ATTEMPTS {
-        check(opts).map_err(|error| error.app_error())?;
-        let state = blocking(library, |library| library.sync_current_binding())
-            .await?
-            .filter(|state| {
-                state.binding.binding_id == binding.binding_id
-                    && state.binding.binding_epoch == binding.binding_epoch
-            })
-            .ok_or_else(|| AppError::new(ErrorCode::Cancelled, "Sync binding superseded"))?;
-        let (run, snapshot, mut after) = if restart == 0 {
-            if let Some(run) = state.snapshot_run_id {
-                (
-                    run,
-                    state.snapshot_cursor.ok_or_else(|| invalid().app_error())?,
-                    state.after_key,
-                )
-            } else {
-                let mut cursor = state.cursor;
-                loop {
-                    let mut next = ready_page(remote, cursor, None, None, opts)
-                        .await
-                        .map_err(|error| error.app_error())?;
-                    if next.page.full {
-                        let snapshot = next.page.cursor.get();
-                        let after = next.page.next_key.clone();
-                        let run = blocking(library, Library::sync_new_id).await?;
-                        stage(library, remote, binding, (&run, true, snapshot), next, opts).await?;
-                        break (run, snapshot, after);
-                    }
-                    cursor = next.page.cursor.get();
-                    let more = next.page.has_more;
-                    materialize(library, remote, binding, &mut next.notes, opts).await?;
-                    check(opts).map_err(|error| error.app_error())?;
-                    let binding = binding.clone();
-                    blocking(library, move |library| {
-                        library.sync_apply_page(
-                            &binding,
-                            cursor,
-                            &next.notes,
-                            &next.page.folders,
-                            &next.page.tags,
-                            &next.page.deletions,
-                        )
-                    })
-                    .await?;
-                    if !more {
-                        return Ok(());
-                    }
-                }
-            }
-        } else {
-            let next = ready_page(remote, 0, None, None, opts)
-                .await
-                .map_err(|error| error.app_error())?;
-            if !next.page.full {
-                return Err(invalid().app_error());
-            }
-            let snapshot = next.page.cursor.get();
-            let after = next.page.next_key.clone();
-            let run = blocking(library, Library::sync_new_id).await?;
-            stage(library, remote, binding, (&run, true, snapshot), next, opts).await?;
-            (run, snapshot, after)
-        };
-        while let Some(key) = after {
-            let next = ready_page(remote, 0, Some(&key), Some(snapshot), opts)
-                .await
-                .map_err(|error| error.app_error())?;
-            after = next.page.next_key.clone();
-            stage(
-                library,
-                remote,
-                binding,
-                (&run, false, snapshot),
-                next,
-                opts,
-            )
-            .await?;
-        }
-        // Replay catch-up from the fixed snapshot on restart. Staging is
-        // idempotent; the installed cursor remains untouched until commit.
-        let mut cursor = snapshot;
+) -> Result<RemoteBatch, AppError> {
+    let map = |error: RemoteError| error.app_error();
+    if cursor > 0 {
+        let mut since = cursor;
+        let mut notes: BTreeMap<NoteId, Note> = BTreeMap::new();
+        let mut folders: BTreeMap<FolderId, Folder> = BTreeMap::new();
+        let mut tags: BTreeMap<TagId, Tag> = BTreeMap::new();
+        let mut deletions: Vec<SyncDeletion> = Vec::new();
         loop {
-            let next = ready_page(remote, cursor, None, None, opts)
+            let next = ready_page(remote, since, None, None, opts)
                 .await
-                .map_err(|error| error.app_error())?;
-            if next.page.full && !(cursor == 0 && empty_zero(&next.page)) {
+                .map_err(map)?;
+            let more = next.page.has_more;
+            if next.page.full {
                 break;
             }
-            let more = next.page.has_more;
-            cursor = next.page.cursor.get();
-            stage(
-                library,
-                remote,
-                binding,
-                (&run, next.page.full, snapshot),
-                next,
-                opts,
-            )
-            .await?;
+            since = next.page.cursor.get();
+            // Pages are in change order: a later upsert revives, a later deletion removes.
+            for deletion in next.page.deletions {
+                match deletion.entity {
+                    DeletedEntity::Note => notes.retain(|id, _| id.as_str() != deletion.id),
+                    DeletedEntity::Folder => folders.retain(|id, _| id.as_str() != deletion.id),
+                    DeletedEntity::Tag => tags.retain(|id, _| id.as_str() != deletion.id),
+                }
+                if !deletions.contains(&deletion) {
+                    deletions.push(deletion);
+                }
+            }
+            let revived = |entity: DeletedEntity, id: &str, deletions: &mut Vec<SyncDeletion>| {
+                deletions.retain(|d| !(d.entity == entity && d.id == id));
+            };
+            for note in next.notes {
+                revived(
+                    DeletedEntity::Note,
+                    note.summary.id.as_str(),
+                    &mut deletions,
+                );
+                notes.insert(note.summary.id.clone(), note);
+            }
+            for folder in next.page.folders {
+                revived(DeletedEntity::Folder, folder.id.as_str(), &mut deletions);
+                folders.insert(folder.id.clone(), folder);
+            }
+            for tag in next.page.tags {
+                revived(DeletedEntity::Tag, tag.id.as_str(), &mut deletions);
+                tags.insert(tag.id.clone(), tag);
+            }
             if !more {
-                check(opts).map_err(|error| error.app_error())?;
-                let binding = binding.clone();
-                return blocking(library, move |library| {
-                    library.sync_commit_snapshot(&binding, &run, cursor)
-                })
-                .await;
+                let batch = RemoteBatch {
+                    cursor: since,
+                    full: false,
+                    notes: notes.into_values().collect(),
+                    folders: folders.into_values().collect(),
+                    tags: tags.into_values().collect(),
+                    deletions,
+                };
+                return materialize(library, remote, batch, opts).await;
             }
         }
     }
-    Err(invalid().app_error())
+    let snapshot = collect(remote, opts).await.map_err(map)?;
+    let batch = RemoteBatch {
+        cursor: snapshot.page.cursor.get(),
+        full: true,
+        notes: snapshot.notes,
+        folders: snapshot.page.folders,
+        tags: snapshot.page.tags,
+        deletions: Vec::new(),
+    };
+    materialize(library, remote, batch, opts).await
+}
+
+/// Pulls and applies remote changes; the cursor moves only with the applied rows.
+///
+/// # Errors
+/// Returns binding, cancellation, network, attachment or local transaction errors.
+pub async fn pull(
+    library: &Arc<Library>,
+    remote: &RemoteClient,
+    opts: &CallOptions,
+) -> Result<(), AppError> {
+    let state = blocking(library, Library::sync_binding)
+        .await?
+        .ok_or_else(|| AppError::new(ErrorCode::BadRequest, "Sync is not bound"))?;
+    let batch = fetch(library, remote, state.cursor, opts).await?;
+    check(opts).map_err(|error| error.app_error())?;
+    blocking(library, move |library| library.sync_apply(&batch)).await
 }
 
 #[cfg(test)]

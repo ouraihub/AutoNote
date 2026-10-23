@@ -143,7 +143,8 @@ fn folder_import_uses_disk_index_not_http_file_ceiling() {
         .unwrap();
     }
     let target = tempfile::tempdir().unwrap();
-    let service = TransferService::new(library(target.path()), "large-folder".into()).unwrap();
+    let lib = library(target.path());
+    let service = TransferService::new(lib.clone(), "large-folder".into()).unwrap();
     let result = service
         .import_from(
             AuthorizedInput::open_folder(vault.path()).unwrap(),
@@ -159,6 +160,8 @@ fn folder_import_uses_disk_index_not_http_file_ceiling() {
             ..
         })
     ));
+    // Imported rows are local edits: every note waits for the first push.
+    assert_eq!(lib.sync_pending().unwrap(), 501);
 }
 #[test]
 fn path_and_code_boundaries_do_not_silently_weaken() {

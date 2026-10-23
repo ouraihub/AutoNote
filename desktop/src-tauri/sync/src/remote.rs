@@ -364,13 +364,17 @@ impl RemoteClient {
                 503 => ErrorCode::StorageUnavailable,
                 _ => ErrorCode::Internal,
             };
+            // The Worker wraps every failure as `{ error: { code, message, details } }`.
             return Err(RemoteError {
                 code,
                 server: value
-                    .pointer("/details/server")
+                    .pointer("/error/details/server")
                     .and_then(|server| serde_json::from_value(server.clone()).ok()),
-                retry_after: retry_after
-                    .or_else(|| value.pointer("/details/retryAfter").and_then(Value::as_u64)),
+                retry_after: retry_after.or_else(|| {
+                    value
+                        .pointer("/error/details/retryAfter")
+                        .and_then(Value::as_u64)
+                }),
             });
         }
         serde_json::from_slice(&bytes).map_err(|_| RemoteError::new(ErrorCode::InvalidResponse))

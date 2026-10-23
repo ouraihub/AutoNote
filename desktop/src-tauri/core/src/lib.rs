@@ -41,12 +41,12 @@ pub use query::{
     GraphEdge, GraphMeta, GraphNode, GraphQuery, GraphResponse, GraphTag, ListNotesQuery,
     NoteOrder, NoteSort, NoteView, SearchHit, SearchMode, SearchQuery, SearchResponse, SearchTerms,
 };
-pub use sync::{ConflictSummary, QuarantinedSummary};
 pub use types::{
     AttachmentId, Cursor, FolderId, MAX_SAFE_INTEGER, Millis, NoteId, RemoteRev, Rev, TagId,
     VersionId,
 };
 pub use write::{
-    ChangeSet, ChangeSink, FolderDeleteResult, FolderDeleteStrategy, IdSource, NewNote, NotePatch,
-    RandomIds, TagPatchResult, TagRemoveResult, WriteEvent, WriteOrigin, Written,
+    ChangeSet, ChangeSink, DirtyEntity, FolderDeleteResult, FolderDeleteStrategy, IdSource,
+    NewNote, NotePatch, RandomIds, TagPatchResult, TagRemoveResult, WriteEvent, WriteOrigin,
+    Written,
 };

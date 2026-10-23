@@ -236,7 +236,7 @@ fn record(w: &mut super::WriteTx<'_>, id: &str, op: &str) -> Result<(), Error> {
         "INSERT INTO changes(entity,entity_id,op,at) VALUES('folder',?1,?2,?3)",
         params![id, op, w.now.get()],
     )?;
-    w.changes.folders_changed = true;
+    w.mark(super::DirtyEntity::Folder, id);
     Ok(())
 }
 

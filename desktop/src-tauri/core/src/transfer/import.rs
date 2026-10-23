@@ -156,7 +156,7 @@ pub(super) fn run(
         }
         if let Some(raw)=stage.db.query_row("SELECT value FROM metadata WHERE key='json-tags'",[],|r|r.get::<_,String>(0)).optional()? {
             let tags:Vec<crate::Tag>=serde_json::from_str(&raw).map_err(|_|format::invalid())?;
-            for tag in tags { let name=crate::markdown::normalize_link_key(&tag.name);if name.is_empty()||name.encode_utf16().count()>60{return Err(format::invalid())}let exists:bool=w.tx.query_row("SELECT EXISTS(SELECT 1 FROM tags WHERE name=?1)",[&name],|r|r.get(0))?;if !exists {let id=w.id()?;w.tx.execute("INSERT INTO tags(id,name,color,is_manual,created_at) VALUES(?1,?2,?3,1,?4)",params![id,name,tag.color,tag.created_at.get()])?;w.tx.execute("INSERT INTO changes(entity,entity_id,op,at) VALUES('tag',?1,'upsert',?2)",params![id,w.now.get()])?;w.changes.tags_changed=true;}}
+            for tag in tags { let name=crate::markdown::normalize_link_key(&tag.name);if name.is_empty()||name.encode_utf16().count()>60{return Err(format::invalid())}let exists:bool=w.tx.query_row("SELECT EXISTS(SELECT 1 FROM tags WHERE name=?1)",[&name],|r|r.get(0))?;if !exists {let id=w.id()?;w.tx.execute("INSERT INTO tags(id,name,color,is_manual,created_at) VALUES(?1,?2,?3,1,?4)",params![id,name,tag.color,tag.created_at.get()])?;w.tx.execute("INSERT INTO changes(entity,entity_id,op,at) VALUES('tag',?1,'upsert',?2)",params![id,w.now.get()])?;w.mark(crate::write::DirtyEntity::Tag,&id);}}
         }
         stage.db.execute_batch("DELETE FROM mappings;")?;
         let mut stmt=stage.db.prepare("SELECT id,data FROM notes ORDER BY id")?;
@@ -340,7 +340,7 @@ fn merge_folder(
                 "INSERT INTO changes(entity,entity_id,op,at) VALUES('folder',?1,'upsert',?2)",
                 params![id, w.now.get()],
             )?;
-            w.changes.folders_changed = true;
+            w.mark(crate::write::DirtyEntity::Folder, &id);
             result.created_folders += 1;
             id
         };

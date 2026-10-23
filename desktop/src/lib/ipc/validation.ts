@@ -79,52 +79,24 @@ const syncLogin = (value: unknown): boolean =>
     text(value.challengeToken) &&
     value.challengeToken.length > 0 &&
     integer(value.expiresAt))
+const SYNC_PHASES: Record<string, true> = { unbound: true, idle: true, syncing: true, paused: true }
 const syncStatus = (value: unknown): boolean =>
   record(value) &&
-  nullableText(value.bindingId) &&
-  (value.epoch === null || integer(value.epoch)) &&
-  text(value.phase) &&
-  integer(value.localCursor) &&
-  integer(value.remoteCursor) &&
-  integer(value.pending) &&
-  integer(value.blocked) &&
-  integer(value.conflicts) &&
-  typeof value.online === 'boolean' &&
-  nullableText(value.errorCode) &&
-  typeof value.terminal === 'boolean' &&
+  typeof value.phase === 'string' &&
+  SYNC_PHASES[value.phase] === true &&
   nullableText(value.siteOrigin) &&
-  nullableText(value.accountHint) &&
-  typeof value.metadataRisk === 'boolean' &&
-  Array.isArray(value.conflictItems) &&
-  value.conflictItems.every(
-    (item: unknown) =>
-      record(item) &&
-      text(item.id) &&
-      text(item.bindingId) &&
-      integer(item.epoch) &&
-      text(item.entity) &&
-      text(item.reason),
-  ) &&
-  Array.isArray(value.quarantined) &&
-  value.quarantined.every(
-    (item: unknown) =>
-      record(item) &&
-      text(item.bindingId) &&
-      integer(item.epoch) &&
-      text(item.siteOrigin) &&
-      text(item.accountHint) &&
-      integer(item.pending),
-  )
+  nullableText(value.account) &&
+  integer(value.cursor) &&
+  integer(value.pending) &&
+  (value.lastSuccessAt === null || integer(value.lastSuccessAt)) &&
+  nullableText(value.errorCode)
 const bindPreview = (value: unknown): boolean =>
   record(value) &&
   text(value.previewId) &&
-  record(value.counts) &&
-  integer(value.counts.local) &&
-  integer(value.counts.remote) &&
-  integer(value.counts.matched) &&
-  integer(value.counts.conflicts) &&
-  integer(value.counts.attachments) &&
-  integer(value.counts.networkWrites) &&
+  integer(value.localOnly) &&
+  integer(value.remoteOnly) &&
+  integer(value.same) &&
+  integer(value.different) &&
   integer(value.expiresAt)
 export function isSyncResponse(value: unknown): value is SyncResponse {
   return (
@@ -233,15 +205,10 @@ export function validateResponse(command: keyof CommandArgs, value: unknown): vo
     case 'sync_start':
     case 'sync_stop':
     case 'sync_now':
-    case 'sync_resolve_conflict':
-    case 'sync_discard_quarantined':
       valid = syncStatus(value)
       break
     case 'sync_bind_preview':
       valid = bindPreview(value)
-      break
-    case 'sync_export_quarantined':
-      valid = record(value)
       break
     case 'notes_snapshot':
     case 'library_changes':

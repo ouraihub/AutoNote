@@ -532,6 +532,7 @@ fn open_context(
         sink.clone(),
     )
     .map_err(|_| Error::invalid("startup", "Sync service unavailable"))?;
+    sink.bind_sync(&sync);
     Ok(AppContext {
         data_dir,
         library,
@@ -703,6 +704,15 @@ pub fn run() {
             let language = context.library.settings_get()?.appearance.language;
             app.manage(window::DesktopState::new(prefs, &language));
             app.manage(context.sync.clone());
+            // A stored binding resumes syncing on launch (22 §7.6).
+            if matches!(context.library.sync_binding(), Ok(Some(_))) {
+                let sync = context.sync.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = sync.start().await {
+                        tracing::warn!(code = error.code().as_str(), "sync.autostart.failed");
+                    }
+                });
+            }
             app.manage(context);
             // Restore the running state saved by mcp_start/mcp_stop; a taken port only logs.
             if settings.enabled {
@@ -786,9 +796,6 @@ pub fn run() {
             commands::sync::sync_start,
             commands::sync::sync_stop,
             commands::sync::sync_now,
-            commands::sync::sync_resolve_conflict,
-            commands::sync::sync_export_quarantined,
-            commands::sync::sync_discard_quarantined,
             commands::library::session_load,
             commands::library::session_update_profile,
             commands::library::session_logout,

@@ -154,4 +154,8 @@ CREATE TABLE ai_messages(id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFE
 CREATE INDEX idx_ai_conversations_updated ON ai_conversations(updated_at DESC);
 ",
     },
+    Migration {
+        version: 7,
+        sql: include_str!("../sync/migrate_v7.sql"),
+    },
 ];

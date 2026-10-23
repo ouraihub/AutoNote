@@ -1,6 +1,6 @@
 //! Desktop synchronization commands; all persistence stays in SyncService/Library.
 use note_core::AppError;
-use note_sync::{BindPreview, BindStrategy, CallOptions, LoginReply, SyncService, SyncStatus};
+use note_sync::{BindPreview, CallOptions, LoginReply, SyncService, SyncStatus};
 use std::sync::Arc;
 
 #[tauri::command]
@@ -40,11 +40,8 @@ pub async fn sync_status(
 pub async fn sync_bind_preview(
     service: tauri::State<'_, Arc<SyncService>>,
     login_id: String,
-    strategy: BindStrategy,
 ) -> Result<BindPreview, AppError> {
-    service
-        .preview(&login_id, strategy, &CallOptions::default())
-        .await
+    service.preview(&login_id, &CallOptions::default()).await
 }
 #[tauri::command]
 #[tracing::instrument(skip_all, err)]
@@ -52,16 +49,17 @@ pub async fn sync_bind_confirm(
     service: tauri::State<'_, Arc<SyncService>>,
     preview_id: String,
 ) -> Result<SyncStatus, AppError> {
-    service.confirm(&preview_id, &CallOptions::default()).await
+    service
+        .inner()
+        .confirm(&preview_id, &CallOptions::default())
+        .await
 }
 #[tauri::command]
 #[tracing::instrument(skip_all, err)]
 pub async fn sync_unbind(
     service: tauri::State<'_, Arc<SyncService>>,
-    binding_id: String,
-    epoch: i64,
 ) -> Result<SyncStatus, AppError> {
-    service.unbind(&binding_id, epoch).await
+    service.unbind().await
 }
 #[tauri::command]
 #[tracing::instrument(skip_all, err)]
@@ -81,35 +79,4 @@ pub async fn sync_stop(
 #[tracing::instrument(skip_all, err)]
 pub async fn sync_now(service: tauri::State<'_, Arc<SyncService>>) -> Result<SyncStatus, AppError> {
     service.now(&CallOptions::default()).await
-}
-#[tauri::command]
-#[tracing::instrument(skip_all, err)]
-pub async fn sync_resolve_conflict(
-    service: tauri::State<'_, Arc<SyncService>>,
-    conflict_id: String,
-    choice: String,
-    binding_id: String,
-    epoch: i64,
-) -> Result<SyncStatus, AppError> {
-    service
-        .resolve_conflict(&conflict_id, &choice, &binding_id, epoch)
-        .await
-}
-#[tauri::command]
-#[tracing::instrument(skip_all, err)]
-pub async fn sync_export_quarantined(
-    service: tauri::State<'_, Arc<SyncService>>,
-    binding_id: String,
-    epoch: i64,
-) -> Result<serde_json::Value, AppError> {
-    service.export_quarantined(&binding_id, epoch).await
-}
-#[tauri::command]
-#[tracing::instrument(skip_all, err)]
-pub async fn sync_discard_quarantined(
-    service: tauri::State<'_, Arc<SyncService>>,
-    binding_id: String,
-    epoch: i64,
-) -> Result<SyncStatus, AppError> {
-    service.discard_quarantined(&binding_id, epoch).await
 }

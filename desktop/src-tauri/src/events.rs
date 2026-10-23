@@ -7,9 +7,9 @@
 //! An emit failure is logged and never undoes the commit; windows catch up
 //! through `library_changes({since})`.
 
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock, Weak};
 
-use note_core::{AppError, ChangeSet, ChangeSink, Cursor, WriteEvent};
+use note_core::{AppError, ChangeSet, ChangeSink, Cursor, WriteEvent, WriteOrigin};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::AppContext;
@@ -22,6 +22,8 @@ pub struct TauriChangeSink {
     app: OnceLock<AppHandle>,
     /// Last cursor sent; the lock also serializes emits so cursors arrive in order.
     sent: Mutex<Option<Cursor>>,
+    /// Local edits wake the sync loop; weak so the sink never keeps sync alive.
+    sync: OnceLock<Weak<note_sync::SyncService>>,
 }
 
 impl TauriChangeSink {
@@ -36,10 +38,19 @@ impl TauriChangeSink {
         }
         let _ = self.app.set(app);
     }
+    pub fn bind_sync(&self, sync: &std::sync::Arc<note_sync::SyncService>) {
+        let _ = self.sync.set(std::sync::Arc::downgrade(sync));
+    }
 }
 
 impl ChangeSink for TauriChangeSink {
-    fn library_changed(&self, _: ChangeSet) {
+    fn library_changed(&self, changes: ChangeSet) {
+        if changes.origin != Some(WriteOrigin::Sync)
+            && !changes.touched.is_empty()
+            && let Some(sync) = self.sync.get().and_then(Weak::upgrade)
+        {
+            sync.wake();
+        }
         let Some(app) = self.app.get() else { return };
         let Ok(mut sent) = self.sent.lock() else {
             return;

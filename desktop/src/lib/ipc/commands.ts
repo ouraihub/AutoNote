@@ -30,14 +30,7 @@ import type {
   TagPatch,
   TagPatchResult,
 } from '@shared/backend-types'
-import type {
-  BindPreview,
-  BindStrategy,
-  ConflictChoice,
-  SyncLoginReply,
-  SyncStatus,
-  SyncTotpReply,
-} from './ports/remote-sync'
+import type { BindPreview, SyncLoginReply, SyncStatus, SyncTotpReply } from './ports/remote-sync'
 import type { AppInfo, LogEntry } from '../host/desktop-types'
 import type { McpApiKey, McpPreferences } from '@shared/types'
 import type { McpLocalStatus } from '@shared/backend-types'
@@ -75,15 +68,12 @@ export interface CommandArgs {
   sync_login: { origin: string; username: string; password: string }
   sync_complete_totp: { loginId: string; challengeToken: string; code: string }
   sync_status: Empty
-  sync_bind_preview: { loginId: string; strategy: BindStrategy }
+  sync_bind_preview: { loginId: string }
   sync_bind_confirm: { previewId: string }
-  sync_unbind: { bindingId: string; epoch: number }
+  sync_unbind: Empty
   sync_start: Empty
   sync_stop: Empty
   sync_now: Empty
-  sync_resolve_conflict: { conflictId: string; choice: ConflictChoice; bindingId: string; epoch: number }
-  sync_export_quarantined: { bindingId: string; epoch: number }
-  sync_discard_quarantined: { bindingId: string; epoch: number }
   session_load: Empty
   session_update_profile: { body: { name?: string; avatarUrl?: string } }
   session_logout: Empty
@@ -154,9 +144,6 @@ export interface CommandResults {
   sync_start: SyncStatus
   sync_stop: SyncStatus
   sync_now: SyncStatus
-  sync_resolve_conflict: SyncStatus
-  sync_export_quarantined: unknown
-  sync_discard_quarantined: SyncStatus
   session_load: BackendSession
   session_update_profile: PublicUser
   session_logout: void

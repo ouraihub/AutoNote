@@ -1,6 +1,6 @@
 # 22 详细设计：桌面同步与 MCP
 
-> 状态：阶段设计基线；本文件只描述 D4（本地 MCP 服务）和 D5（同步到 Web 实例），不代表代码已经完成。
+> 状态：阶段设计基线；本文件只描述 D4（本地 MCP 服务）和 D5（同步到 Web 实例），不代表代码已经完成。D5（§6–§8、§9 的 D5 任务）于 2026-10-21 按"脏标记 + 基准版本 CAS + 冲突副本"方案重写，后续实现以此为准。
 > 契约来源：`02-概要设计.md`（§3 端口、§4 类型、§5 错误码、§6 ChangeFeed、§7 写入语义、§8 IPC）；工程写法来源：`04-工程规范.md`。
 > 引用约定：`20 §x` 指 `20-详细设计-桌面内核.md`，`21 §x` 指 `21-详细设计-桌面宿主.md`，`10 §x` 指 `10-详细设计-共享应用层.md`。所有路径以 AutoPad 仓库根为准。
 
@@ -32,9 +32,9 @@
 
 桌面 `note-core` 是单库单用户，`mcp_operations` 没有 `user_id`。幂等键是 `operation_id`；tool 和 request_hash 必须在同一事务中比较，工具名或请求体不同即 `conflict`。
 
-### 1.3 同步不修改服务端
+### 1.3 同步沿用现有服务端接口
 
-D5仅调用现有HTTP/WS接口，不改Worker或服务端schema。metadata REST无CAS的竞态按§7.4处理，不能借MCP的expected_updated_at参数宣称REST有同样保护。
+D5 只调用现有 HTTP/WS 接口，不改 Worker 或服务端 schema。服务端已提供本方案需要的全部能力：每用户单调的变更流、笔记 `rev` 的 compare-and-swap（不匹配返回 409 和服务器版本）、客户端指定 id 的幂等创建、WebSocket 变更通知。文件夹和标签的 REST 写入没有 CAS，按 §7.4 以"后写者胜"处理并接受这一取舍。
 
 ### 1.4 统一事务与事件边界
 
@@ -50,8 +50,8 @@ MCP 写操作必须由 `note-core` 在**一个 SQLite transaction** 中完成：
 | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | `desktop/src-tauri/mcp/`                                                     | rmcp server 装配、认证、34 工具适配、schema、结果和调用限制                                            |
 | `desktop/src-tauri/core/src/store/mcp.rs`、`query/mcp.rs`                    | MCP 操作幂等记录、MCP 专用只读查询和领域结果                                                           |
-| `desktop/src-tauri/sync/`                                                    | 会话、绑定、pull/push、附件传输副本、实时通知和串行调度                                                |
-| `desktop/src-tauri/core/src/store/sync.rs`                                   | D5 的迁移、绑定/映射/outbox 状态读写                                                                   |
+| `desktop/src-tauri/sync/`                                                    | 会话、绑定、pull/push、附件传输、实时通知和串行调度                                                    |
+| `desktop/src-tauri/core/src/sync.rs`、`core/src/sync/`                       | D5 迁移、绑定状态、脏标记、远端版本和附件映射的读写                                                    |
 | `desktop/src-tauri/shell/src/credentials.rs`                                 | Windows 保持原 DPAPI；macOS/Linux 复用 Aether 系统密钥环 + AEAD 字节凭据接口；失败不得明文降级，详见40 |
 | `desktop/src-tauri/src/commands/{mcp,sync}.rs`、`src/services/{mcp,sync}.rs` | Tauri command 转发、事件和服务组合根                                                                   |
 | `desktop/src/lib/ipc/ports/{mcp,sync}.ts`、设置分区                          | 前端端口和 MCP/同步设置显示                                                                            |
@@ -80,14 +80,12 @@ desktop/src-tauri/
 │   ├── schema.rs                      # 工具 schema/结果契约
 │   └── tools/{read,write,organize,attachments,properties}.rs
 ├── sync/src/
-│   ├── lib.rs                         # SyncService、RemoteApi、SecretStore、SyncStatus
-│   ├── remote.rs                      # HTTP/WS RemoteApi；不改服务端
+│   ├── lib.rs                         # 导出 SyncService、RemoteClient、SyncStatus
+│   ├── remote.rs                      # RemoteClient：HTTP/WS，不改服务端
 │   ├── session.rs                     # cookie 解析、域/path/过期/重定向策略
-│   ├── bind.rs                        # 首次绑定和 epoch 隔离
-│   ├── pull.rs、push.rs               # 游标分页、outbox 回放和冲突副本
-│   ├── attachments.rs                  # 仅操作传输副本的 ID 映射
-│   ├── realtime.rs                    # WS、心跳、退避、轮询降级
-│   └── engine.rs                      # 单任务串行调度
+│   ├── service.rs                     # 登录、绑定、串行循环、状态与事件
+│   ├── pull.rs、push.rs               # 增量/快照拉取；按脏标记推送和冲突副本
+│   └── attachments.rs                 # 附件上传/下载与传输副本 ID 重写
 ├── src/commands/{mcp,sync}.rs         # Tauri command 仅转发
 └── src/services/{mcp,sync}.rs         # 组合根实现状态与事件
 
@@ -239,246 +237,223 @@ key创建时scope由当前用户明确启用的write/trash偏好推导，默认�
 
 ### 5.4 与共享 Backend 生命周期的衔接
 
-桌面 `Backend.dispose()` 必须先等待本地 SQLite 写入、MCP 已提交调用和当前文件 stage 的本地收尾，再取消监听、停止 MCP listener 与同步调度；它不等待远端 HTTP/WS 完成。正在进行的远端请求收到 `cancelled` 或 `request_timeout` 时，若尚未提交本地状态则保留 outbox/临时状态，若本地事务已提交则保持结果并由下次同步继续，不能伪造成功或删除队列。`notes.flush()` 的结果按共享契约返回 `FlushResult{pending, failed}`，退出提示只依据这两个计数；MCP 写入事件仍只进入统一 `changes`，不得恢复 `watchWrites` 第二总线。
+桌面 `Backend.dispose()` 必须先等待本地 SQLite 写入、MCP 已提交调用和当前文件 stage 的本地收尾，再取消监听、停止 MCP listener 与同步调度；它不等待远端 HTTP/WS 完成。正在进行的远端请求收到 `cancelled` 或 `request_timeout` 时，本地脏标记保持不变，由下次同步继续，不能伪造成功或清除脏标记。`notes.flush()` 的结果按共享契约返回 `FlushResult{pending, failed}`，退出提示只依据这两个计数；MCP 写入事件仍只进入统一 `changes`，不得恢复 `watchWrites` 第二总线。
 
 ## 6. D5 同步数据模型和会话安全
 
+### 6.0 方案选择与依据
+
+本节是 2026-10-21 的重写版本，取代原来的 outbox/epoch/快照暂存方案。原方案代码只能拉取：生产代码从不写 `sync_outbox`，推送不可达；全量快照提交时不写入笔记；文件夹和标签只记映射、不写本地表；"是否有未上传修改"又依赖 outbox，导致拉取会静默覆盖本地编辑。
+
+新方案是"每行脏标记 + 基准版本 CAS + 冲突副本"，与成熟实现一致：
+
+| 做法                                           | 依据                                                                                                                                                              |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 本地写入在同一事务里自动登记修改               | Joplin 用 `sync_items.sync_time < updated_time` 找待同步项（`packages/lib/models/BaseItem.ts` `itemsThatNeedSync`）；PowerSync 本地写入自动进入上传队列 `ps_crud` |
+| 同步写入和用户写入分开，同步写入不登记修改     | Joplin 保存同步数据时用 `changeSource: SOURCE_SYNC`，不刷新时间戳                                                                                                 |
+| 推送带"我认为的服务器版本"，不匹配由服务器拒绝 | RxDB replication 的 `assumedMasterState`；本服务端 `PATCH /api/notes/:id` 的 `rev` 就是同一协议                                                                   |
+| 笔记冲突保留两份，元数据冲突以远端为准         | Joplin `handleConflictAction.ts`：`NoteConflict` 生成冲突笔记，`ItemConflict` 采用远端                                                                            |
+| 实时通道只提示"该拉了"，重连后补拉             | Replicache poke；RxDB `RESYNC`                                                                                                                                    |
+| 拉取在一致的检查点一次性应用                   | PowerSync 检查点完整后才写入数据表                                                                                                                                |
+
+推送记录的最新状态，不记录逐次操作：笔记编辑频繁，推最新状态天然合并多次修改；顺序依赖用固定推送顺序（§7.3）解决。
+
 ### 6.1 迁移归属
 
-D5 的迁移追加在本文定义，由统一迁移表串接；不得把未使用的 `sync_map` 提前塞入 20 的核心迁移。迁移只追加不修改已发布版本；启动时遇到更高 schema 版本返回 `internal` 并保留数据。
+D5 迁移追加在本文定义，由统一迁移表串接，只追加、不修改已发布版本；启动时遇到更高 schema 版本返回 `internal` 并保留数据。新方案的迁移在同一版本里新建 §6.2 的表，把旧 `sync_state` 当前行的站点、账户、cookie 密文和游标搬进 `sync_binding`，再删除旧同步表。旧表其余内容没有生产数据（outbox 只有测试写入，快照暂存和冲突记录未被使用），直接删除。
 
-### 6.2 完整 schema
-
-以下是可直接迁移的 SQLite DDL；`binding_id + binding_epoch` 是所有同步表的隔离前缀，不能只按本地 note id 查询。游标是非负安全整数，使用 SQLite `INTEGER`，不是 TEXT；snapshot/after/nextKey 是独立字段。
+### 6.2 schema
 
 ```sql
-CREATE TABLE sync_state (
-  binding_id TEXT PRIMARY KEY NOT NULL,
-  binding_epoch INTEGER NOT NULL CHECK (binding_epoch >= 1),
+-- 当前绑定：最多一行。
+CREATE TABLE sync_binding (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
   site_origin TEXT NOT NULL,
   account_hint TEXT NOT NULL,
   remote_user_id TEXT NOT NULL,
-  cookie_ciphertext BLOB,
+  cookie_ciphertext BLOB NOT NULL,
+  cookie_name TEXT NOT NULL,
   cookie_domain TEXT NOT NULL,
   cookie_path TEXT NOT NULL,
   cookie_expires_at INTEGER,
-  cookie_secure INTEGER NOT NULL DEFAULT 1, cookie_host_only INTEGER NOT NULL DEFAULT 1,
-  cookie_name TEXT NOT NULL, cookie_same_site TEXT NOT NULL DEFAULT 'Lax',
-  snapshot_run_id TEXT,
+  cookie_secure INTEGER NOT NULL DEFAULT 1,
+  cookie_host_only INTEGER NOT NULL DEFAULT 1,
+  cookie_same_site TEXT NOT NULL DEFAULT 'Lax',
   cursor INTEGER NOT NULL DEFAULT 0 CHECK (cursor >= 0),
-  snapshot_cursor INTEGER CHECK (snapshot_cursor IS NULL OR snapshot_cursor >= 0),
-  after_key TEXT,
-  status TEXT NOT NULL,
+  last_success_at INTEGER,
   last_error_code TEXT,
-  updated_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL
 );
 
-CREATE TABLE sync_map (
-  binding_id TEXT NOT NULL,
-  binding_epoch INTEGER NOT NULL,
+-- 每个实体一行：远端已确认版本，以及是否有待推送的本地修改。
+CREATE TABLE sync_item (
   entity TEXT NOT NULL CHECK (entity IN ('note','folder','tag')),
-  local_id TEXT NOT NULL,
-  remote_id TEXT NOT NULL,
-  local_rev INTEGER NOT NULL CHECK (local_rev >= 0),
-  remote_rev INTEGER CHECK (remote_rev IS NULL OR remote_rev >= 0),
-  sent_local_rev INTEGER CHECK (sent_local_rev IS NULL OR sent_local_rev >= 0),
-  last_write_id TEXT,
-  base_payload_json TEXT,
-  base_hash TEXT,
-  last_remote_cursor INTEGER CHECK (last_remote_cursor IS NULL OR last_remote_cursor >= 0),
-  state TEXT NOT NULL,
-  PRIMARY KEY (binding_id, binding_epoch, entity, local_id),
-  UNIQUE (binding_id, binding_epoch, entity, remote_id),
-  FOREIGN KEY (binding_id) REFERENCES sync_state(binding_id)
+  id TEXT NOT NULL,
+  remote_rev INTEGER,             -- 仅笔记使用；NULL 表示远端还没有这条记录
+  dirty INTEGER NOT NULL DEFAULT 0 CHECK (dirty IN (0,1)),
+  PRIMARY KEY (entity, id)
 );
+CREATE INDEX sync_item_dirty ON sync_item(entity) WHERE dirty = 1;
 
-CREATE TABLE sync_outbox (
-  binding_id TEXT NOT NULL,
-  binding_epoch INTEGER NOT NULL,
-  entity TEXT NOT NULL CHECK (entity IN ('note','folder','tag','attachment')),
-  write_id TEXT NOT NULL,
-  local_id TEXT,
-  local_rev INTEGER NOT NULL CHECK (local_rev >= 0),
-  base_remote_rev INTEGER,
-  sent_local_rev INTEGER CHECK (sent_local_rev IS NULL OR sent_local_rev >= 0),
-  observed_cursor INTEGER NOT NULL CHECK (observed_cursor >= 0),
-  ack_prereq TEXT NOT NULL,
-  kind TEXT NOT NULL,
-  payload BLOB NOT NULL,
-  attachment_refs TEXT NOT NULL,
-  attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
-  next_attempt_at INTEGER NOT NULL,
-  state TEXT NOT NULL,
-  last_error_code TEXT,
-  recovery_id TEXT,
-  created_at INTEGER NOT NULL,
-  PRIMARY KEY (binding_id, binding_epoch, write_id),
-  FOREIGN KEY (binding_id) REFERENCES sync_state(binding_id)
-);
-
-CREATE TABLE sync_attachment_map (
-  binding_id TEXT NOT NULL,
-  binding_epoch INTEGER NOT NULL,
-  local_attachment_id TEXT NOT NULL,
-  remote_attachment_id TEXT,
+-- 附件：远端 id 由服务器分配，与本地 id 不同。
+CREATE TABLE sync_attachment (
+  local_id TEXT PRIMARY KEY,
+  remote_id TEXT NOT NULL UNIQUE,
   sha256 TEXT NOT NULL,
-  size INTEGER NOT NULL CHECK (size >= 0),
-  upload_intent_json TEXT,
-  state TEXT NOT NULL,
-  PRIMARY KEY (binding_id, binding_epoch, local_attachment_id),
-  FOREIGN KEY (binding_id) REFERENCES sync_state(binding_id)
+  size INTEGER NOT NULL CHECK (size >= 0)
 );
-
-CREATE TABLE sync_snapshot (
-  binding_id TEXT NOT NULL, binding_epoch INTEGER NOT NULL,
-  run_id TEXT NOT NULL, entity TEXT NOT NULL,
-  remote_id TEXT NOT NULL, remote_rev INTEGER, payload_json TEXT NOT NULL,
-  PRIMARY KEY(binding_id,binding_epoch,run_id,entity,remote_id)
-);
-CREATE TABLE sync_conflict (
-  id TEXT PRIMARY KEY, binding_id TEXT NOT NULL, binding_epoch INTEGER NOT NULL,
-  entity TEXT NOT NULL, local_id TEXT, remote_id TEXT,
-  local_payload TEXT NOT NULL, remote_payload TEXT NOT NULL,
-  reason TEXT NOT NULL, resolved_at INTEGER, created_at INTEGER NOT NULL
-);
-
-CREATE INDEX sync_outbox_ready ON sync_outbox(binding_id, binding_epoch, state, next_attempt_at, created_at, write_id);
-CREATE INDEX sync_map_remote ON sync_map(binding_id, binding_epoch, remote_id);
 ```
 
-`sync_state`没有全局rev；mapping保存每实体最后确认的local_rev/remote_rev。folder/tag没有rev，local_rev为0且remote_rev为null，冲突比较base_payload_json/base_hash。note响应没有cursor，ACK只确认发送write_id/sent_local_rev并更新实体remote_rev，不推进拉取cursor。纯同步应用不得再enqueue相同变更；恢复副本是显式本地新写。
+规则：
 
-- `binding_epoch` 是绑定生命周期版本；重绑定必增，不得复用旧队列。
-- `local_rev` 是本地 Library 的修订，`remote_rev` 是服务端笔记修订；二者不可比较大小。`sync_map` 记录两端最后确认版本、`sent_local_rev` 和对应 `write_id`。
-- cursor是最后完整应用的远端变化序号；snapshot_cursor/after_key/snapshot_run_id是独立的暂存状态。没有可由普通写响应得到的ack_cursor，故不建立这个字段。删除接口返回的游标只用于墓碑/校验，不能跳过中间其他实体变更。
-- `ack_prereq` 是发送该项前必须满足的前置条件 JSON，至少含 `binding_id,binding_epoch,local_id,expected_remote_rev,required_attachment_ids`；附件上传完成、绑定仍是当前 epoch、远端版本仍可验证是 ack 前提。前提不满足时不发送并转为 blocked，不删除队列。
-- 本地 cursor、远端 cursor、远端 rev 和本地 rev 永远不能互相覆盖；ACK 只能确认对应旧 `write_id/sent_local_rev`，不能确认其间产生的新 local_rev。
+- **id 两端相同。** 笔记、文件夹、标签的远端创建接口都接受客户端 id（`POST /api/notes`、`/api/folders`、`/api/tags` 的 `id`），所以不需要本地/远端 id 映射。只有附件的远端 id 由服务器分配，用 `sync_attachment` 记录。
+- **脏标记在写入层登记。** `Library::write(origin, …)` 在提交前，对本事务触及的每个笔记、文件夹、标签执行 `INSERT INTO sync_item(entity,id,dirty) VALUES(?,?,1) ON CONFLICT(entity,id) DO UPDATE SET dirty=1`，与业务写入同一事务。`origin == WriteOrigin::Sync` 时不登记。未绑定时同样登记，所以绑定前的离线修改在第一次推送时上传。
+- **触及集合来自 `WriteTx`。** 它已经收集 `changes.notes` 和 `changes.deletions`；文件夹和标签目前只有 `folders_changed`/`tags_changed` 两个布尔值，改成记录具体 id（`changes.folders`、`changes.tags`）。UI、MCP、导入、版本恢复、复制、清空回收站都经过 `Library::write`，只改这一处。
+- **删除也是脏记录。** 笔记和文件夹是软删除（`deleted_at`），推送时按当前行状态决定调用哪个接口（§7.3）。标签和彻底删除的笔记是硬删除，本地行不存在而 `sync_item` 仍为 dirty，推送时据此发送删除请求。
+- **`remote_rev` 只在三处更新**：拉取写入远端版本时、推送成功拿到响应时、409 接受服务器版本时。本地 `notes.rev` 与 `remote_rev` 是两个计数器，永不比较大小。
+- **游标** 是最后完整应用的远端变更序号，只在拉取事务提交时推进。
 
-同步表约束补充：应用启动读取prefs中唯一currentBindingId，再按完整(binding_id,epoch)查询。相同实体remoteId唯一，已隔离旧绑定只读；所有state/kind使用Rust枚举校验。snapshot_run_id随机生成，快照首屏清本run旧暂存；非首屏不能重置facets。完整快照/增量只给摘要，尚缺正文的note必须GET成功或确认404后才能完成本页/本轮checkpoint。映射记录比当前本地rev旧意味着仍有本地待同步，不代表远端数据可以覆盖。
+旧方案的 `sync_state`、`sync_map`、`sync_outbox`、`sync_snapshot`、`sync_conflict`、`sync_attachment_map`，以及 binding epoch、隔离队列、`ack_prereq`、`observed_cursor`、`sent_local_rev`、`write_id`、`recovery_id` 全部删除。
 
 ### 6.3 cookie 会话和重定向
 
-`session.rs` 只接受配置 origin 返回的 `Set-Cookie`。解析并保存 cookie 的 name/value、host/domain、path、Secure、HttpOnly、SameSite、Max-Age/Expires；默认 host-only，默认 path 按 RFC 计算。发送时同时执行域匹配、path 匹配、过期检查和 Secure 检查；过期 cookie 删除，不发送已过期值。日志只记 host、path、是否过期和状态，不记值。
+`session.rs` 只接受配置 origin 返回的 `Set-Cookie`。解析并保存 cookie 的 name/value、host/domain、path、Secure、HttpOnly、SameSite、Max-Age/Expires；默认 host-only，默认 path 按 RFC 计算。发送时同时执行域匹配、path 匹配、过期检查和 Secure 检查；过期 cookie 删除，不发送已过期值。日志只记 host、path、是否过期和状态，不记值。服务端续期返回新 `Set-Cookie` 时，在同一轮同步结束前加密写回 `sync_binding`。
 
-HTTP client 禁止自动跟随跨 origin 重定向。每个 3xx 必须检查目标 scheme/host/port：只允许配置 origin 的同源目标；不得把“任意 localhost”当可信 Origin。MCP 的非空 Origin 只接受设置中显式登记的 trusted origin，空 Origin 仅限非浏览器本地客户端；未登记的 localhost 网页、跨域、协议降级或端口改变一律拒绝。绝不把 Cookie、Authorization 或正文转发到重定向目标。Set-Cookie 也不能通过重定向响应植入不匹配的域/path。DPAPI protect/unprotect 失败、cookie 解密失败或 secret store 不可用都返回明确错误并暂停同步；禁止明文、环境变量或日志 fallback。
+HTTP client 禁止自动跟随跨 origin 重定向。每个 3xx 必须检查目标 scheme/host/port：只允许配置 origin 的同源目标；不得把"任意 localhost"当可信 Origin。绝不把 Cookie、Authorization 或正文转发到重定向目标，Set-Cookie 也不能通过重定向响应植入不匹配的域/path。DPAPI 或系统密钥环 protect/unprotect 失败、cookie 解密失败都返回明确错误并暂停同步；禁止明文、环境变量或日志 fallback。
 
-### 6.4 首次绑定和重绑定
+### 6.4 绑定和解绑
 
-首次绑定绝不静默覆盖或删除任一侧数据。用户必须先选择策略并看到预览：
+绑定只有一种行为：**合并，差异保留两份**，不再提供三种策略。
 
-1. **保留本地并导出到远端**：只创建不存在的远端资源；同 ID/同内容才建立映射，远端已有不同内容保留并标冲突。
-2. **导入远端为本地副本**：远端快照全部以新本地 ID 写入，绝不删除已有本地笔记；同标题不覆盖。
-3. **合并并保留双方**：相同内容才合并映射；任何内容、rev、附件或 metadata 差异都生成冲突副本和待处理状态。
+1. 登录拿到 cookie 后预览：拉取远端全量快照（不写本地），与本地按 id 对比，统计"仅本地 / 仅远端 / 两边相同 / 两边不同"四类数量给用户确认。
+2. 确认后在一个事务里：写 `sync_binding`；仅远端的记录以 `WriteOrigin::Sync` 写入本地并记 `remote_rev`；两边相同的记录只写 `sync_item(remote_rev, dirty=0)`；两边不同的笔记先按 §7.3 的冲突规则生成本地冲突副本，再写入远端版本；两边不同的文件夹和标签直接采用远端；仅本地的记录保持 `dirty=1`，由第一次推送上传；游标设为快照游标。
+3. 同标题不等于同一条笔记，只按 id 匹配。
 
-预览包含本地/远端计数、匹配数、冲突数、附件数量和潜在网络写入。取消或预览失败不改变数据。没有用户确认不能执行绑定。
+解绑先停止同步循环，再删除 `sync_binding` 行和 `sync_attachment`，把所有 `sync_item` 重置为 `dirty=1, remote_rev=NULL`。本地笔记、文件夹、标签不删除。重新绑定到同一或另一个站点时，按上面的合并流程处理，本地修改不会丢失。远端 `user_id` 与绑定时不同（同站点换了账户）时暂停同步，提示用户解绑后重新绑定，不按用户名猜测是否同一人。
 
-重绑定先停止旧 engine，持久化旧 binding 的状态，再创建新的 `binding_id/binding_epoch`。旧 epoch 的 outbox 标记 `quarantined`，新 engine 查询必须带当前 binding_id 和 epoch；旧队列不得在新账户或新站点发送。用户可在导出旧队列后显式丢弃，丢弃不是重绑定的隐含副作用。
+## 7. 拉取、推送、冲突和附件
 
-## 7. RemoteApi、pull/push 和附件
+### 7.1 RemoteClient
 
-### 7.1 RemoteApi
+`note_sync::RemoteClient`（`sync/src/remote.rs`）是对现有服务端接口的唯一封装，不再定义 trait。保留现有方法：`login`、`complete_totp`、`validate_session`、`sync_page`、`get_note`、`create_note`、`patch_note`、`trash_note`、`restore_note`、`purge_note`、`list_folders`、`list_tags`、`metadata_write`、`list_attachments`、`upload_file`、`remove_file`、`download_file`、`subscribe_changes`。所有调用都带 `CallOptions`（截止时间和取消令牌），任何网络 await 之前释放 SQLite 锁。
 
-`note_sync::RemoteApi` 使用 `async_trait`，唯一公开 trait 覆盖现有服务端接口；所有网络调用均为异步，取消由 `CallOptions` 传入，错误携带机器 code：
+DTO 按现有 shared 类型解析；请求字段用服务端的 `rev`，不新造 `expected_rev`。TLS 正常校验；认证 cookie 不跟随跨源跳转。附件下载接受 200 完整响应，不假设服务端支持 Range。
 
-```rust
-#[async_trait::async_trait]
-pub trait RemoteApi: Send + Sync {
-    async fn login(&self, origin: &str, username: &str, password: &str, signal: &CallOptions) -> Result<PasswordLoginResult, RemoteError>;
-    async fn complete_totp(&self, origin: &str, challenge: &str, code: &str, signal: &CallOptions) -> Result<TotpLoginResult, RemoteError>;
-    async fn validate_session(&self, binding: &Binding, signal: &CallOptions) -> Result<SessionInfo, RemoteError>;
-    async fn sync_page(&self, request: SyncPageRequest, signal: &CallOptions) -> Result<SyncPage, RemoteError>;
-    async fn get_note(&self, binding: &Binding, note_id: &str, signal: &CallOptions) -> Result<RemoteNote, RemoteError>;
-    async fn create_note(&self, binding: &Binding, request: CreateRemoteNote, signal: &CallOptions) -> Result<RemoteNote, RemoteError>;
-    async fn patch_note(&self, binding: &Binding, note_id: &str, request: PatchRemoteNote, signal: &CallOptions) -> Result<RemoteNote, RemoteError>;
-    async fn trash_note(&self, binding: &Binding, note_id: &str, signal: &CallOptions) -> Result<RemoteNote, RemoteError>;
-    async fn restore_note(&self, binding: &Binding, note_id: &str, request: RestoreRemoteNote, signal: &CallOptions) -> Result<RemoteNote, RemoteError>;
-    async fn purge_note(&self, binding: &Binding, note_id: &str, signal: &CallOptions) -> Result<PurgeResult, RemoteError>;
-    async fn list_folders(&self, binding: &Binding, signal: &CallOptions) -> Result<Vec<RemoteFolder>, RemoteError>;
-    async fn create_folder(&self, binding: &Binding, input: FolderCreate, signal: &CallOptions) -> Result<RemoteFolder, RemoteError>;
-    async fn patch_folder(&self, binding: &Binding, id: &str, input: FolderPatch, signal: &CallOptions) -> Result<RemoteFolder, RemoteError>;
-    async fn remove_folder(&self, binding: &Binding, id: &str, strategy: FolderDeleteStrategy, signal: &CallOptions) -> Result<(), RemoteError>;
-    async fn list_tags(&self, binding: &Binding, signal: &CallOptions) -> Result<Vec<RemoteTag>, RemoteError>;
-    async fn create_tag(&self, binding: &Binding, input: TagCreate, signal: &CallOptions) -> Result<RemoteTag, RemoteError>;
-    async fn patch_tag(&self, binding: &Binding, id: &str, input: TagPatch, signal: &CallOptions) -> Result<TagPatchResult, RemoteError>;
-    async fn remove_tag(&self, binding: &Binding, id: &str, signal: &CallOptions) -> Result<TagRemoveResult, RemoteError>;
-    async fn list_attachments(&self, binding: &Binding, cursor: Option<AttachmentCursor>, signal: &CallOptions) -> Result<AttachmentPage, RemoteError>;
-    async fn upload_file(&self, binding: &Binding, file: UploadFile, signal: &CallOptions) -> Result<RemoteAttachment, RemoteError>;
-    async fn remove_file(&self, binding: &Binding, id: &str, signal: &CallOptions) -> Result<(), RemoteError>;
-    async fn download_file(&self, binding: &Binding, attachment_id: &str, range: ByteRange, signal: &CallOptions) -> Result<AttachmentBytes, RemoteError>;
-    async fn subscribe_changes(&self, binding: &Binding, signal: &CallOptions) -> Result<ChangeSubscription, RemoteError>;
-}
-```
+### 7.2 拉取
 
-HTTP DTO按现有shared类型解析；请求名用`rev`，不是凭空加`expected_rev`。SyncPageRequest含binding/since/after/snapshot，Response为SyncResponse。files列表没有SHA256字段：先按filename/size/noteId筛选，再下载候选计算SHA256比对；无法唯一确认则unknown_outcome暂停。附件下载不假设Range被服务端支持，200完整体流式写入同样合法，206时验证范围。TLS正常验证；认证头与cookie不跟跨源跳转。
+每轮同步先拉后推。
 
-### 7.2 pull
+1. 用 `GET /api/sync?since=<cursor>` 读增量页，按 `hasMore` 继续翻页；摘要中有变化的笔记用 `GET /api/notes/:id` 取正文。
+2. 服务端返回 `full=true`（游标为 0、或游标早于服务端保留的变更日志）时，按 `after/snapshot` 读完整个快照，全部放在内存里；单用户笔记量可以一次装下。快照读完后再从快照游标补拉增量，与快照合并。
+3. 在**一个事务**里应用（`WriteOrigin::Sync`，所以不会登记脏标记），然后推进游标：
+   - **笔记**：本地 `sync_item.dirty=0` 时写入远端版本（正文、标题、文件夹、置顶、星标、归档、删除时间），更新 `remote_rev`；`dirty=1` 时不覆盖本地，只记录"远端有更新"，留给推送阶段按 409 处理。
+   - **文件夹和标签**：本地不脏时写入远端版本；本地脏时本地保留，推送时覆盖远端（§7.4）。
+   - **删除**：远端删除的笔记、文件夹、标签，本地不脏时删除（笔记和文件夹软删除，标签硬删除）；本地脏时保留本地，推送时重新创建。
+   - **全量快照**：快照中没有、本地有、且 `remote_rev IS NOT NULL` 的记录说明已在远端被删除，按上一条处理；`remote_rev IS NULL` 的记录是本地新建、尚未推送，保持不动。
+4. 正文中引用的附件在事务之前下载（§7.5），下载失败则本轮不推进游标。
+5. 事务提交后发一次 library ChangeFeed，界面刷新。
 
-pull 串行读取当前 epoch。增量请求使用非负整数 `since`，按服务端返回的 `cursor/hasMore/nextKey` 继续；不把 note 响应的 rev 当 cursor。遇到 `full=true`，必须先在 staging 中收集完整快照：首屏保存 `snapshot`/`snapshot_cursor`、`nextKey`，后续请求固定 `since=0&after=<nextKey>&snapshot=<snapshot_cursor>`；后续页重复首屏 cursor，空 facets 不能清空集合。整轮 staging 完成后，再从 snapshot cursor 补拉增量，最后一次性提交 `facetsFull`、notes、deletions 和最终 cursor。页面提交失败保留旧 checkpoint，不能每页推进最终 cursor。
+不变量：**游标只在本轮所有页面成功写入的同一事务里推进**；中途失败下一轮从旧游标重来，服务端变更流按序号单调，重复应用是幂等的。
 
-应用 staged 数据时，若本地有未发送更高 `local_rev`，远端正文不能覆盖本地脏内容；保留远端版本和本地待发送内容。拉取事务只更新本页暂存状态或最终合并结果，不更新无关 local_rev。
+### 7.3 推送
 
-### 7.3 push
+每轮按固定顺序推送 `sync_item.dirty=1` 的记录，先父后子、先创建后删除：
 
-push 严格按当前 epoch 的 `sync_outbox.created_at,write_id` 顺序取项。发送前检查 `ack_prereq`：附件已上传、绑定仍有效、远端版本仍可验证。写入请求携带该项的 `base_remote_rev`；成功后在 core 事务中记录 remote id/rev、`sent_local_rev`、write_id 并标记对应 outbox acked；不从 note response 推进 cursor，也不确认其间新产生的 local_rev。
+1. 新建和修改的**文件夹**（父文件夹在前）、**标签**；
+2. 新建和修改的**笔记**（正文中引用的本地附件先上传，§7.5）；
+3. 删除的笔记、标签、文件夹（子在前）。
 
-409 必须沿既定 outbox 策略执行：读取 `details.server`，若服务端内容已与待发内容一致则按已保存处理；否则将该项基线更新为 server.rev、设置 `preserveVersion:true`，保留服务端版本并重发本地优先内容。不得自行引入三方 merge。更新基线前持久化，失败则停留 pending。原始 write_id 保留。
+笔记按当前本地行决定请求：
 
-404 必须先持久化 `recovery_id`，然后以该 ID `POST /api/notes` 创建恢复副本；同 ID 重试由服务端创建语义保证幂等。不得删除本地原笔记或盲目重新生成 recovery ID。
+| 本地状态             | `remote_rev` | 请求                                                                                                   |
+| -------------------- | ------------ | ------------------------------------------------------------------------------------------------------ |
+| 存在、未删除         | NULL         | `POST /api/notes`，带本地 id、正文、标题、文件夹、星标；返回后若置顶/归档与默认值不同，再 `PATCH` 一次 |
+| 存在、未删除         | 有值         | `PATCH /api/notes/:id`，`rev=remote_rev`，带正文、标题、文件夹、置顶、星标、归档                       |
+| 已软删除             | 有值         | `DELETE /api/notes/:id`（移到回收站）；从回收站恢复则 `POST /:id/restore`                              |
+| 行不存在（彻底删除） | 有值         | `DELETE /api/notes/:id/purge`；远端还没进回收站时先 `DELETE /:id`                                      |
+| 已软删除或行不存在   | NULL         | 远端从未有过，直接清除 `sync_item`                                                                     |
 
-### 7.4 metadata 无 CAS 的风险处理
+结果处理：
 
-文件夹、标签等现有远端 API 没有 CAS 参数，D5 不伪造 `expected_updated_at` 已提供强一致性。处理顺序为：发送 metadata 写入前强制 pull 最新集合；在本地 engine 写锁下比较入队快照的 `updated_at`/内容 hash；若已知发生变化，标记 `metadata_conflict`，保留远端快照和本地期望，不发送覆盖写，要求用户选择。即使比较后再发生竞态，服务端仍可能被覆盖；该风险必须在状态、日志和 UI 中明确显示，写入记录 remote response 和时间，不能宣称无冲突。
+- **成功**：用响应里的 `rev` 更新 `remote_rev`。只有在推送期间本地没有新写入时才清除 `dirty`：推送前读取本地 `notes.rev`，确认事务里 `UPDATE … SET dirty=0 WHERE` 本地 `rev` 未变；变了就保持 `dirty=1`，下一轮再推。
+- **409（服务器版本已变）**：先比较 `details.server` 的正文和元数据，与本地一致则视为成功（上次请求已生效但响应丢失）。不一致则是真冲突：在一个事务里把本地版本另存为新笔记（新 id、标题加"（冲突 yyyy-MM-dd HH:mm）"、`dirty=1`），再把原 id 写成服务器版本并清除 `dirty`。冲突副本在下一轮作为新笔记上传，两边都能看到。
+- **404（远端已删除）**：远端不再有这条笔记，而本地修改了它，以本地为准：清空 `remote_rev`，下一轮以同一 id 重新 `POST` 创建。
+- **创建时 409（同 id 已存在但内容不同）**：服务端判定为不同记录，把本地记录换新 id 后重新创建，原 id 采用远端版本。
+- **401**：暂停同步，状态提示重新登录；**429/5xx/离线**：保持 `dirty`，按退避重试；**其他 4xx**：该条记录标记错误码并跳过，不阻塞其余记录，不无限重试。
 
-metadata 冲突解决是显式的新 operation：选择远端、选择本地重试或合并后重试。解决前不重复自动重试；pull 不删除本地集合成员，删除墓碑也只在有明确远端 cursor 且无本地未发送变更时应用。即使比较后再发生竞态，服务端仍可能被覆盖；验收不得宣称“保证不覆盖”，只能验证已知变更被拦截并将竞态风险显示给用户。
+不需要 outbox、`write_id` 或 `recovery_id`：笔记创建用客户端 id，重试天然幂等；修改的重放由 409 + 内容比较判定是否已生效。
 
-### 7.5 附件传输副本与 ID 重写
+### 7.4 文件夹和标签
 
-本地笔记、Markdown/YAML 属性和本地附件表中的 ID 永远不改写。push 创建独立的传输 DTO/临时文件副本，在副本中把 `local_attachment_id` 替换为已确认的 `remote_attachment_id`；远端返回后仅写 `sync_attachment_map`。pull 下载远端附件到临时路径，校验长度和 sha256 后以新的本地 attachment id 原子落盘，并在本地引用事务中建立映射。任何失败清理未引用临时文件，不能删除仍被本地笔记引用的正式文件。
+服务端的文件夹、标签写入没有 CAS。采用"后写者胜"，不做冲突检测：拉取阶段本地不脏则采用远端，本地脏则保留本地，推送阶段覆盖远端。单用户场景下，同一文件夹在两台设备上同时改名的概率很低，丢失的也只是一个名称或颜色，不是正文。
 
-附件先于引用它的笔记push。POST /api/files不支持operation_id，发送前持久化上传意图（本地ID/hash/size/文件名/相关笔记及发送前已知远端ID集合）；丢响应后列出候选并下载计算hash，唯一匹配才确认映射，多个/零候选不能确定时暂停unknown_outcome，提供用户核对和显式重试，不保证服务器绝无孤儿重复。下载只能在本地完成hash校验后发布；服务端无可信hash字段时不要宣称远端hash已认证。MCP本地upload的operation_id与此远端REST问题是两个合同。
+- 文件夹：`POST /api/folders`（带本地 id）、`PATCH /api/folders/:id`、`DELETE /api/folders/:id?strategy=move-up`。
+- 标签：服务端的标签大多由正文中的 `#标签` 派生，笔记推送后自动存在。只同步手动创建的标签和颜色：`POST /api/tags`（带本地 id）、`PATCH /api/tags/:id`、`DELETE /api/tags/:id`。同名标签已存在时服务端返回 409，采用远端 id 并把本地关联改过去。
 
-### 7.6 realtime
+### 7.5 附件
 
-实时通道只触发“有变更可 pull”，不直接应用正文。WS 连接使用当前绑定 cookie，心跳超时按指数退避；连接失败降级为带抖动的轮询，恢复后先 pull 再恢复正常间隔。WS/轮询均不得推进 cursor 而不执行 pull。状态经 `StatusSink` 和 Tauri `autonote://sync-status` 报告，具体进度使用 IPC Channel；成功 pull/push 后发 library ChangeFeed，提交并释放数据库锁后才发事件。
+本地笔记正文、属性和本地附件表里的附件 id **永远不改写**。
+
+- **上传**：推送笔记前，找出正文 `/api/files/<本地id>` 引用中在 `sync_attachment` 里没有记录的附件，先 `POST /api/files` 上传，拿到远端 id 后写入 `sync_attachment(local_id, remote_id, sha256, size)`。发送笔记时只在请求体副本里把本地 id 替换成远端 id。
+- **上传响应丢失**：重试前用 `list_attachments` 按文件名、大小、所属笔记找候选，下载候选算 sha256，唯一匹配就记录映射；找不到再重新上传。可能在远端留下一个孤立的重复文件，由服务端的 `POST /api/files/prune` 清理，不影响正确性。
+- **下载**：拉取的正文里出现 `sync_attachment` 中没有的远端 id 时，下载到临时文件，校验大小后计算 sha256，以新的本地 id 原子落盘并写映射；写入本地正文时把远端 id 替换为本地 id。
+- 每次同步不再全量扫描附件目录；`files_recover` 只在库打开时执行一次。
+
+### 7.6 实时通知和调度
+
+- **一个循环**：`SyncService` 只持有一个后台任务。`start()` 已在运行时直接返回当前状态，不再创建第二个循环；`stop()` 取消唯一的任务并等待它退出。
+- **触发**：三种情况会立即开始一轮同步：本地写入提交后（`Library::write` 的非 `Sync` 写入通知 `wake`，500 ms 防抖合并连续输入）；WebSocket 收到 `changed`；定时轮询（默认 15 秒，WebSocket 正常时 5 分钟）。
+- **WebSocket** 只表示"有变化可以拉"，不直接应用数据。断线后指数退避重连，重连成功先补拉一次。连续断线时退避到轮询，不形成每秒重试的循环。
+- **开机自动启动**：应用启动时如果有 `sync_binding`，自动 `start()`。
+- **错误**：每轮失败把错误码写入 `sync_binding.last_error_code` 并用 `tracing::warn` 记录（不含 cookie 和正文）；只有一轮完全成功才清除错误码并写 `last_success_at`。不再在每轮开始时清空错误。
+- **退避**：失败后等待 2 s、4 s … 最长 60 s 再试，成功后恢复正常间隔。
 
 ## 8. 公开 API 与 command
 
-### 8.1 Rust traits
+### 8.1 Rust 接口
 
-`RemoteApi`唯一声明在§7.1，不再定义另一套同步签名。`CallOptions`包含deadline与取消令牌；任何网络await前释放SQLite锁。`SecretStore`只在shell实现，不把Windows FFI引入core：
+`SecretStore` 只在 shell 实现，不把平台 FFI 引入 core：
 
 ```rust
 pub trait SecretStore: Send + Sync {
     fn protect(&self, value: &[u8]) -> Result<Vec<u8>, SecretError>;
     fn unprotect(&self, value: &[u8]) -> Result<Vec<u8>, SecretError>;
 }
-pub trait StatusSink: Send + Sync {
-    fn changed(&self, status: &SyncStatus);
-}
 ```
 
-core的公开同步操作为`stage_sync_page(binding,run,page)`、`commit_sync_snapshot(binding,run,expected_cursor)`、`claim_sync_write(binding)`、`ack_sync_write(binding,write_id,sent_local_rev,response)`、`record_sync_conflict(...)`。每个方法在core内独立短事务；不把Connection/WriteTx交给sync crate。MCP使用结构化`McpWriteRequest`进入core单事务，不能给外部闭包公开WriteTx再嵌套Library事务。
+core 的同步操作（`core/src/sync.rs`），每个都是独立短事务，不把 `Connection`/`WriteTx` 交给 sync crate：
+
+| 方法                                                                | 作用                                                    |
+| ------------------------------------------------------------------- | ------------------------------------------------------- |
+| `sync_binding()` / `sync_bind(binding, snapshot)` / `sync_unbind()` | 读取、建立（§6.4 合并）、解除绑定                       |
+| `sync_apply(cursor, notes, folders, tags, deletions, full)`         | §7.2 的一次性应用，`WriteOrigin::Sync`，推进游标        |
+| `sync_dirty(limit)`                                                 | 按 §7.3 顺序返回待推送记录及其当前本地行                |
+| `sync_settle(entity, id, remote_rev, local_rev_seen)`               | 推送成功：更新 `remote_rev`，本地未再修改时清除 `dirty` |
+| `sync_fork_conflict(id, server_note)`                               | 409 真冲突：本地另存冲突副本，原 id 写入服务器版本      |
+| `sync_attachment_map(local_id, remote_id, sha256, size)`            | 记录附件映射                                            |
+| `sync_record_result(error_code)`                                    | 写 `last_error_code`/`last_success_at`                  |
 
 ### 8.2 Tauri commands
 
-所有command async返回Result，错误按10；网络服务用Tokio，core阻塞操作放blocking池。参数均经验证，凭据参数不日志、不持久明文。
+所有 command 都是 async 并返回 Result，错误按 10 处理；网络调用用 Tokio，core 阻塞操作放 blocking 池。参数都要校验，凭据参数不记日志、不明文持久化。
 
-| command                                         | 参数                               | 返回                                                            |
-| ----------------------------------------------- | ---------------------------------- | --------------------------------------------------------------- |
-| mcp_status / mcp_start / mcp_stop               | 无                                 | McpLocalStatus（running/endpoint/port/error）                   |
-| mcp_set_port                                    | port:u16                           | McpLocalStatus；运行中先安全重启，端口占用保留旧配置            |
-| mcp_list_keys / mcp_create_key / mcp_revoke_key | 无 / name / id                     | McpApiKey[] / {key,token} / {ok:true}                           |
-| mcp_get_preferences / mcp_save_preferences      | 无 / {writeEnabled?,trashEnabled?} | McpPreferences                                                  |
-| sync_login                                      | origin,username,password           | {loginId,result:PasswordLoginResult}；短期loginId关联内存cookie |
-| sync_complete_totp                              | loginId,challengeToken,code        | {loginId,result:TotpLoginResult}                                |
-| sync_status                                     | 无                                 | SyncStatus                                                      |
-| sync_bind_preview                               | loginId,strategy                   | {previewId,counts,conflicts,expiresAt}；不改变本地笔记/远端     |
-| sync_bind_confirm                               | previewId                          | SyncStatus；复核本地/远端变化，失效预览重新确认                 |
-| sync_unbind                                     | bindingId                          | SyncStatus；先停engine并隔离未确认队列，不静默删除              |
-| sync_start / sync_stop / sync_now               | 无                                 | SyncStatus                                                      |
-| sync_resolve_conflict                           | conflictId,choice:'local'          | 'remote'                                                        | 'keep-both' | SyncStatus |
+| command                                         | 参数                               | 返回                                                                    |
+| ----------------------------------------------- | ---------------------------------- | ----------------------------------------------------------------------- |
+| mcp_status / mcp_start / mcp_stop               | 无                                 | McpLocalStatus（running/endpoint/port/error）                           |
+| mcp_set_port                                    | port:u16                           | McpLocalStatus；运行中先安全重启，端口占用保留旧配置                    |
+| mcp_list_keys / mcp_create_key / mcp_revoke_key | 无 / name / id                     | McpApiKey[] / {key,token} / {ok:true}                                   |
+| mcp_get_preferences / mcp_save_preferences      | 无 / {writeEnabled?,trashEnabled?} | McpPreferences                                                          |
+| sync_login                                      | origin,username,password           | {loginId,result:PasswordLoginResult}；短期 loginId 关联内存 cookie      |
+| sync_complete_totp                              | loginId,challengeToken,code        | {loginId,result:TotpLoginResult}                                        |
+| sync_status                                     | 无                                 | SyncStatus                                                              |
+| sync_bind_preview                               | loginId                            | {previewId,localOnly,remoteOnly,same,different,expiresAt}；不写任何数据 |
+| sync_bind_confirm                               | previewId                          | SyncStatus；远端在预览后变化则要求重新预览                              |
+| sync_unbind                                     | 无                                 | SyncStatus；停止循环、删除绑定，本地数据保留并全部标为待推送            |
+| sync_start / sync_stop / sync_now               | 无                                 | SyncStatus                                                              |
 
-SyncStatus含bindingId/epoch/phase/localCursor/remoteCursor/pending/blocked/conflicts/online/errorCode，不含cookie或正文。服务状态事件`autonote://sync-status`/`autonote://mcp-status`仅给宿主设置；领域变化仍走library-changed，互不代替。MCP返回的引用URL使用`autonote://note/<id>`稳定标识；不是公开HTTP分享，22的MCP客户端说明明确这一点。
+`SyncStatus` 字段：`phase`（`unbound`/`idle`/`syncing`/`paused`，只存内存，重启后从 `idle` 开始）、`siteOrigin`、`account`、`cursor`、`pending`（`dirty=1` 的记录数）、`lastSuccessAt`、`errorCode`。不含 cookie 或正文。界面把"在线"改为"上次成功同步时间"，删除"本地游标"一项（它是本地界面变更流的序号，与同步无关）。
+
+服务状态事件 `autonote://sync-status`/`autonote://mcp-status` 只给宿主设置页；领域变化仍走 library-changed，二者互不代替。MCP 返回的引用 URL 使用 `autonote://note/<id>` 稳定标识，不是公开 HTTP 分享，22 的 MCP 客户端说明会写明这一点。
 
 ## 9. 实施计划
 
@@ -527,76 +502,57 @@ SyncStatus含bindingId/epoch/phase/localCursor/remoteCursor/pending/blocked/conf
 - **判据**：1. 启停、端口占用、应用退出、重复启动和撤销 key 均在真实桌面进程中可观察并返回机器错误码。2. 设置开关会立即影响下一次工具调用；配置片段不含明文 token 以外的持久化凭据或公网地址。3. 真实客户端可初始化、列出 34 工具、搜索、读取、创建、版本冲突和撤回一篇测试笔记；危险工具在关闭权限时失败。4. `cargo metadata --locked`、桌面定向 MCP smoke 和 SDK 版本记录通过；未验证的版本不得写入“已支持”。
 - **陷阱**：服务停止时必须关闭 listener 和 token state；不要使用全局静态服务绕开组合根；不要用模拟客户端回显代替真实 MCP 客户端。
 
-### D5-1 存储会话、迁移与 DPAPI
+### D5-1 新 schema 与迁移
 
-- **依赖**：D1-2、D2-6。
-- **改动范围**：`core/src/store/sync.rs`、迁移注册、`shell/src/credentials/`、`sync/src/session.rs`、`sync/src/bind.rs`、同步 DTO。
-- **不做**：不实现 HTTP pull/push，不修改服务端，不保存明文 cookie，不把 sync_map 放回 20 的已发布迁移。
-- **步骤**：1. 追加并注册 §6.2 的 `sync_state/sync_map/sync_outbox/sync_attachment_map` schema、索引、epoch 外键语义和迁移回滚保护。2. 实现 Windows DPAPI protect/unprotect，所有 unsafe 块写 SAFETY 注释；非 Windows 返回明确不可用错误或使用经批准的系统 secret store，绝不明文降级。3. 解析并验证 cookie 的 domain/path/expiry/Secure，持久化密文及元数据。4. 实现 binding 状态、当前 epoch、队列计数和安全擦除临时 secret。
-- **判据**：临时库的6张同步表、索引和epoch隔离可实际迁移；DPAPI重启解密有效且失败无明文fallback；cookie域/path/过期/Secure策略正确；重绑定后旧队列隔离，远端userId不同即暂停，不按用户名猜同一用户。
-- **陷阱**：不得用unwrap处理凭据；不能把operation ACK当pull cursor；folder/tag不伪造远端rev。
+- **改动范围**：`core/src/db/migrations.rs` 新版本 7、`core/src/sync/migrate_v7.sql`（v3 的 `schema.sql` 已发布，不修改）、`core/src/sync.rs` 的绑定读写。
+- **步骤**：1. 新增迁移：建 `sync_binding`、`sync_item`、`sync_attachment`；把旧 `sync_state` 当前行搬入 `sync_binding`；删除旧 6 张同步表。2. 为已有的笔记、文件夹、手动标签补 `sync_item`：已绑定且旧 `sync_map` 同 id 已确认时写 `remote_rev`、`dirty=0`，其余 `dirty=1`。3. 旧 `sync_map` 有本地不存在的笔记时（旧引擎推进了游标却没写入），游标归 0，下一轮走全量快照补回。4. 保留现有 DPAPI/密钥环加密和 cookie 校验。
+- **判据**：从当前用户库（`sync_state` 一行、游标 13，`sync_map` 3 条笔记映射但本地只有 1 条笔记且都不在映射里）迁移后，站点、账户、cookie 密文保留，游标归 0，本地那条笔记 `dirty=1`；未绑定库全部 `dirty=1`；迁移重复执行无变化。
+- **陷阱**：不得在迁移里解密 cookie；只搬密文。
 
-### D5-2 RemoteApi、HTTP 会话与服务端兼容性
+### D5-2 写入层登记脏标记
 
-- **依赖**：D5-1、D1-2。
-- **改动范围**：`sync/src/{remote.rs,session.rs,lib.rs}`、Cargo manifest/lock、HTTP/WS DTO 夹具和本地测试服务器适配器。
-- **不做**：不改 `web/src/worker`，不引入远端 schema 迁移，不承诺 metadata CAS。
-- **步骤**：1. 实际验证 reqwest/rustls、tokio-tungstenite 及目标 Rust toolchain 的版本/feature，固定 lock 并记录结果。2. 实现 `RemoteApi` 的现有同步、笔记、metadata、附件和实时端点，严格按 shared DTO 解码。3. 禁止自动跨源重定向，按 §6.3 管理 cookie 和超时/429/401/409/404。4. 用现有 Web API 的本地实例/真实测试实例验证请求和响应，未改变任何服务端代码。
-- **判据**：1. `cargo metadata --locked` 和实际 HTTPS 请求成功；TLS、认证过期、429 retryAfter、offline、非法 DTO 分别映射预期错误。2. 同源 3xx 可按规则处理，跨域/降级/端口变化重定向携带 cookie 时被拒绝。3. 真实 API 的 sync page、note rev conflict、attachment sha256 和 WS 通知与 shared DTO 一致。4. `git diff`/代码评审确认服务端无改动；metadata 请求明确标记无 CAS，不伪造强一致性。
-- **陷阱**：reqwest feature 名和 lock 版本必须实测，不能根据旧版本猜；不要开启自动 cookie jar 后又手动保存一份导致发送两次。
+- **改动范围**：`core/src/write/mod.rs`（`ChangeSet.touched` 记录本事务触及的笔记、文件夹、标签 id，取代 `folders_changed`/`tags_changed`）、`core/src/db/mod.rs` 的 `Library::write`、文件夹/标签写函数。
+- **步骤**：1. 笔记的 `record_change`、彻底删除，以及文件夹/标签的 `record` 把 id 记入 `changes.touched`；不经过这些函数的批量写（导入、MCP“删除并上移”）显式记录。2. `Library::write` 提交前，`origin != Sync` 时对 `changes.touched` 写 `sync_item.dirty=1`。3. 提交后宿主的 ChangeSink 唤醒同步循环。
+- **判据**：UI、MCP、导入、版本恢复、复制、清空回收站每条路径各一个测试，写入后对应 `sync_item.dirty=1`；`WriteOrigin::Sync` 写入后不变。
+- **陷阱**：不要在各个写函数里分别登记，只在 `Library::write` 一处登记；漏掉的路径就是丢数据。
 
-### D5-3 首次绑定、预览、确认和 epoch 隔离
+### D5-3 绑定与解绑
 
-- **依赖**：D5-1、D5-2、D1-4、D1-5、D1-7。
-- **改动范围**：`sync/src/bind.rs`、`core/src/store/sync.rs`、`src/commands/sync.rs`、`src/services/sync.rs`、`desktop/src/lib/ipc/ports/sync.ts`、`SyncSection.svelte`。
-- **不做**：不静默覆盖/删除本地或远端数据，不自动丢弃旧队列，不在预览阶段写领域数据。
-- **步骤**：1. 实现三种显式策略（保留本地导出、导入远端副本、合并保留双方）及计数/冲突/附件预览。2. 预览使用临时 snapshot，不推进正式 cursor、不写 outbox；用户确认后创建 binding/epoch。3. 重绑定停止旧 engine、隔离旧队列、创建新 epoch，并提供导出/显式丢弃旧队列。4. 将绑定状态、确认提示、冲突和风险接入设置页与 IPC。
-- **判据**：1. 首次绑定无确认、取消、预览失败均不改变本地/远端数据和 cursor。2. 三种策略的真实夹具场景分别证明：不删除本地、不静默覆盖远端、差异生成副本/冲突。3. 重绑定后旧 epoch 的 outbox 在新站点/账户永不发送；旧队列可查看、导出、显式丢弃。4. 绑定状态重启后保留 site/account hint、epoch 和脱敏状态，不显示 cookie。
-- **陷阱**：同标题不等于同 ID；不能以标题匹配覆盖数据。新 binding 不能复用旧 binding_id，也不能只清空队列掩盖数据风险。
+- **改动范围**：`sync/src/service.rs` 的 `preview`/`confirm`/`unbind`、`core/src/sync.rs` 的 `sync_bind`/`sync_unbind`、`DesktopSyncSection.svelte`、IPC 校验。
+- **步骤**：按 §6.4 实现单一的合并绑定和解绑；删除三种策略、隔离队列、导出/丢弃隔离队列的 command 和界面。
+- **判据**：本地 2 条、远端 3 条、其中 1 条 id 相同但内容不同：绑定后本地 4 条笔记（含 1 份冲突副本）、远端在第一次推送后也是 4 条；取消预览不写任何数据；解绑后本地数据不变、全部待推送。
 
-### D5-4 pull、游标和本地合并
+### D5-4 拉取
 
-- **依赖**：D5-2、D5-3、D1-3、D1-4、D1-5、D1-6。
-- **改动范围**：`sync/src/pull.rs`、`core/src/store/sync.rs`、`core/src/library` 远端应用入口、同步契约测试。
-- **不做**：不推送本地写入，不把远端 cursor 当本地 rev，不覆盖有更高 local_rev 的脏正文。
-- **步骤**：增量页短事务提交后推进cursor；full先stage全轮、固定snapshot/after、保留首页facets，再补增量后原子安装；摘要变更另GET正文并验证其rev，404生成删除处理；本地dirty保存双方，不用远端覆盖。
-- **判据**：full第二页中断重启不清空folders/tags、不遗漏页外笔记；未完成全轮cursor不提前确认；正文GET期间再次编辑或404正确处理；本地dirty与远端rev分离；提交后library事件一次发布。
-- **陷阱**：不要先推进 cursor 再写库；不要按 `remote_rev > local_rev` 判断两域可比较；分页 token 异常必须停同步而非从头静默覆盖。
+- **改动范围**：`sync/src/pull.rs`、`core/src/sync.rs` 的 `sync_apply`。
+- **步骤**：按 §7.2 实现。增量与全量快照走同一个 `sync_apply` 事务；文件夹、标签、删除真正写入本地；脏记录不覆盖。
+- **判据**：远端改正文、改文件夹名、删标签、删笔记，分别在本地生效；本地脏笔记不被远端覆盖；游标为 0 的全量拉取写入全部笔记（回归：原实现写入 0 条）；拉取中途失败游标不变，重跑结果一致。
 
-### D5-5 push、outbox、冲突和 metadata 风险
+### D5-5 推送与冲突
 
-- **依赖**：D5-2、D5-3、D5-4、D1-4、D1-5、D1-7。
-- **改动范围**：`sync/src/push.rs`、`sync/src/engine.rs`、`core/src/store/sync.rs`、冲突 DTO/UI 和 ChangeFeed 适配。
-- **不做**：不无限重试 4xx，不静默 rebase GUI/MCP，不宣称无 CAS metadata 写入强一致。
-- **步骤**：冻结发送writeId/sent_local_rev；200只确认对应旧写；409相同内容直接确认，否则持久新base_rev并preserveVersion重发；404先持久recovery_id再幂等create；metadata先比较快照，已知冲突暂停；401/429/离线分类保留队列。
-- **判据**：响应丢失后note创建不重复，发送期间新输入不被旧ACK确认；409远端旧版本可读，404恢复ID稳定；metadata已知冲突拒绝自动覆盖，并明确比较后仍有竞态风险；文件上传unknown_outcome按D5-6处理，不能声称自动exactly-once。
-- **陷阱**：不能因为 HTTP 200 就确认本地较新的内容；ack_prereq 缺失或 epoch 不匹配必须 blocked。冲突副本要能被用户找到，不能只写日志。
+- **改动范围**：`sync/src/push.rs`、`core/src/sync.rs` 的 `sync_dirty`/`sync_settle`/`sync_fork_conflict`。
+- **步骤**：按 §7.3 的顺序和请求表实现；按结果表处理 200/409/404/401/429/其他 4xx。
+- **判据**：桌面新建、修改、移到回收站、恢复、彻底删除，分别在 Web 端可见；两端同时改同一笔记，桌面推送后两端都有原笔记（Web 版本）和冲突副本（桌面版本）；推送请求发出后、响应前本地再次编辑，推送成功后仍为 `dirty=1` 且下一轮推送新内容；响应丢失后重试不产生重复笔记。
 
-### D5-6 附件同步和传输副本
+### D5-6 附件
 
-- **依赖**：D5-4、D5-5、D1-7。
-- **改动范围**：`sync/src/attachments.rs`、`core/src/store/sync.rs`、`core/src/files`、附件传输 DTO、崩溃恢复任务。
-- **不做**：不改写本地 Markdown/属性/附件 ID，不把临时文件直接注册为正式文件，不允许任意路径。
-- **步骤**：1. 为本地附件建立 map，上传前复制到受限临时目录并校验 sha256/size。2. 只在传输 DTO 中把 local id 替换为已确认 remote id，填写 `ack_prereq`；本地领域对象保持原 ID。3. 下载远端 bytes 到临时文件，校验后原子 rename 并在 core 事务写引用/map。4. 启动时扫描临时文件、无引用文件和半完成 map，按状态恢复或安全清理。
-- **判据**：本地源文ID不改、远端传输副本引用映射正确；上传成功丢响应时实际列候选并计算hash，唯一候选确认，歧义暂停而非盲传；stage/rename/DB故障重启保留引用文件；未下载附件不能显示为已离线可用；下载篡改/超限/路径穿越被拒。
-- **陷阱**：禁止用字符串全局替换本地正文来重写附件 ID；FS 和 SQLite 不是同一事务，必须有引用保护和恢复扫描。
+- **改动范围**：`sync/src/attachments.rs`、`core/src/sync.rs` 的 `sync_attachment_map`、`core/src/files.rs`。
+- **步骤**：按 §7.5 实现上传、丢响应恢复、下载；把 `files_recover` 从每轮同步中移除，只在库打开时执行。
+- **判据**：桌面插入图片后 Web 端能显示；Web 端插入图片后桌面能显示且本地正文是本地 id；上传响应丢失重试后远端最多多一个孤立文件、笔记引用唯一；同步一轮的日志里不再出现 `attachment.recovery.completed`。
 
-### D5-7 实时状态、串行 engine 和真实同步验收
+### D5-7 调度、状态与真实验收
 
-- **依赖**：D5-4、D5-5、D5-6、D2-3、D2-6。
-- **改动范围**：`sync/src/{realtime.rs,engine.rs,lib.rs}`、`src/services/sync.rs`、`src/commands/sync.rs`、`desktop/src/lib/ipc/ports/sync.ts`、`SyncSection.svelte`、托盘订阅。
-- **不做**：不把 WS 消息直接当正文，不开第二条 watchWrites 总线，不在客户端 Promise 丢弃后假装取消。
-- **步骤**：1. 实现一个串行 engine，pull/push 互斥，所有状态转换带 binding epoch。2. 实现 WS 心跳、断线退避、轮询降级和恢复时先 pull；消息只触发 pull。3. 通过 StatusSink/IPC Channel 输出 phase、队列数、cursor、冲突、terminal；提交后发统一 library ChangeFeed。4. 在本地测试 Web 实例和真实桌面进程执行首次绑定、pull、push、409、metadata 无 CAS、附件、断网恢复、重绑定和 WS→轮询场景。
-- **判据**：同步触发合并为单engine；WS失败轮询且重连先pull；领域事件用library-changed，服务状态用sync-status，不广播正文；真实桌面+本地Worker完成绑定、断网恢复、409、404、附件丢响应、重绑定旧队列隔离、退出重启，记录实际结果。
-- **陷阱**：不要跨 await 持有 std Mutex；不要把取消调用当作取消已提交写入；WS 断线不能清空 outbox 或重置 cursor，必须从持久状态恢复。
+- **改动范围**：`sync/src/service.rs` 的 `start`/`stop`/`run`、`src/lib.rs` 启动流程、`DesktopSyncSection.svelte`、`desktop/src/lib/ipc/validation.ts`、中英文文案。
+- **步骤**：按 §7.6 和 §8.2 实现单循环、写入唤醒、开机自动启动、错误持久化和日志、新 `SyncStatus`。
+- **判据**：连续点击"启动同步"5 次只有一个循环；有绑定时重启应用自动同步；断网时状态显示错误码并持续保留，恢复后自动清除；WebSocket 连接失败时同步间隔不小于退避值（回归：原实现约每 2 秒一轮）；真实桌面 + 本地 Worker 走完：绑定、双向编辑、冲突、断网恢复、附件、解绑再绑定，记录实际结果。
 
 ## 10. 交付检查清单
 
 1. D4-1 的 `rmcp` 实际版本、feature、MSRV、许可证和 `cargo metadata --locked` 证据已记录；没有手写协议路径。
 2. 34 个工具逐项具备输入 schema、结果字段、scope、幂等语义、危险注解和真实调用证据；云端备份/分享工具未被误纳入。
 3. MCP 所有写入均经 `execute_mcp_write` 单事务，幂等结果和领域写入不可分离提交；过期 rev 不静默覆盖。
-4. D5使用bindingId/epoch、每实体localRev/remoteRev、发送writeId/sentLocalRev、整数pull cursor与附件映射；无冗余ack_cursor，不混淆序列。
-5. 首次绑定需要策略、预览和确认，不静默覆盖/删除；重绑定按 binding/epoch 隔离旧队列。
-6. cookie 具备 domain/path/过期/Secure/重定向检查，DPAPI 失败无明文 fallback；日志不含凭据。
-7. 同步不改服务端；metadata 无 CAS 的风险、冲突和解决路径可观察；附件 ID 只在传输副本中重写。
-8. 本文件定义12项未来实施任务，当前均待执行；任务依赖与索引见03，不能把设计完成误当代码验收通过。
+4. D5 只用 `sync_binding`、`sync_item`、`sync_attachment` 三张表；脏标记只在 `Library::write` 一处登记，`WriteOrigin::Sync` 不登记；游标只在拉取事务里推进。
+5. 本地修改不会被拉取覆盖；笔记冲突两份都在且两端可见；文件夹/标签按"后写者胜"处理。
+6. cookie 具备 domain/path/过期/Secure/重定向检查，DPAPI/密钥环失败无明文 fallback；日志不含凭据。
+7. 同步不改服务端；附件 id 只在请求副本里替换为远端 id，本地正文保持本地 id。
+8. D5 七项任务各有可运行的判据测试，并在真实桌面 + 本地 Worker 上记录实际结果；不能把设计完成当成验收通过。
