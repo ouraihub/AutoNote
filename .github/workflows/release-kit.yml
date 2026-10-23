@@ -11,6 +11,7 @@ permissions:
 jobs:
   # No path filter: docs-only pushes skip web.yml/desktop.yml but their commits still get checked.
   check:
+    name: Commit rules
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -26,6 +27,8 @@ jobs:
       contents: write
       pull-requests: write
     steps:
+      # RELEASE_TOKEN, not GITHUB_TOKEN: a PR opened by GITHUB_TOKEN triggers no workflows, so the
+      # release PR would get neither CI nor AI review and could never merge itself.
       - uses: ouraihub/release-kit@v0
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_TOKEN }}

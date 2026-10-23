@@ -1,15 +1,9 @@
 name: Desktop
 
 on:
+  # No path filter on PRs: the three builds are required for every merge, and a filtered-out
+  # workflow would leave them pending forever.
   pull_request:
-    paths:
-      - desktop/**
-      - packages/**
-      - pnpm-lock.yaml
-      - pnpm-workspace.yaml
-      - package.json
-      - .github/workflows/desktop.yml
-      - .github/workflows/desktop-release.yml
   push:
     branches: [main]
     paths:

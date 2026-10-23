@@ -1,14 +1,9 @@
 name: Web
 
 on:
+  # No path filter on PRs: Web checks are required for every merge, and a filtered-out workflow
+  # would leave them pending forever.
   pull_request:
-    paths:
-      - web/**
-      - packages/**
-      - pnpm-lock.yaml
-      - pnpm-workspace.yaml
-      - package.json
-      - .github/workflows/web.yml
   push:
     branches: [main]
     paths:
@@ -37,6 +32,7 @@ permissions:
 
 jobs:
   check:
+    name: Web check
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -52,6 +48,7 @@ jobs:
       - run: pnpm run web:build
 
   e2e:
+    name: Web e2e
     needs: check
     runs-on: ubuntu-24.04
     timeout-minutes: 20
