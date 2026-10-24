@@ -20,6 +20,7 @@ import { mcpAuthorizeRoutes } from './routes/mcp-authorize'
 import { mcpSettingsRoutes } from './routes/mcp-settings'
 import { aiRoutes } from './routes/ai'
 import { aiKitRoutes } from './routes/ai-kit'
+import { relayRoutes, relaySettingsRoutes } from './routes/relay'
 import type { AppBindings } from './env'
 import { selectAttachmentStorage } from './attachments/backend'
 
@@ -101,6 +102,7 @@ export function createApp() {
   app.route('/api/mcp', mcpSettingsRoutes)
   app.route('/api/ai/kit', aiKitRoutes)
   app.route('/api/ai', aiRoutes)
+  app.route('/api/relay', relaySettingsRoutes)
   app.route('/api/share', shareManageRoutes)
   app.route('/api/public', shareRoutes)
   app.route('/api', transferRoutes)
@@ -109,6 +111,7 @@ export function createApp() {
     throw ApiError.notFound('API endpoint not found')
   })
 
+  app.route('/relay', relayRoutes)
 
   app.route('/s', sharePageRoutes)
   app.route('/', mcpAuthorizeRoutes)

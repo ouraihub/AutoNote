@@ -362,6 +362,16 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     key_ciphertext TEXT NOT NULL, position INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_ai_endpoint_keys ON ai_endpoint_keys(user_id, endpoint_id, position, id)`,
+  `CREATE TABLE IF NOT EXISTS relay_access_keys (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, name TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL, last_used_at INTEGER, expires_at INTEGER, revoked_at INTEGER,
+    day TEXT, day_requests INTEGER NOT NULL DEFAULT 0
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_relay_access_keys_user ON relay_access_keys(user_id, revoked_at)`,
+  `CREATE TABLE IF NOT EXISTS relay_github_repos (
+    repo TEXT PRIMARY KEY, user_id TEXT NOT NULL, workflow TEXT NOT NULL, created_at INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_relay_github_repos_user ON relay_github_repos(user_id, repo)`,
   `CREATE TABLE IF NOT EXISTS ai_models (
     user_id TEXT NOT NULL, endpoint_id TEXT NOT NULL, model_id TEXT NOT NULL,
     model_type TEXT NOT NULL, type_source TEXT NOT NULL, context_window INTEGER,
@@ -784,6 +794,8 @@ const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ai_endpoint_keys: ['id', 'user_id', 'endpoint_id', 'label', 'enabled', 'key_ciphertext', 'position', 'exhausted_until', 'exhausted_reason'],
   ai_models: ['user_id', 'endpoint_id', 'model_id', 'model_type', 'type_source', 'context_window', 'can_vision', 'position', 'max_output', 'supports_tools', 'reasoning', 'native_web_search', 'name', 'group_name', 'pricing'],
   ai_roles: ['user_id', 'role', 'endpoint_id', 'model_id'],
+  relay_access_keys: ['id', 'user_id', 'name', 'key_hash', 'created_at', 'last_used_at', 'expires_at', 'revoked_at', 'day', 'day_requests'],
+  relay_github_repos: ['repo', 'user_id', 'workflow', 'created_at'],
   ai_chat_conversations: ['id', 'user_id', 'title', 'scope', 'created_at', 'updated_at', 'selected_turn_id', 'revision'],
   ai_chat_turns: ['id', 'user_id', 'conversation_id', 'seq', 'status', 'input', 'messages', 'model_id', 'endpoint_id', 'error_code', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'reasoning_tokens', 'reasoning_effort', 'reasoning_text', 'context_usage', 'created_at', 'parent_id', 'question_id', 'supersedes_id', 'kind', 'cost', 'cost_currency'],
   ai_turn_images: ['user_id', 'turn_id', 'idx', 'mime', 'object_key', 'created_at', 'kind'],
@@ -830,6 +842,8 @@ const REQUIRED_TABLES = [
   'ai_search_defaults',
   'ai_search_keys',
   'ai_search_preferences',
+  'relay_access_keys',
+  'relay_github_repos',
 ] as const
 
 const REQUIRED_INDEXES = [
@@ -879,6 +893,8 @@ const REQUIRED_INDEXES = [
   'idx_ai_chat_conversations_user',
   'idx_ai_search_keys_scope',
   'idx_ai_turn_images_object',
+  'idx_relay_access_keys_user',
+  'idx_relay_github_repos_user',
 ] as const
 
 

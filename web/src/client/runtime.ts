@@ -100,6 +100,7 @@ export function createWebRuntime(services: WebServices): AppDeps {
   if (IS_DEMO_MODE) {
     delete actualBackend.update
     delete actualBackend.aiHost
+    delete actualBackend.relay
     actualBackend.capabilities = {
       ...backend.capabilities,
       totp: false,
