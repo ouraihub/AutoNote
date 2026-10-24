@@ -4,6 +4,23 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { currentArtifacts, noLinks, root, sha256 } from './release-artifacts.mjs'
+import { run } from './release-build.mjs'
+
+const releaseEntry = path.join(root, 'scripts/release-build.mjs')
+for (const [args, message] of [
+  [['unexpected'], /Usage:/],
+  [['build', '--platform', 'invalid'], /Unsupported release platform/],
+  [['build', '--target', 'invalid'], /Unsupported release target/],
+  [['build', '--platform'], /Unknown argument/],
+]) {
+  const result = spawnSync(process.execPath, [releaseEntry, ...args], { encoding: 'utf8' })
+  assert.equal(result.status, 1, result.stderr)
+  assert.match(result.stderr, message)
+}
+assert.equal(run('pnpm', ['--version'], { encoding: 'utf8', stdio: 'pipe' }).status, 0)
+assert.throws(() => run(process.execPath, ['-e', 'process.exit(7)'], { stdio: 'pipe' }), /Command failed \(7\)/)
+assert.throws(() => run(path.join(tmpdir(), 'autonote-missing-command'), [], { stdio: 'pipe' }), error => error.cause?.code === 'ENOENT')
+console.log('PASS: release CLI rejects invalid commands/targets; real pnpm starts; child failures propagate')
 
 const stage = realpathSync(mkdtempSync(path.join(tmpdir(), 'AutoNote-release-fixture-')))
 const desktop = path.join(stage, 'desktop')

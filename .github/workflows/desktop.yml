@@ -78,8 +78,8 @@ jobs:
         shell: cmd
         run: call desktop\scripts\msvc-env.bat
       - run: pnpm install --frozen-lockfile
-      - name: Full checks, native packages, secure store and packaged startup smoke
-        run: pnpm run ci
+      - name: Desktop checks, native packages, secure store and packaged startup smoke
+        run: pnpm run ci:desktop
       - name: Verify platform candidate manifest
         if: github.event_name != 'pull_request'
         run: node desktop/scripts/release-candidates.mjs verify desktop/dist/candidate-${{ matrix.platform }}/candidate.json

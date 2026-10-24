@@ -42,7 +42,7 @@ export function currentArtifacts(manifestPath = path.join(root, 'dist', 'release
   return manifest
 }
 
-function collect(version, started) {
+export function collect(version, started) {
   const src = path.join(target, 'x86_64-pc-windows-msvc', 'release')
   const exe = path.join(src, 'AutoNote.exe')
   const nsis = path.join(src, 'bundle', 'nsis')

@@ -16,9 +16,10 @@
     "web:test": "pnpm --filter @autonote/shared test && pnpm --filter autonote-web test:unit",
     "web:build": "pnpm --filter autonote-web build",
     "desktop:dev": "pnpm --filter autonote-desktop dev:app",
-    "desktop:verify": "pnpm run app:check && pnpm --filter autonote-desktop verify",
+    "desktop:verify": "pnpm --filter autonote-desktop verify",
     "desktop:package:verify": "pnpm --filter autonote-desktop package:verify",
-    "ci": "release-kit check && node .github/scripts/ai-review.mjs --self-test && pnpm run web:check && pnpm run web:test && pnpm run web:build && pnpm run desktop:verify && pnpm run desktop:package:verify"
+    "ci:desktop": "pnpm run desktop:verify && pnpm run desktop:package:verify",
+    "ci": "release-kit check && node .github/scripts/ai-review.mjs --self-test && pnpm run web:check && pnpm run web:test && pnpm run web:build && pnpm run ci:desktop"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

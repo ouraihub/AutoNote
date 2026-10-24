@@ -2,12 +2,13 @@
 
 详细工程规范见 `docs/04-工程规范.md`。本文件只列每次都必须遵守的几条。
 
-## 1. 推送前必须通过 `pnpm run ci`
+## 1. 本地验证改动，GitHub 执行完整门禁
 
-- `pnpm run ci` 依次运行 `release-kit check`、`web:check`、`web:test`、`web:build`、`desktop:verify`、`desktop:package:verify`，和 `.github/workflows/release-kit.yml`、`web.yml`、`desktop.yml` 的检查步骤一致；原生平台打包与冒烟也是质量门。
-- 改了 `web/src/worker` 或 API，还要跑 e2e：先用 `AUTONOTE_EPHEMERAL_DEV=1 pnpm exec vite --port 7712 --strictPort` 起一个临时实例，再运行 `node web/scripts/e2e.mjs http://localhost:7712`。
-- 只跑改动文件的测试（`vitest run xxx.test.ts`）不算验证。`pnpm run ci` 不通过，不提交、不推送、不汇报“已完成”。
-- 新增 CI 步骤时，同时更新 `pnpm run ci` 和工作流，两边保持一致。
+- 本地先跑受影响模块的类型/静态检查、相关测试套件，并实际运行改变的路径；不把只跑单个测试文件当作全部验收，不用完整 CI 反复调试。
+- 完整门禁由 GitHub 执行：`release-kit.yml` 检查提交与注释；`web.yml` 执行 `web:check`、`web:test`、`web:build` 和 API e2e；`desktop.yml` 三平台各执行 `ci:desktop`（`desktop:verify`、`desktop:package:verify`），不重复 Web 检查。所有必需检查通过才允许合并。
+- `pnpm run ci` 保留为需要时手动执行的完整本机入口，不再是提交/推送前的强制步骤；本地通过不能替代 GitHub 必需检查，远端失败不能汇报交付完成。
+- 改了 `web/src/worker` 或 API，本地还要跑 e2e：在 `web/` 用 `AUTONOTE_EPHEMERAL_DEV=1 pnpm exec vite --port 7712 --strictPort` 起临时实例，再在根目录运行 `node web/scripts/e2e.mjs http://localhost:7712`。
+- 新增 CI 检查时，同时更新对应脚本、完整 `ci` 入口和工作流，覆盖保持一致；共享应用检查由 Web job 执行一次，桌面平台检查仍逐平台执行。
 - 推送或手动触发 GitHub Actions 前，先完成 `docs/04-工程规范.md` §13 本地 checklist，记录命令/平台/结果及未验证项。先用本机/WSL排错，禁止把三平台完整CI当逐次调试器；额度异常后未经用户同意不得再触发远端，也不得提高预算或削弱检查。
 
 ## 2. 共享代码在 Aether

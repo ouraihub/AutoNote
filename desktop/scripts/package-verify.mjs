@@ -9,7 +9,7 @@ function run(command, args, options = {}) {
   if (result.error) throw result.error
   if (result.status !== 0) throw new Error(`${command} failed (${result.status})`)
 }
-run(process.execPath, ['scripts/app.mjs', 'build'])
+run(process.execPath, ['scripts/app.mjs', 'build'], { env: { ...process.env, AUTONOTE_SKIP_VERIFY: '1' } })
 if (process.platform === 'linux') {
   const home = mkdtempSync(path.join(tmpdir(), 'autonote-desktop-session-'))
   const runtime = path.join(home, 'run')
