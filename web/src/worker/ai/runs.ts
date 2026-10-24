@@ -292,7 +292,7 @@ async function paintingModel(env: Env, userId: string): Promise<Connection> {
     .first<{ endpointId: string | null; modelId: string | null }>()
   const options = row?.endpointId && row.modelId ? await modelOptions(env.DB, userId, { modelType: 'image' }) : []
   if (!row?.endpointId || !row.modelId || !options.some((option) => option.endpointId === row.endpointId && option.modelId === row.modelId)) throw needsConfig('painting_model')
-  return resolveModel(env, userId, { endpointId: row.endpointId, modelId: row.modelId }, true)
+  return resolveModel(env, userId, { endpointId: row.endpointId, modelId: row.modelId })
 }
 
 /** Turn cost summed per upstream round (contract §4); null when pricing is absent or any round lacks input/output tokens. */
@@ -446,8 +446,8 @@ async function streamRound(
   const encoded = requestBody({ protocol: connection.protocol, endpointId: connection.endpointId, baseUrl: connection.baseUrl, model: connection.modelId, system: run.system, history: run.history, input: run.input, images: run.images, maxOutput: run.maxOutput, reasoningEffort: run.reasoningEffort, reasoning: connection.reasoning, reasoningBudget: run.reasoningBudget, nativeWebSearch: run.nativeWebSearch, tools: run.tools, turn })
   const body = JSON.stringify(encoded)
   state.requestChars = charCount(body)
-  const known = [...connection.apiKeys]
-  let upstream = new AbortController()
+  const known = connection.apiKeys
+  const upstream = new AbortController()
   const abort = (): void => upstream.abort()
   let rejectCancelled: (error: KitFailure) => void = () => {}
   const cancelledError = new Promise<never>((_, reject) => {
@@ -462,8 +462,6 @@ async function streamRound(
   const guarded = <T>(promise: Promise<T>): Promise<T> => Promise.race([promise, cancelledError])
   try {
     const first = async (key: string | null): Promise<{ reader: ReadableStreamDefaultReader<Uint8Array>; chunk: ReadableStreamReadResult<Uint8Array> }> => {
-      if (signal.aborted) throw cancelled()
-      upstream = new AbortController()
       let response: Response
       try {
         response = await fetch(`${connection.baseUrl}/${PROTOCOL_PATH[connection.protocol]}`, {
@@ -480,20 +478,14 @@ async function streamRound(
       }
       if (!response.ok) {
         const { bytes: body } = await readUpTo(response.body, ERROR_BODY_BYTES).catch(() => ({ bytes: new Uint8Array(0) }))
-        throw upstreamFailure(response.status, new TextDecoder().decode(body), known, response.headers.get('retry-after'))
+        throw upstreamFailure(response.status, new TextDecoder().decode(body), known)
       }
       if (!response.body) throw new KitFailure('network', 'upstream unreachable')
       const reader = response.body.getReader()
-      // A disconnect after headers but before the first chunk still counts as this key's network failure.
-      const chunk = await reader.read().catch((error: unknown) => {
-        if (signal.aborted) throw cancelled()
-        if (error instanceof KitFailure) throw error
-        throw new KitFailure('network', 'upstream unreachable')
-      })
-      return { reader, chunk }
+      return { reader, chunk: await reader.read() }
     }
-    // Key failover (docs/34 §3.4, docs/43 §3): only rejections before the first chunk move to the next key.
-    let { reader, chunk } = await withKeys(connection, (key) => guarded(withTimeout(first(key), TIMEOUTS.firstByteMs, 'first_byte', abort)))
+    // Key failover (docs/34 §3.4): only rejections before the first chunk move to the next key.
+    let { reader, chunk } = await withKeys(connection.apiKeys, (key) => guarded(withTimeout(first(key), TIMEOUTS.firstByteMs, 'first_byte', abort)))
     const parser = new SseParser()
     const decoder = new Decoder(connection.protocol, connection.endpointId, connection.modelId)
     const apply = (data: string): void => {

@@ -3,11 +3,6 @@ import type { Details, KitError, KitErrorCode } from '@ouraihub/aether-ui/ports'
 import { newId } from '../lib/id'
 
 export class KitFailure extends Error {
-  // Set by `upstreamFailure`; drives fill-first key set-aside, never serialized.
-  upstream: { usedUp: boolean; retryAfterMs: number | null; reason: string } | null = null
-  // Set by requestKeys when every key of a line is set aside: epoch ms of the earliest recovery.
-  resumeAt: number | null = null
-
   constructor(
     readonly code: KitErrorCode,
     message: string,
@@ -57,25 +52,10 @@ export function internal(cause: unknown): KitFailure {
   return new KitFailure('internal', `internal error ${errorId}`, { errorId })
 }
 
-// Wording looked for in the first 4 KB of a failed response (docs/43 §3.1). "exceeded"/"limit" are left out on
-// purpose: "rate limit exceeded" and per-minute quotas are plain rate limits, not a used-up key.
-const BILLING_WORDS = /insufficient|balance|billing|credit|余额|欠费|用尽|不足|过期/i
-const QUOTA_WORDS = /quota|额度/i
-
-export function upstreamFailure(status: number, body: string, known: readonly string[], retryAfter: string | null = null): KitFailure {
+export function upstreamFailure(status: number, body: string, known: readonly string[]): KitFailure {
   const code = status === 401 || status === 403 ? 'unauthorized' : status === 429 ? 'rate_limited' : 'upstream'
   const text = excerpt(body, known)
-  const failure = new KitFailure(code, text ? `${status}: ${text}` : `upstream returned ${status}`, { status })
-  const seconds = Number(retryAfter)
-  const date = retryAfter ? Date.parse(retryAfter) - Date.now() : NaN
-  const parsed = retryAfter && Number.isFinite(seconds) ? seconds * 1000 : Number.isFinite(date) ? Math.max(date, 0) : null
-  // An absurd Retry-After never pauses a key longer than a used-up key (24 hours).
-  const retryAfterMs = parsed === null ? null : Math.min(parsed, 86_400_000)
-  const head = body.slice(0, 4096)
-  const billing = BILLING_WORDS.test(head)
-  const usedUp = [401, 402, 403].includes(status) || (status === 429 ? billing : (status === 400 || status >= 500) && (billing || QUOTA_WORDS.test(head)))
-  failure.upstream = { usedUp, retryAfterMs, reason: [...(text ? `HTTP ${status} ${text}` : `HTTP ${status}`)].slice(0, 120).join('') }
-  return failure
+  return new KitFailure(code, text ? `${status}: ${text}` : `upstream returned ${status}`, { status })
 }
 
 export const charCount = (value: string): number => [...value].length

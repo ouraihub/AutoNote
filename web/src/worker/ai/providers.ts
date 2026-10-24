@@ -13,7 +13,6 @@ import type {
   Protocol,
   Provider,
   ReasoningConfig,
-  KeyStrategy,
 } from '@ouraihub/aether-ui/ports'
 import type { Env } from '../env'
 import { decryptAiKey, encryptAiKey } from '../lib/crypto'
@@ -95,7 +94,6 @@ export const ProviderSaveSchema = z.strictObject({
       imageBaseUrl: z.string().nullable().optional(),
       imageEditBaseUrl: z.string().nullable().optional(),
       headers: z.record(z.string(), z.string()).optional(),
-      keyStrategy: z.enum(['round_robin', 'fill_first']).optional(),
       models: z.array(ModelSchema),
     }),
   ),
@@ -108,7 +106,6 @@ export const EndpointKeySaveSchema = z.strictObject({
   key: z.string().optional(),
   label: z.string().optional(),
   enabled: z.boolean().optional(),
-  restore: z.boolean().optional(),
 })
 export type EndpointKeySaveInput = z.infer<typeof EndpointKeySaveSchema>
 const MAX_KEYS = 16
@@ -222,11 +219,8 @@ export interface Connection {
   imageEditBaseUrl: string | null
   headers: Record<string, string>
   protocol: Protocol
-  // Enabled keys in order for this request; empty = no key.
+  /** Enabled keys in rotation order for this request; empty = no key. */
   apiKeys: string[]
-  // Fill-first only: skips `key` until `until` (docs/43 §3.1) in D1 and for the rest of this request.
-  setAside: ((key: string, until: number, reason: string) => Promise<void>) | null
-  exhaustion?: { failure: KitFailure | null }
   modelId: string
   endpointId: string
   contextWindow: number | null
@@ -247,7 +241,6 @@ interface EndpointRow {
   imageBaseUrl: string | null
   imageEditBaseUrl: string | null
   headers: string
-  keyStrategy: KeyStrategy
 }
 
 interface KeyRow {
@@ -256,8 +249,6 @@ interface KeyRow {
   label: string
   enabled: number
   keyCiphertext: string
-  exhaustedUntil: number | null
-  exhaustedReason: string | null
 }
 
 interface ModelRow {
@@ -278,8 +269,7 @@ interface ModelRow {
 
 const flag = (value: number | null): boolean | null => (value === null ? null : value !== 0)
 
-const KEY_COLUMNS =
-  'id, endpoint_id AS endpointId, label, enabled, key_ciphertext AS keyCiphertext, exhausted_until AS exhaustedUntil, exhausted_reason AS exhaustedReason'
+const KEY_COLUMNS = 'id, endpoint_id AS endpointId, label, enabled, key_ciphertext AS keyCiphertext'
 const plainKey = (env: Env, row: { id: string; keyCiphertext: string }): Promise<string | null> =>
   decryptAiKey(env, row.id, row.keyCiphertext).catch(() => null)
 
@@ -317,94 +307,17 @@ async function rotatedKeys(env: Env, userId: string, endpointId: string): Promis
   return [...keys.slice(start), ...keys.slice(0, start)]
 }
 
-const DAY_MS = 86_400_000
-const COOLDOWN_MS = 60_000
-
-/** Keys for one request by the endpoint's strategy (docs/43 §3); `name` labels the all-used-up error. */
-export async function requestKeys(
-  env: Env,
-  userId: string,
-  endpointId: string,
-  strategy: KeyStrategy,
-  name: string,
-  // The painting line is resolved up front for a chat run: an all-paused painting line must fail the tool call, not the chat.
-  deferExhausted = false,
-): Promise<Pick<Connection, 'apiKeys' | 'setAside' | 'exhaustion'>> {
-  if (strategy === 'round_robin') return { apiKeys: await rotatedKeys(env, userId, endpointId), setAside: null }
-  const rows = (await endpointKeys(env.DB, userId, endpointId)).filter((row) => row.enabled !== 0)
-  const now = Date.now()
-  const usable = rows.filter((row) => row.exhaustedUntil === null || row.exhaustedUntil <= now)
-  if (rows.length && !usable.length) {
-    const resumeAt = Math.min(...rows.map((row) => row.exhaustedUntil ?? now))
-    const failure = new KitFailure('rate_limited', `线路 ${name} 的密钥全部用完，最早 ${new Date(resumeAt).toISOString()} 恢复`, { reason: 'keys_exhausted' })
-    failure.resumeAt = resumeAt
-    if (!deferExhausted) throw failure
-    return { apiKeys: [], setAside: null, exhaustion: { failure } }
-  }
-  const apiKeys = await Promise.all(usable.map((row) => openKey(env, row)))
-  if (!apiKeys.length) return { apiKeys, setAside: null }
-  const ids = usable.map((row) => row.id)
-  const pool: Pick<Connection, 'apiKeys' | 'setAside' | 'exhaustion'> = {
-    apiKeys,
-    exhaustion: { failure: null },
-    setAside: async (key, until, reason) => {
-      const index = apiKeys.indexOf(key)
-      await env.DB.prepare('UPDATE ai_endpoint_keys SET exhausted_until = ?1, exhausted_reason = ?2 WHERE id = ?3 AND user_id = ?4')
-        .bind(until, reason, ids[index]!, userId)
-        .run()
-      // Later tool rounds of the same run reuse this pool.
-      apiKeys.splice(index, 1)
-      ids.splice(index, 1)
-      if (!apiKeys.length) {
-        try { await requestKeys(env, userId, endpointId, strategy, name) }
-        catch (error) {
-          if (error instanceof KitFailure) pool.exhaustion!.failure = error
-          throw error
-        }
-      }
-    },
-  }
-  return pool
-}
-
 const FAILOVER_STATUS = [401, 403, 429]
 
-/**
- * Calls `attempt` with each key in order (once with `null` when there is none). Rotation moves on only when the
- * upstream rejects the key; fill-first also sets used-up or rate-limited keys aside and retries a network failure once.
- */
-export async function withKeys<T>(
-  pool: Pick<Connection, 'apiKeys' | 'setAside' | 'exhaustion'>,
-  attempt: (key: string | null) => Promise<T>,
-): Promise<T> {
-  if (pool.exhaustion?.failure) throw pool.exhaustion.failure
-  // A fill-first pool emptied by earlier rounds of this run must not fall back to a keyless request.
-  if (pool.setAside && !pool.apiKeys.length) throw new KitFailure('rate_limited', 'every key of this line is set aside', { reason: 'keys_exhausted' })
-  const candidates = pool.apiKeys.length ? [...pool.apiKeys] : [null]
-  let retried = false
+/** Calls `attempt` with each key in order (once with `null` when there is none); moves on only when the upstream rejects the key. */
+export async function withKeys<T>(keys: readonly string[], attempt: (key: string | null) => Promise<T>): Promise<T> {
+  const candidates = keys.length ? keys : [null]
   for (let index = 0; ; index++) {
     try {
       return await attempt(candidates[index] ?? null)
     } catch (error) {
-      if (!(error instanceof KitFailure)) throw error
-      const next = index + 1 < candidates.length
-      const status = Number(error.details.status)
-      if (!pool.setAside) {
-        if (next && FAILOVER_STATUS.includes(status)) continue
-        throw error
-      }
-      if (error.code === 'network' || error.code === 'timeout') {
-        if (next && !retried) {
-          retried = true
-          continue
-        }
-        throw error
-      }
-      const facts = error.upstream
-      const limited = status === 429 && facts?.usedUp === false
-      if (!facts || (!limited && !facts.usedUp)) throw error
-      await pool.setAside(candidates[index]!, Date.now() + (limited ? (facts.retryAfterMs ?? COOLDOWN_MS) : DAY_MS), facts.reason)
-      if (!next) throw error
+      const status = error instanceof KitFailure ? Number(error.details.status) : 0
+      if (index + 1 >= candidates.length || !FAILOVER_STATUS.includes(status)) throw error
     }
   }
 }
@@ -431,7 +344,7 @@ export async function listProviders(env: Env, userId: string): Promise<Provider[
       .all<{ id: string; name: string; enabled: number; notes: string; presetId: string | null }>(),
     db
       .prepare(
-        'SELECT id, provider_id AS providerId, slug, base_url AS baseUrl, protocol, image_base_url AS imageBaseUrl, image_edit_base_url AS imageEditBaseUrl, headers, key_strategy AS keyStrategy FROM ai_endpoints WHERE user_id = ?1 ORDER BY position, id',
+        'SELECT id, provider_id AS providerId, slug, base_url AS baseUrl, protocol, image_base_url AS imageBaseUrl, image_edit_base_url AS imageEditBaseUrl, headers FROM ai_endpoints WHERE user_id = ?1 ORDER BY position, id',
       )
       .bind(userId)
       .all<EndpointRow>(),
@@ -453,16 +366,12 @@ export async function listProviders(env: Env, userId: string): Promise<Provider[
           .filter((key) => key.endpointId === row.id)
           .map(async (key) => {
             const plain = await plainKey(env, key)
-            // Set-aside marks only matter, and are only shown, under fill-first.
-            const fill = row.keyStrategy === 'fill_first'
             return {
               id: key.id,
               label: key.label,
               enabled: key.enabled !== 0,
               masked: plain === null ? null : maskSecret(plain),
               readable: plain !== null,
-              exhaustedUntil: fill ? key.exhaustedUntil : null,
-              exhaustedReason: fill ? key.exhaustedReason : null,
             }
           }),
       )
@@ -476,7 +385,6 @@ export async function listProviders(env: Env, userId: string): Promise<Provider[
           imageBaseUrl: row.imageBaseUrl,
           imageEditBaseUrl: row.imageEditBaseUrl,
           headers: JSON.parse(row.headers) as Record<string, string>,
-          keyStrategy: row.keyStrategy,
           keys: shownKeys,
           probeUrl: `${apiBase(row.baseUrl)}/models`,
           models: models
@@ -688,14 +596,14 @@ export async function saveProvider(env: Env, userId: string, input: ProviderSave
       endpoint.id === undefined
         ? db
             .prepare(
-              'INSERT INTO ai_endpoints (slug, base_url, protocol, position, id, user_id, provider_id, image_base_url, headers, image_edit_base_url, key_strategy) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)',
+              'INSERT INTO ai_endpoints (slug, base_url, protocol, position, id, user_id, provider_id, image_base_url, headers, image_edit_base_url) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)',
             )
-            .bind(...values, providerId, image ?? null, headers ?? '{}', edit ?? null, endpoint.keyStrategy ?? 'round_robin')
+            .bind(...values, providerId, image ?? null, headers ?? '{}', edit ?? null)
         : db
             .prepare(
-              'UPDATE ai_endpoints SET slug = ?1, base_url = ?2, protocol = ?3, position = ?4, image_base_url = CASE WHEN ?7 = 1 THEN image_base_url ELSE ?8 END, headers = COALESCE(?9, headers), image_edit_base_url = CASE WHEN ?10 = 1 THEN image_edit_base_url ELSE ?11 END, key_strategy = COALESCE(?12, key_strategy) WHERE id = ?5 AND user_id = ?6',
+              'UPDATE ai_endpoints SET slug = ?1, base_url = ?2, protocol = ?3, position = ?4, image_base_url = CASE WHEN ?7 = 1 THEN image_base_url ELSE ?8 END, headers = COALESCE(?9, headers), image_edit_base_url = CASE WHEN ?10 = 1 THEN image_edit_base_url ELSE ?11 END WHERE id = ?5 AND user_id = ?6',
             )
-            .bind(...values, image === undefined ? 1 : 0, image ?? null, headers, edit === undefined ? 1 : 0, edit ?? null, endpoint.keyStrategy ?? null),
+            .bind(...values, image === undefined ? 1 : 0, image ?? null, headers, edit === undefined ? 1 : 0, edit ?? null),
       db
         .prepare(
           `INSERT INTO ai_models (user_id, endpoint_id, model_id, model_type, type_source, context_window, max_output, can_vision, supports_tools, reasoning, native_web_search, name, group_name, pricing, position)
@@ -769,12 +677,9 @@ export async function saveKey(env: Env, userId: string, input: EndpointKeySaveIn
   } else {
     await db
       .prepare(
-        `UPDATE ai_endpoint_keys SET label = COALESCE(?1, label), enabled = COALESCE(?2, enabled), key_ciphertext = COALESCE(?3, key_ciphertext),
-           exhausted_until = CASE WHEN ?7 = 1 OR ?3 IS NOT NULL THEN NULL ELSE exhausted_until END,
-           exhausted_reason = CASE WHEN ?7 = 1 OR ?3 IS NOT NULL THEN NULL ELSE exhausted_reason END
-         WHERE id = ?4 AND user_id = ?5 AND endpoint_id = ?6`,
+        'UPDATE ai_endpoint_keys SET label = COALESCE(?1, label), enabled = COALESCE(?2, enabled), key_ciphertext = COALESCE(?3, key_ciphertext) WHERE id = ?4 AND user_id = ?5 AND endpoint_id = ?6',
       )
-      .bind(label ?? null, input.enabled === undefined ? null : input.enabled ? 1 : 0, cipher, id, userId, input.endpointId, input.restore ? 1 : 0)
+      .bind(label ?? null, input.enabled === undefined ? null : input.enabled ? 1 : 0, cipher, id, userId, input.endpointId)
       .run()
   }
   return listProviders(env, userId)
@@ -845,9 +750,9 @@ export async function modelOptions(db: D1Database, userId: string, filter: Model
     }))
 }
 
-export async function resolveModel(env: Env, userId: string, model: ModelRef, deferExhausted = false): Promise<Connection> {
+export async function resolveModel(env: Env, userId: string, model: ModelRef): Promise<Connection> {
   const row = await env.DB.prepare(
-    `SELECT e.id AS endpointId, e.base_url AS baseUrl, e.protocol, e.image_base_url AS imageBaseUrl, e.image_edit_base_url AS imageEditBaseUrl, e.headers, e.key_strategy AS keyStrategy, e.slug, p.name AS providerName,
+    `SELECT e.id AS endpointId, e.base_url AS baseUrl, e.protocol, e.image_base_url AS imageBaseUrl, e.image_edit_base_url AS imageEditBaseUrl, e.headers,
        m.model_type AS modelType, m.context_window AS contextWindow, m.max_output AS maxOutput, m.supports_tools AS supportsTools, m.reasoning, m.native_web_search AS nativeWebSearch, m.can_vision AS canVision, m.pricing
      FROM ai_models m JOIN ai_endpoints e ON e.id = m.endpoint_id AND e.user_id = m.user_id
      JOIN ai_providers p ON p.id = e.provider_id AND p.user_id = m.user_id
@@ -861,9 +766,6 @@ export async function resolveModel(env: Env, userId: string, model: ModelRef, de
       imageBaseUrl: string | null
       imageEditBaseUrl: string | null
       headers: string
-      keyStrategy: KeyStrategy
-      slug: string
-      providerName: string
       modelType: ModelType
       contextWindow: number | null
       maxOutput: number | null
@@ -881,7 +783,7 @@ export async function resolveModel(env: Env, userId: string, model: ModelRef, de
     imageEditBaseUrl: row.imageEditBaseUrl ? apiBase(row.imageEditBaseUrl) : null,
     headers: JSON.parse(row.headers) as Record<string, string>,
     protocol: row.protocol,
-    ...(await requestKeys(env, userId, row.endpointId, row.keyStrategy, `${row.providerName} · ${row.slug}`, deferExhausted)),
+    apiKeys: await rotatedKeys(env, userId, row.endpointId),
     modelId: model.modelId,
     endpointId: row.endpointId,
     reasoning: readReasoning(row.reasoning, model.modelId, row.modelType, row.protocol, row.baseUrl, row.maxOutput),

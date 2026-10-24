@@ -304,7 +304,6 @@ mod tests {
                     image_base_url: None,
                     image_edit_base_url: None,
                     headers: None,
-                    key_strategy: None,
                 }],
             })
             .unwrap();

@@ -30,14 +30,9 @@ const TOOL_ROUND: Record<Protocol, Uint8Array> = {
   ]),
 }
 
-let clock = Date.now()
 beforeEach(() => {
   fetchMock.mockReset()
   vi.stubGlobal('fetch', fetchMock)
-  // Run and key routes are rate-limited per user per minute; each test gets its own window.
-  vi.useFakeTimers({ toFake: ['Date'] })
-  clock += 120_000
-  vi.setSystemTime(clock)
 })
 afterEach(() => {
   vi.useRealTimers()
@@ -147,44 +142,6 @@ describe('generate_image tool loop', () => {
     expect(capped.events.filter((e) => e.kind === 'round_start')).toHaveLength(4)
     expect(capped.events.filter((e) => e.kind === 'tool_result').map((e) => e.outcome)).toEqual(['ok', 'ok', 'error', 'error'])
     expect(capped.events.at(-1)).toEqual({ kind: 'end', status: 'completed', exhausted: true })
-  })
-
-  it('fill-first paints with the next key when the first one breaks while reading the response', async () => {
-    const { h, model } = await setup('openai-chat')
-    const { body } = await h.json<{ id: string; endpoints: { id: string }[] }[]>('user-a', 'GET', '/providers')
-    await addKey(h, 'user-a', model.endpointId, 'sk-second-0123456789')
-    await h.json('user-a', 'PUT', '/providers', {
-      id: body[0]!.id,
-      name: 'P',
-      endpoints: [{ id: model.endpointId, slug: 'main', baseUrl: 'https://api.example.com', protocol: 'openai-chat', keyStrategy: 'fill_first', models: [chatModel('m1'), { ...chatModel('img1'), modelType: 'image' }] }],
-    })
-    const broken = () => new Response(new ReadableStream({ pull: (controller) => controller.error(new TypeError('socket hang up')) }))
-    let paints = 0
-    upstream('openai-chat', 1, () => (paints++ === 0 ? broken() : Response.json({ data: [{ b64_json: PNG }] })))
-    const result = await run(h, { model, generateImage: true })
-    expect(result.events.find((e) => e.kind === 'tool_result'), JSON.stringify(result.events)).toMatchObject({ outcome: 'ok' })
-    expect(calls('/images/generations').map(([, init]) => (init!.headers as Record<string, string>).authorization)).toEqual([`Bearer ${KEY}`, 'Bearer sk-second-0123456789'])
-  })
-
-  it('a fully paused fill-first painting line fails the tool call, not the chat', async () => {
-    const { h, model } = await setup('openai-chat', { bind: false })
-    const { body } = await h.json<{ name: string; endpoints: { id: string }[] }[]>('user-a', 'PUT', '/providers', {
-      name: 'Img',
-      endpoints: [{ slug: 'img', baseUrl: 'https://img.example.com', protocol: 'openai-chat', keyStrategy: 'fill_first', models: [{ ...chatModel('img2'), modelType: 'image' }] }],
-    })
-    const imgEndpoint = body.find((provider) => provider.name === 'Img')!.endpoints[0]!.id
-    await addKey(h, 'user-a', imgEndpoint, 'sk-img-0123456789')
-    await h.env.DB.prepare("INSERT INTO ai_roles (user_id, role, endpoint_id, model_id) VALUES ('user-a', 'painting', ?1, 'img2')").bind(imgEndpoint).run()
-    const resumeAt = Date.now() + 60_000
-    await h.env.DB.prepare('UPDATE ai_endpoint_keys SET exhausted_until = ?1 WHERE endpoint_id = ?2').bind(resumeAt, imgEndpoint).run()
-    upstream('openai-chat', 1)
-    const result = await run(h, { model, generateImage: true })
-    expect(result.status, result.text).toBe(200)
-    expect(result.events.find((e) => e.kind === 'tool_result')).toMatchObject({ outcome: 'error', summary: expect.stringContaining('rate_limited') })
-    expect(result.events.find((e) => e.kind === 'tool_result')).toMatchObject({ summary: expect.stringContaining('Img · img') })
-    expect(result.events.find((e) => e.kind === 'tool_result')).toMatchObject({ summary: expect.stringContaining(new Date(resumeAt).toISOString()) })
-    expect(result.events.at(-1)).toMatchObject({ kind: 'end', status: 'completed' })
-    expect(calls('/images/generations')).toEqual([])
   })
 
   it('paints at the image base URL with custom headers and falls back to the API address when cleared', async () => {

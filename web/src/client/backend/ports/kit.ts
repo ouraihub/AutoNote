@@ -232,7 +232,6 @@ export function createHttpKitPorts(transport: Transport): KitPorts {
     },
     providers: {
       revealNeedsPassword: true,
-      keyStrategies: true,
       revealKey: (keyId: string, currentPassword?: string | null) =>
         call<{ key: string }>(transport, {
           method: 'POST',

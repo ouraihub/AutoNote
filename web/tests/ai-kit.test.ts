@@ -6,13 +6,11 @@ import { initializeDatabase } from '../src/worker/db/schema'
 import { beginAction, loadConversation } from '../src/worker/ai/history'
 import { executeRun, prepareRun, RunRequestSchema } from '../src/worker/ai/runs'
 import { inferModel } from '../src/worker/ai/infer'
-import { upstreamFailure } from '../src/worker/ai/kit'
-import { resolveModel, withKeys } from '../src/worker/ai/providers'
 import { SseParser } from '../src/worker/ai/protocol'
 import { hashPassword } from '../src/worker/lib/password'
-import { encryptAiKey } from '../src/worker/lib/crypto'
-import { addKey, chatModel, createHarness, fixture, frames, streamOf, type Harness } from './support/ai-kit-harness'
+import { addKey, chatModel, createHarness, fixture, frames, streamOf } from './support/ai-kit-harness'
 
+type Harness = Awaited<ReturnType<typeof createHarness>>
 const KEY = 'sk-test-abcdefghijklmnop'
 const PROTOCOLS = ['anthropic-messages', 'openai-chat', 'openai-responses'] as const
 const expected = JSON.parse(fixture('sse/expect.json').toString()) as Record<
@@ -142,8 +140,7 @@ type ProviderDto = {
   endpoints: {
     id: string
     slug: string
-    keyStrategy?: string
-    keys: { id: string; label: string; enabled: boolean; masked: string | null; readable: boolean; exhaustedUntil?: number | null; exhaustedReason?: string | null }[]
+    keys: { id: string; label: string; enabled: boolean; masked: string | null; readable: boolean }[]
     probeUrl: string
     models: unknown[]
   }[]
@@ -1023,7 +1020,7 @@ describe('run and history routes', () => {
     const h = await createHarness()
     const { endpointId } = await saveProvider(h)
     await h.env.DB.exec(
-      "DROP TABLE ai_endpoint_keys; ALTER TABLE ai_endpoints ADD COLUMN key_ciphertext TEXT; UPDATE ai_endpoints SET key_ciphertext = 'legacy'; DELETE FROM schema_migrations WHERE version IN (23, 24, 25, 29); DELETE FROM app_meta WHERE key = 'database-state-v1'",
+      "DROP TABLE ai_endpoint_keys; ALTER TABLE ai_endpoints ADD COLUMN key_ciphertext TEXT; UPDATE ai_endpoints SET key_ciphertext = 'legacy'; DELETE FROM schema_migrations WHERE version IN (23, 24, 25); DELETE FROM app_meta WHERE key = 'database-state-v1'",
     )
     const old = h.env.DB
     h.env.DB = { prepare: old.prepare.bind(old), batch: old.batch.bind(old), exec: old.exec.bind(old) } as D1Database
@@ -1063,21 +1060,6 @@ describe('run and history routes', () => {
     const columns = (await h.env.DB.prepare('PRAGMA table_info(ai_endpoints)').all<{ name: string }>()).results.map((row) => row.name)
     expect(columns).toContain('image_edit_base_url')
     expect(await h.json('user-a', 'GET', '/providers')).toMatchObject({ status: 200, body: [{ endpoints: [{ id: endpointId, imageEditBaseUrl: null }] }] })
-  })
-
-  it('upgrades a v28 endpoint to v29 keeping rotation and its keys usable', async () => {
-    const h = await createHarness()
-    const { endpointId } = await saveProvider(h)
-    await h.env.DB.exec(
-      "ALTER TABLE ai_endpoints DROP COLUMN key_strategy; ALTER TABLE ai_endpoint_keys DROP COLUMN exhausted_until; ALTER TABLE ai_endpoint_keys DROP COLUMN exhausted_reason; DELETE FROM schema_migrations WHERE version = 29; DELETE FROM app_meta WHERE key = 'database-state-v1'",
-    )
-    const old = h.env.DB
-    h.env.DB = { prepare: old.prepare.bind(old), batch: old.batch.bind(old), exec: old.exec.bind(old) } as D1Database
-    await initializeDatabase(h.env)
-    expect(await h.json('user-a', 'GET', '/providers')).toMatchObject({
-      status: 200,
-      body: [{ endpoints: [{ id: endpointId, keyStrategy: 'round_robin', keys: [{ readable: true, exhaustedUntil: null, exhaustedReason: null }] }] }],
-    })
   })
 
   it('stores provider model notes, keeps them when omitted and rejects oversized notes', async () => {
@@ -1529,155 +1511,6 @@ describe('run and history routes', () => {
     const missing = await run(h, model)
     expect(missing.text).toContain('missing_key')
     expect(fetchMock).not.toHaveBeenCalled()
-  })
-
-  it('fill-first sticks to the first key, sets used-up and rate-limited keys aside, and restores them', async () => {
-    const h = await createHarness()
-    const { providerId, endpointId } = await saveProvider(h)
-    const SECOND = 'sk-second-0123456789'
-    const secondId = await addKey(h, 'user-a', endpointId, SECOND)
-    const endpoint = { id: endpointId, slug: 'main', baseUrl: 'https://api.example.com', protocol: 'openai-chat', models: [chatModel('m1')] }
-    await h.json('user-a', 'PUT', '/providers', { id: providerId, name: 'Acme', endpoints: [{ ...endpoint, keyStrategy: 'fill_first' }] })
-    const model = { model: { endpointId, modelId: 'm1' } }
-    const sent = () => fetchMock.mock.calls.map(([, init]) => (init!.headers as Record<string, string>).authorization)
-    const keys = async () => (await h.json<ProviderDto[]>('user-a', 'GET', '/providers')).body[0]!.endpoints[0]!
-    const reply = (first: Response) => async (_url: unknown, init?: RequestInit) =>
-      (init!.headers as Record<string, string>).authorization === `Bearer ${KEY}` ? first : textStream('ok')
-
-    fetchMock.mockImplementation(async () => textStream('ok'))
-    for (let index = 0; index < 3; index++) await run(h, model)
-    expect(sent()).toEqual([`Bearer ${KEY}`, `Bearer ${KEY}`, `Bearer ${KEY}`])
-    expect((await keys()).keyStrategy).toBe('fill_first')
-
-    // A 5xx without quota wording is not a key problem: no switch, no mark.
-    fetchMock.mockReset()
-    fetchMock.mockImplementation(reply(new Response('boom', { status: 500 })))
-    expect((await run(h, model)).events.at(-1)).toMatchObject({ status: 'failed', error: { code: 'upstream' } })
-    expect(sent()).toEqual([`Bearer ${KEY}`])
-
-    // Plain 429: switch, cool down for Retry-After, then the first key is used again.
-    fetchMock.mockReset()
-    // "rate limit exceeded" / "quota exceeded per minute" are plain rate limits: a cooldown, never the 24-hour pause.
-    fetchMock.mockImplementation(reply(new Response('{"error":{"message":"Rate limit exceeded: quota exceeded per minute"}}', { status: 429, headers: { 'retry-after': '30' } })))
-    expect((await run(h, model)).events.at(-1)).toMatchObject({ status: 'completed' })
-    expect(sent()).toEqual([`Bearer ${KEY}`, `Bearer ${SECOND}`])
-    expect((await keys()).keys[0]).toMatchObject({ exhaustedUntil: clock + 30_000, exhaustedReason: expect.stringMatching(/^HTTP 429 /) })
-    vi.setSystemTime((clock += 31_000))
-    fetchMock.mockReset()
-    fetchMock.mockImplementation(async () => textStream('ok'))
-    await run(h, model)
-    expect(sent()).toEqual([`Bearer ${KEY}`])
-
-    // Quota wording on a 400: set aside for 24 hours and skipped by later requests.
-    fetchMock.mockReset()
-    fetchMock.mockImplementation(reply(new Response(`{"error":"余额不足 ${KEY}"}`, { status: 400 })))
-    expect((await run(h, model)).events.at(-1)).toMatchObject({ status: 'completed' })
-    const marked = (await keys()).keys[0]!
-    expect(marked).toMatchObject({ exhaustedUntil: clock + 86_400_000 })
-    expect(marked.exhaustedReason).toContain('余额不足')
-    expect(marked.exhaustedReason).not.toContain(KEY)
-    fetchMock.mockReset()
-    fetchMock.mockImplementation(async () => textStream('ok'))
-    await run(h, model)
-    expect(sent()).toEqual([`Bearer ${SECOND}`])
-
-    // Once streaming started, a later error is the caller's: no switch, no mark.
-    fetchMock.mockReset()
-    fetchMock.mockImplementation(async () => new Response(streamOf(new TextEncoder().encode('data: {"error":{"message":"quota exceeded"}}\n\n')), { headers: { 'content-type': 'text/event-stream' } }))
-    expect((await run(h, model)).events.at(-1)).toMatchObject({ status: 'failed' })
-    expect(sent()).toEqual([`Bearer ${SECOND}`])
-    expect((await keys()).keys[1]).toMatchObject({ exhaustedUntil: null })
-
-    // Every key used up: rate_limited before any upstream call.
-    fetchMock.mockReset()
-    fetchMock.mockImplementation(async () => new Response('denied', { status: 402 }))
-    const lastKey = await run(h, model)
-    expect(lastKey.text).toContain('keys_exhausted')
-    expect(lastKey.text).toContain(new Date(clock + 86_400_000).toISOString())
-    fetchMock.mockReset()
-    const exhausted = await run(h, model)
-    expect(fetchMock).not.toHaveBeenCalled()
-    expect(exhausted.response.status).toBe(429)
-    expect(exhausted.text).toContain('keys_exhausted')
-    expect(exhausted.text).toContain('Acme · main')
-
-    await h.json('user-a', 'PUT', '/endpoint-keys', { endpointId, id: secondId, restore: true })
-    expect((await keys()).keys[1]).toMatchObject({ exhaustedUntil: null, exhaustedReason: null })
-    fetchMock.mockImplementation(async () => textStream('ok'))
-    await run(h, model)
-    expect(sent()).toEqual([`Bearer ${SECOND}`])
-
-    // Switching back to rotation ignores and hides the marks.
-    await h.json('user-a', 'PUT', '/providers', { id: providerId, name: 'Acme', endpoints: [{ ...endpoint, keyStrategy: 'round_robin' }] })
-    expect((await keys()).keys[0]).toMatchObject({ exhaustedUntil: null, exhaustedReason: null })
-    fetchMock.mockReset()
-    fetchMock.mockImplementation(async () => textStream('ok'))
-    await run(h, model)
-    await run(h, model)
-    expect(sent().sort()).toEqual([`Bearer ${KEY}`, `Bearer ${SECOND}`].sort())
-  })
-
-  it('fill-first suspends each duplicate credential row and does not retry it on the next request', async () => {
-    const h = await createHarness()
-    const { providerId, endpointId } = await saveProvider(h)
-    const duplicateId = await addKey(h, 'user-a', endpointId, 'sk-distinct-backup')
-    await h.env.DB.prepare('UPDATE ai_endpoint_keys SET key_ciphertext = ?1 WHERE id = ?2')
-      .bind(await encryptAiKey(h.env, duplicateId, KEY), duplicateId).run()
-    await h.json('user-a', 'PUT', '/providers', {
-      id: providerId, name: 'Acme',
-      endpoints: [{ id: endpointId, slug: 'main', baseUrl: 'https://api.example.com', protocol: 'openai-chat', models: [chatModel('m1')], keyStrategy: 'fill_first' }],
-    })
-    const connection = await resolveModel(h.env, 'user-a', { endpointId, modelId: 'm1' })
-    await expect(withKeys(connection, async () => { throw upstreamFailure(402, 'insufficient balance', [KEY]) })).rejects.toMatchObject({ code: 'rate_limited', resumeAt: clock + 86_400_000 })
-    const rows = await h.env.DB.prepare('SELECT exhausted_until AS until FROM ai_endpoint_keys WHERE endpoint_id = ?1').bind(endpointId).all<{ until: number | null }>()
-    expect(rows.results.map(row => row.until)).toEqual([clock + 86_400_000, clock + 86_400_000])
-    await expect(resolveModel(h.env, 'user-a', { endpointId, modelId: 'm1' })).rejects.toMatchObject({ code: 'rate_limited', details: { reason: 'keys_exhausted' } })
-  })
-
-  it('fill-first keeps a set-aside key out of later rounds of the same request and never falls back to no key', async () => {
-    const h = await createHarness()
-    const { providerId, endpointId } = await saveProvider(h)
-    const SECOND = 'sk-second-0123456789'
-    await addKey(h, 'user-a', endpointId, SECOND)
-    await h.json('user-a', 'PUT', '/providers', {
-      id: providerId,
-      name: 'Acme',
-      endpoints: [{ id: endpointId, slug: 'main', baseUrl: 'https://api.example.com', protocol: 'openai-chat', models: [chatModel('m1')], keyStrategy: 'fill_first' }],
-    })
-    // One Connection serves every tool round of a run; drive withKeys twice on it like two rounds.
-    const connection = await resolveModel(h.env, 'user-a', { endpointId, modelId: 'm1' })
-    const tried: (string | null)[] = []
-    const round = (failing: (string | null)[]) =>
-      withKeys(connection, async (key) => {
-        tried.push(key)
-        if (failing.includes(key)) throw upstreamFailure(402, 'insufficient balance', [])
-        return key
-      })
-    expect(await round([KEY])).toBe(SECOND)
-    expect(await round([])).toBe(SECOND)
-    expect(tried).toEqual([KEY, SECOND, SECOND])
-    await expect(round([SECOND])).rejects.toMatchObject({ code: 'rate_limited', details: { reason: 'keys_exhausted' } })
-    await expect(round([])).rejects.toMatchObject({ code: 'rate_limited', details: { reason: 'keys_exhausted' } })
-    expect(tried.at(-1)).toBe(SECOND)
-  })
-
-  it('fill-first retries the next key when the upstream drops the stream before the first chunk', async () => {
-    const h = await createHarness()
-    const { providerId, endpointId } = await saveProvider(h)
-    const SECOND = 'sk-second-0123456789'
-    await addKey(h, 'user-a', endpointId, SECOND)
-    await h.json('user-a', 'PUT', '/providers', {
-      id: providerId,
-      name: 'Acme',
-      endpoints: [{ id: endpointId, slug: 'main', baseUrl: 'https://api.example.com', protocol: 'openai-chat', models: [chatModel('m1')], keyStrategy: 'fill_first' }],
-    })
-    const dropped = () => new Response(new ReadableStream({ pull: (controller) => controller.error(new TypeError('socket hang up')) }), { headers: { 'content-type': 'text/event-stream' } })
-    fetchMock.mockImplementation(async (_url, init) => ((init!.headers as Record<string, string>).authorization === `Bearer ${KEY}` ? dropped() : textStream('ok')))
-    const result = await run(h, { model: { endpointId, modelId: 'm1' } })
-    expect(result.events.at(-1)).toMatchObject({ kind: 'end', status: 'completed' })
-    expect(fetchMock.mock.calls.map(([, init]) => (init!.headers as Record<string, string>).authorization)).toEqual([`Bearer ${KEY}`, `Bearer ${SECOND}`])
-    const { body } = await h.json<ProviderDto[]>('user-a', 'GET', '/providers')
-    expect(body[0]!.endpoints[0]!.keys[0]).toMatchObject({ exhaustedUntil: null })
   })
 
   it('runs writing with note context through the writing role fallback and stores nothing', async () => {
