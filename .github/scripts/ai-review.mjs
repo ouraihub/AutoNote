@@ -41,14 +41,15 @@ async function main() {
       ? `This PR changes CI or agent rules (${sensitive.join(', ')}). Request changes unless it keeps every review, check and permission at least as strict.`
       : '',
     'Each batch contains complete file patches. Every batch must pass; do not assume another batch will catch problems in this one.',
-    'Reply with only a JSON object: {"verdict":"approve"|"request_changes","issues":["file:line - problem"]}. issues is empty when approving.',
+    'Reply with only a JSON object: {"verdict":"approve"|"request_changes","issues":["file:line - problem"],"contracts":"Changed interfaces, callers, data shapes, invariants and cross-file dependencies with exact relevant code excerpts"}. issues is empty when approving. For multiple batches, contracts must contain enough evidence to check interactions with the other changed files; missing context must be reported, not assumed correct.',
     '\n# Repository rules (AGENTS.md)\n',
     rules,
   ].join('\n')
   const base = AI_BASE_URL.trim().replace(/\/+$/, '')
   const issues = []
   let approved = true
-  for (const [index, batch] of batches.entries()) {
+  const contracts = []
+  async function review(content) {
     const response = await fetch(`${base.endsWith('/v1') ? base : `${base}/v1`}/chat/completions`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${AI_API_KEY}` },
@@ -57,7 +58,7 @@ async function main() {
         temperature: 0,
         messages: [
           { role: 'system', content: system },
-          { role: 'user', content: `PR title: ${pr.title}\n\nPR body:\n${pr.body || '(empty)'}\n\nAll changed files:\n${files.join('\n')}\n\nDiff batch ${index + 1}/${batches.length}:\n${batch}` },
+          { role: 'user', content },
         ],
       }),
       signal: AbortSignal.timeout(300_000),
@@ -65,10 +66,26 @@ async function main() {
     if (!response.ok) throw new Error(`Model request failed: HTTP ${response.status}`)
     const text = (await response.json()).choices?.[0]?.message?.content ?? ''
     const result = parseVerdict(text)
-    if (!result) throw new Error(`Batch ${index + 1}: invalid review verdict; failing closed`)
+    if (!result) throw new Error('Invalid review verdict; failing closed')
+    return result
+  }
+  for (const [index, batch] of batches.entries()) {
+    const result = await review(`PR title: ${pr.title}\n\nPR body:\n${pr.body || '(empty)'}\n\nAll changed files:\n${files.join('\n')}\n\nDiff batch ${index + 1}/${batches.length}:\n${batch}`)
     if (result.verdict !== 'approve') approved = false
     issues.push(...result.issues)
+    if (batches.length > 1) {
+      if (typeof result.contracts !== 'string' || !result.contracts.trim()) throw new Error('Missing cross-batch evidence; failing closed')
+      contracts.push(`Batch ${index + 1}:\n${result.contracts}`)
+    }
     console.log(`Review batch ${index + 1}/${batches.length}: ${result.verdict}`)
+  }
+  if (batches.length > 1 && approved) {
+    const context = `Mandatory cross-batch consistency review. Check every interface against its callers, data/schema migrations, authorization and failure transitions using the evidence below. Approve only if all cross-file dependencies are accounted for; missing or ambiguous evidence requires request_changes.\n\nAll changed files:\n${files.join('\n')}\n\n${contracts.join('\n\n')}`
+    if (context.length > MAX_DIFF_CHARS) throw new Error('Cross-batch evidence exceeds review limit; failing closed')
+    const result = await review(context)
+    approved = result.verdict === 'approve'
+    issues.push(...result.issues)
+    console.log(`Cross-batch consistency: ${result.verdict}`)
   }
   finish(approved ? 'approve' : 'request_changes', issues)
 }
