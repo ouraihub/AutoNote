@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.5](https://github.com/ouraihub/AutoNote/compare/desktop-v0.2.4...desktop-v0.2.5) (2026-10-24)
+
+
+### 问题修复
+
+* **preview:** Mermaid 节点文字不显示 ([ccb295d](https://github.com/ouraihub/AutoNote/commit/ccb295debab10240aa24cbc9054d137ecfa39ef2))
+
 ## [0.2.4](https://github.com/ouraihub/AutoNote/compare/desktop-v0.2.3...desktop-v0.2.4) (2026-10-24)
 
 
