@@ -6,11 +6,12 @@ import { initializeDatabase } from '../src/worker/db/schema'
 import { beginAction, loadConversation } from '../src/worker/ai/history'
 import { executeRun, prepareRun, RunRequestSchema } from '../src/worker/ai/runs'
 import { inferModel } from '../src/worker/ai/infer'
+import { upstreamFailure } from '../src/worker/ai/kit'
+import { resolveModel, withKeys } from '../src/worker/ai/providers'
 import { SseParser } from '../src/worker/ai/protocol'
 import { hashPassword } from '../src/worker/lib/password'
-import { addKey, chatModel, createHarness, fixture, frames, streamOf } from './support/ai-kit-harness'
+import { addKey, chatModel, createHarness, fixture, frames, streamOf, type Harness } from './support/ai-kit-harness'
 
-type Harness = Awaited<ReturnType<typeof createHarness>>
 const KEY = 'sk-test-abcdefghijklmnop'
 const PROTOCOLS = ['anthropic-messages', 'openai-chat', 'openai-responses'] as const
 const expected = JSON.parse(fixture('sse/expect.json').toString()) as Record<
@@ -1610,6 +1611,52 @@ describe('run and history routes', () => {
     await run(h, model)
     await run(h, model)
     expect(sent().sort()).toEqual([`Bearer ${KEY}`, `Bearer ${SECOND}`].sort())
+  })
+
+  it('fill-first keeps a set-aside key out of later rounds of the same request and never falls back to no key', async () => {
+    const h = await createHarness()
+    const { providerId, endpointId } = await saveProvider(h)
+    const SECOND = 'sk-second-0123456789'
+    await addKey(h, 'user-a', endpointId, SECOND)
+    await h.json('user-a', 'PUT', '/providers', {
+      id: providerId,
+      name: 'Acme',
+      endpoints: [{ id: endpointId, slug: 'main', baseUrl: 'https://api.example.com', protocol: 'openai-chat', models: [chatModel('m1')], keyStrategy: 'fill_first' }],
+    })
+    // One Connection serves every tool round of a run; drive withKeys twice on it like two rounds.
+    const connection = await resolveModel(h.env, 'user-a', { endpointId, modelId: 'm1' })
+    const tried: (string | null)[] = []
+    const round = (failing: (string | null)[]) =>
+      withKeys(connection, async (key) => {
+        tried.push(key)
+        if (failing.includes(key)) throw upstreamFailure(402, 'insufficient balance', [])
+        return key
+      })
+    expect(await round([KEY])).toBe(SECOND)
+    expect(await round([])).toBe(SECOND)
+    expect(tried).toEqual([KEY, SECOND, SECOND])
+    await expect(round([SECOND])).rejects.toMatchObject({ code: 'upstream' })
+    await expect(round([])).rejects.toMatchObject({ code: 'rate_limited', details: { reason: 'keys_exhausted' } })
+    expect(tried.at(-1)).toBe(SECOND)
+  })
+
+  it('fill-first retries the next key when the upstream drops the stream before the first chunk', async () => {
+    const h = await createHarness()
+    const { providerId, endpointId } = await saveProvider(h)
+    const SECOND = 'sk-second-0123456789'
+    await addKey(h, 'user-a', endpointId, SECOND)
+    await h.json('user-a', 'PUT', '/providers', {
+      id: providerId,
+      name: 'Acme',
+      endpoints: [{ id: endpointId, slug: 'main', baseUrl: 'https://api.example.com', protocol: 'openai-chat', models: [chatModel('m1')], keyStrategy: 'fill_first' }],
+    })
+    const dropped = () => new Response(new ReadableStream({ pull: (controller) => controller.error(new TypeError('socket hang up')) }), { headers: { 'content-type': 'text/event-stream' } })
+    fetchMock.mockImplementation(async (_url, init) => ((init!.headers as Record<string, string>).authorization === `Bearer ${KEY}` ? dropped() : textStream('ok')))
+    const result = await run(h, { model: { endpointId, modelId: 'm1' } })
+    expect(result.events.at(-1)).toMatchObject({ kind: 'end', status: 'completed' })
+    expect(fetchMock.mock.calls.map(([, init]) => (init!.headers as Record<string, string>).authorization)).toEqual([`Bearer ${KEY}`, `Bearer ${SECOND}`])
+    const { body } = await h.json<ProviderDto[]>('user-a', 'GET', '/providers')
+    expect(body[0]!.endpoints[0]!.keys[0]).toMatchObject({ exhaustedUntil: null })
   })
 
   it('runs writing with note context through the writing role fallback and stores nothing', async () => {

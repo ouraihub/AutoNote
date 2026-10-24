@@ -484,7 +484,13 @@ async function streamRound(
       }
       if (!response.body) throw new KitFailure('network', 'upstream unreachable')
       const reader = response.body.getReader()
-      return { reader, chunk: await reader.read() }
+      // A disconnect after headers but before the first chunk still counts as this key's network failure.
+      const chunk = await reader.read().catch((error: unknown) => {
+        if (signal.aborted) throw cancelled()
+        if (error instanceof KitFailure) throw error
+        throw new KitFailure('network', 'upstream unreachable')
+      })
+      return { reader, chunk }
     }
     // Key failover (docs/34 §3.4, docs/43 §3): only rejections before the first chunk move to the next key.
     let { reader, chunk } = await withKeys(connection, (key) => guarded(withTimeout(first(key), TIMEOUTS.firstByteMs, 'first_byte', abort)))

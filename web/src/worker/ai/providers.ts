@@ -224,8 +224,8 @@ export interface Connection {
   protocol: Protocol
   // Enabled keys in order for this request; empty = no key.
   apiKeys: string[]
-  // Fill-first only: records that `apiKeys[index]` is skipped until `until` (docs/43 §3.1).
-  setAside: ((index: number, until: number, reason: string) => Promise<void>) | null
+  // Fill-first only: skips `key` until `until` (docs/43 §3.1) in D1 and for the rest of this request.
+  setAside: ((key: string, until: number, reason: string) => Promise<void>) | null
   modelId: string
   endpointId: string
   contextWindow: number | null
@@ -320,7 +320,7 @@ const DAY_MS = 86_400_000
 const COOLDOWN_MS = 60_000
 
 /** Keys for one request by the endpoint's strategy (docs/43 §3); `name` labels the all-used-up error. */
-async function requestKeys(
+export async function requestKeys(
   env: Env,
   userId: string,
   endpointId: string,
@@ -335,12 +335,17 @@ async function requestKeys(
     const earliest = new Date(Math.min(...rows.map((row) => row.exhaustedUntil ?? now))).toISOString()
     throw new KitFailure('rate_limited', `线路 ${name} 的密钥全部用完，最早 ${earliest} 恢复`, { reason: 'keys_exhausted' })
   }
+  const apiKeys = await Promise.all(usable.map((row) => openKey(env, row)))
+  if (!apiKeys.length) return { apiKeys, setAside: null }
+  const ids = new Map(apiKeys.map((key, index) => [key, usable[index]!.id]))
   return {
-    apiKeys: await Promise.all(usable.map((row) => openKey(env, row))),
-    setAside: async (index, until, reason) => {
+    apiKeys,
+    setAside: async (key, until, reason) => {
       await env.DB.prepare('UPDATE ai_endpoint_keys SET exhausted_until = ?1, exhausted_reason = ?2 WHERE id = ?3 AND user_id = ?4')
-        .bind(until, reason, usable[index]!.id, userId)
+        .bind(until, reason, ids.get(key)!, userId)
         .run()
+      // Later tool rounds of the same run reuse this pool.
+      apiKeys.splice(apiKeys.indexOf(key), 1)
     },
   }
 }
@@ -355,7 +360,9 @@ export async function withKeys<T>(
   pool: Pick<Connection, 'apiKeys' | 'setAside'>,
   attempt: (key: string | null) => Promise<T>,
 ): Promise<T> {
-  const candidates = pool.apiKeys.length ? pool.apiKeys : [null]
+  // A fill-first pool emptied by earlier rounds of this run must not fall back to a keyless request.
+  if (pool.setAside && !pool.apiKeys.length) throw new KitFailure('rate_limited', 'every key of this line is set aside', { reason: 'keys_exhausted' })
+  const candidates = pool.apiKeys.length ? [...pool.apiKeys] : [null]
   let retried = false
   for (let index = 0; ; index++) {
     try {
@@ -379,7 +386,7 @@ export async function withKeys<T>(
       const limited = status === 429 && facts?.quota === false
       const usedUp = [401, 402, 403].includes(status) || (facts?.quota === true && (status === 400 || status === 429 || status >= 500))
       if (!facts || (!limited && !usedUp)) throw error
-      await pool.setAside(index, Date.now() + (limited ? (facts.retryAfterMs ?? COOLDOWN_MS) : DAY_MS), facts.reason)
+      await pool.setAside(candidates[index]!, Date.now() + (limited ? (facts.retryAfterMs ?? COOLDOWN_MS) : DAY_MS), facts.reason)
       if (!next) throw error
     }
   }
