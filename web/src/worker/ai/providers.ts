@@ -353,6 +353,7 @@ export async function requestKeys(
       // Later tool rounds of the same run reuse this pool.
       apiKeys.splice(index, 1)
       ids.splice(index, 1)
+      if (!apiKeys.length) await requestKeys(env, userId, endpointId, strategy, name)
     },
   }
 }

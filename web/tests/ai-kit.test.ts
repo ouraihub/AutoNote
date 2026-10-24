@@ -1591,7 +1591,9 @@ describe('run and history routes', () => {
     // Every key used up: rate_limited before any upstream call.
     fetchMock.mockReset()
     fetchMock.mockImplementation(async () => new Response('denied', { status: 402 }))
-    await run(h, model)
+    const lastKey = await run(h, model)
+    expect(lastKey.text).toContain('keys_exhausted')
+    expect(lastKey.text).toContain(new Date(clock + 86_400_000).toISOString())
     fetchMock.mockReset()
     const exhausted = await run(h, model)
     expect(fetchMock).not.toHaveBeenCalled()
@@ -1626,7 +1628,7 @@ describe('run and history routes', () => {
       endpoints: [{ id: endpointId, slug: 'main', baseUrl: 'https://api.example.com', protocol: 'openai-chat', models: [chatModel('m1')], keyStrategy: 'fill_first' }],
     })
     const connection = await resolveModel(h.env, 'user-a', { endpointId, modelId: 'm1' })
-    await expect(withKeys(connection, async () => { throw upstreamFailure(402, 'insufficient balance', [KEY]) })).rejects.toMatchObject({ code: 'upstream' })
+    await expect(withKeys(connection, async () => { throw upstreamFailure(402, 'insufficient balance', [KEY]) })).rejects.toMatchObject({ code: 'rate_limited', resumeAt: clock + 86_400_000 })
     const rows = await h.env.DB.prepare('SELECT exhausted_until AS until FROM ai_endpoint_keys WHERE endpoint_id = ?1').bind(endpointId).all<{ until: number | null }>()
     expect(rows.results.map(row => row.until)).toEqual([clock + 86_400_000, clock + 86_400_000])
     await expect(resolveModel(h.env, 'user-a', { endpointId, modelId: 'm1' })).rejects.toMatchObject({ code: 'rate_limited', details: { reason: 'keys_exhausted' } })
@@ -1654,7 +1656,7 @@ describe('run and history routes', () => {
     expect(await round([KEY])).toBe(SECOND)
     expect(await round([])).toBe(SECOND)
     expect(tried).toEqual([KEY, SECOND, SECOND])
-    await expect(round([SECOND])).rejects.toMatchObject({ code: 'upstream' })
+    await expect(round([SECOND])).rejects.toMatchObject({ code: 'rate_limited', details: { reason: 'keys_exhausted' } })
     await expect(round([])).rejects.toMatchObject({ code: 'rate_limited', details: { reason: 'keys_exhausted' } })
     expect(tried.at(-1)).toBe(SECOND)
   })
