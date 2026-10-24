@@ -56,9 +56,9 @@ export async function generateImage(db: D1Database, painting: Connection, args: 
   if (!prompt || [...prompt].length > 4000) throw badRequest('prompt', 'invalid')
   const size = args.size == null ? SIZES[0] : SIZES.find((item) => item === args.size)
   if (!size) throw badRequest('size', 'invalid')
-  const known = painting.apiKeys
-  const timeout = AbortSignal.timeout(TIMEOUT_MS)
-  const call = async (url: URL, init: RequestInit): Promise<Response> => {
+  const known = [...painting.apiKeys]
+  // Each key attempt (and the image download) gets its own full timeout.
+  const call = async (url: URL, init: RequestInit, timeout = AbortSignal.timeout(TIMEOUT_MS)): Promise<Response> => {
     try {
       return await fetch(url, { ...init, redirect: 'manual', signal: AbortSignal.any([signal, timeout]) })
     } catch {
@@ -83,16 +83,22 @@ export async function generateImage(db: D1Database, painting: Connection, args: 
     }
     payload = form
   }
-  const { response, text, overflow } = await withKeys(painting.apiKeys, async (key) => {
+  const { response, text, overflow } = await withKeys(painting, async (key) => {
+    const timeout = AbortSignal.timeout(TIMEOUT_MS)
     const response = await call(target, {
       method: 'POST',
       // FormData sets its own multipart content-type with the boundary.
       headers: { ...painting.headers, ...(edit ? {} : { 'content-type': 'application/json' }), ...(key ? { authorization: `Bearer ${key}` } : {}) },
       body: payload,
+    }, timeout)
+    // A body that breaks mid-read is this key's network failure, so fill-first tries the next key.
+    const { bytes: raw, overflow } = await readUpTo(response.body, RESPONSE_BYTES).catch((error: unknown) => {
+      if (signal.aborted) throw cancelled()
+      if (timeout.aborted) throw new KitFailure('timeout', 'painting timeout', { reason: 'painting' })
+      throw error instanceof KitFailure ? error : new KitFailure('network', 'painting model unreachable')
     })
-    const { bytes: raw, overflow } = await readUpTo(response.body, RESPONSE_BYTES)
     const text = new TextDecoder().decode(raw)
-    if (!response.ok) throw upstreamFailure(response.status, text, known)
+    if (!response.ok) throw upstreamFailure(response.status, text, known, response.headers.get('retry-after'))
     return { response, text, overflow }
   })
   if (overflow) throw badRequest('images', 'size', MAX_IMAGE_BYTES)
