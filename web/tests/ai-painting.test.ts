@@ -175,11 +175,14 @@ describe('generate_image tool loop', () => {
     const imgEndpoint = body.find((provider) => provider.name === 'Img')!.endpoints[0]!.id
     await addKey(h, 'user-a', imgEndpoint, 'sk-img-0123456789')
     await h.env.DB.prepare("INSERT INTO ai_roles (user_id, role, endpoint_id, model_id) VALUES ('user-a', 'painting', ?1, 'img2')").bind(imgEndpoint).run()
-    await h.env.DB.prepare('UPDATE ai_endpoint_keys SET exhausted_until = ?1 WHERE endpoint_id = ?2').bind(Date.now() + 60_000, imgEndpoint).run()
+    const resumeAt = Date.now() + 60_000
+    await h.env.DB.prepare('UPDATE ai_endpoint_keys SET exhausted_until = ?1 WHERE endpoint_id = ?2').bind(resumeAt, imgEndpoint).run()
     upstream('openai-chat', 1)
     const result = await run(h, { model, generateImage: true })
     expect(result.status, result.text).toBe(200)
     expect(result.events.find((e) => e.kind === 'tool_result')).toMatchObject({ outcome: 'error', summary: expect.stringContaining('rate_limited') })
+    expect(result.events.find((e) => e.kind === 'tool_result')).toMatchObject({ summary: expect.stringContaining('Img · img') })
+    expect(result.events.find((e) => e.kind === 'tool_result')).toMatchObject({ summary: expect.stringContaining(new Date(resumeAt).toISOString()) })
     expect(result.events.at(-1)).toMatchObject({ kind: 'end', status: 'completed' })
     expect(calls('/images/generations')).toEqual([])
   })
