@@ -83,7 +83,7 @@ export async function generateImage(db: D1Database, painting: Connection, args: 
     }
     payload = form
   }
-  const { response, text, overflow } = await withKeys(painting.apiKeys, async (key) => {
+  const { response, text, overflow } = await withKeys(painting, async (key) => {
     const response = await call(target, {
       method: 'POST',
       // FormData sets its own multipart content-type with the boundary.
@@ -92,7 +92,7 @@ export async function generateImage(db: D1Database, painting: Connection, args: 
     })
     const { bytes: raw, overflow } = await readUpTo(response.body, RESPONSE_BYTES)
     const text = new TextDecoder().decode(raw)
-    if (!response.ok) throw upstreamFailure(response.status, text, known)
+    if (!response.ok) throw upstreamFailure(response.status, text, known, response.headers.get('retry-after'))
     return { response, text, overflow }
   })
   if (overflow) throw badRequest('images', 'size', MAX_IMAGE_BYTES)
