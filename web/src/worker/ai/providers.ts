@@ -226,6 +226,7 @@ export interface Connection {
   apiKeys: string[]
   // Fill-first only: skips `key` until `until` (docs/43 §3.1) in D1 and for the rest of this request.
   setAside: ((key: string, until: number, reason: string) => Promise<void>) | null
+  exhaustion?: { failure: KitFailure | null }
   modelId: string
   endpointId: string
   contextWindow: number | null
@@ -328,7 +329,7 @@ export async function requestKeys(
   name: string,
   // The painting line is resolved up front for a chat run: an all-paused painting line must fail the tool call, not the chat.
   deferExhausted = false,
-): Promise<Pick<Connection, 'apiKeys' | 'setAside'>> {
+): Promise<Pick<Connection, 'apiKeys' | 'setAside' | 'exhaustion'>> {
   if (strategy === 'round_robin') return { apiKeys: await rotatedKeys(env, userId, endpointId), setAside: null }
   const rows = (await endpointKeys(env.DB, userId, endpointId)).filter((row) => row.enabled !== 0)
   const now = Date.now()
@@ -338,13 +339,14 @@ export async function requestKeys(
     const failure = new KitFailure('rate_limited', `线路 ${name} 的密钥全部用完，最早 ${new Date(resumeAt).toISOString()} 恢复`, { reason: 'keys_exhausted' })
     failure.resumeAt = resumeAt
     if (!deferExhausted) throw failure
-    return { apiKeys: [], setAside: async () => { throw failure } }
+    return { apiKeys: [], setAside: null, exhaustion: { failure } }
   }
   const apiKeys = await Promise.all(usable.map((row) => openKey(env, row)))
   if (!apiKeys.length) return { apiKeys, setAside: null }
   const ids = usable.map((row) => row.id)
-  return {
+  const pool: Pick<Connection, 'apiKeys' | 'setAside' | 'exhaustion'> = {
     apiKeys,
+    exhaustion: { failure: null },
     setAside: async (key, until, reason) => {
       const index = apiKeys.indexOf(key)
       await env.DB.prepare('UPDATE ai_endpoint_keys SET exhausted_until = ?1, exhausted_reason = ?2 WHERE id = ?3 AND user_id = ?4')
@@ -353,9 +355,16 @@ export async function requestKeys(
       // Later tool rounds of the same run reuse this pool.
       apiKeys.splice(index, 1)
       ids.splice(index, 1)
-      if (!apiKeys.length) await requestKeys(env, userId, endpointId, strategy, name)
+      if (!apiKeys.length) {
+        try { await requestKeys(env, userId, endpointId, strategy, name) }
+        catch (error) {
+          if (error instanceof KitFailure) pool.exhaustion!.failure = error
+          throw error
+        }
+      }
     },
   }
+  return pool
 }
 
 const FAILOVER_STATUS = [401, 403, 429]
@@ -365,9 +374,10 @@ const FAILOVER_STATUS = [401, 403, 429]
  * upstream rejects the key; fill-first also sets used-up or rate-limited keys aside and retries a network failure once.
  */
 export async function withKeys<T>(
-  pool: Pick<Connection, 'apiKeys' | 'setAside'>,
+  pool: Pick<Connection, 'apiKeys' | 'setAside' | 'exhaustion'>,
   attempt: (key: string | null) => Promise<T>,
 ): Promise<T> {
+  if (pool.exhaustion?.failure) throw pool.exhaustion.failure
   // A fill-first pool emptied by earlier rounds of this run must not fall back to a keyless request.
   if (pool.setAside && !pool.apiKeys.length) throw new KitFailure('rate_limited', 'every key of this line is set aside', { reason: 'keys_exhausted' })
   const candidates = pool.apiKeys.length ? [...pool.apiKeys] : [null]
