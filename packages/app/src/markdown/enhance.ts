@@ -119,7 +119,8 @@ async function enhanceMermaid(root: HTMLElement, dark: boolean, signal: AbortSig
     const module = await import('mermaid')
     if (signal.aborted) return
     const mermaid = module.default
-    mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: dark ? 'dark' : 'default' })
+    // HTML labels live in <foreignObject>, which the SVG sanitizer below strips; SVG <text> survives.
+    mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: dark ? 'dark' : 'default', htmlLabels: false })
     for (const [index, block] of blocks.entries()) {
       const source = block.querySelector('code')?.textContent ?? ''
       const result = await mermaid.render(`autonote-mermaid-${++diagramSequence}-${index}`, source)
