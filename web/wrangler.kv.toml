@@ -21,6 +21,8 @@ run_worker_first = [
   "/oauth/*",
   "/mcp",
   "/mcp/*",
+  "/relay",
+  "/relay/*",
   "/.well-known/*",
 ]
 

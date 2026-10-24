@@ -49,7 +49,7 @@ import type {
   TagPatch,
   TagPatchResult,
 } from '@shared/backend-types'
-import type { KitPorts, ModelRef } from '@ouraihub/aether-ui/ports'
+import type { KitPorts, ModelRef, Protocol } from '@ouraihub/aether-ui/ports'
 import type { ChangeFeed, Unsubscribe } from './change-feed'
 
 export interface CallOptions {
@@ -235,6 +235,39 @@ export interface UpdatePort {
   check(options?: CallOptions): Promise<UpdateCheckResponse>
 }
 
+export interface RelayKey {
+  id: string
+  name: string
+  createdAt: number
+  lastUsedAt: number | null
+  expiresAt: number | null
+  todayRequests: number
+}
+
+export interface RelayRepo {
+  repo: string
+  workflow: string
+  ref: string
+}
+
+export interface RelaySettingsInfo {
+  enabled: boolean
+  endpoint: string
+  audience: string
+  keys: RelayKey[]
+  repos: RelayRepo[]
+  protocols: Protocol[]
+}
+
+export interface RelayPort {
+  get(options?: CallOptions): Promise<RelaySettingsInfo>
+  setEnabled(enabled: boolean, options?: CallOptions): Promise<{ enabled: boolean }>
+  createKey(name: string, options?: CallOptions): Promise<{ key: RelayKey; token: string }>
+  revokeKey(id: string, options?: CallOptions): Promise<{ ok: true }>
+  addRepo(repo: string, workflow: string, ref: string, options?: CallOptions): Promise<{ repos: RelayRepo[] }>
+  removeRepo(repo: string, options?: CallOptions): Promise<{ repos: RelayRepo[] }>
+}
+
 export type AiRole = 'chat' | 'writing' | 'painting'
 
 export interface AiRoleBinding {
@@ -268,5 +301,6 @@ export interface Backend {
   readonly backup?: BackupPort
   readonly mcp?: RemoteMcpPort | LocalMcpPort
   readonly update?: UpdatePort
+  readonly relay?: RelayPort
   dispose(): Promise<void>
 }

@@ -9,6 +9,7 @@ import type { SettingsState } from '@app/state/settings.svelte'
 import AccountSettings from './AccountSettings.svelte'
 import BackupSettings from './BackupSettings.svelte'
 import McpSettings from './McpSettings.svelte'
+import RelaySettings from './RelaySettings.svelte'
 import SharedNotes from './SharedNotes.svelte'
 import UpdateSettings from './UpdateSettings.svelte'
 import CloudSettingsHarness from './CloudSettingsHarness.svelte'
@@ -35,7 +36,7 @@ const backend = {
   session: { updateProfile, account: { setPassword: vi.fn() } }, share: { list, remove }, mcp: { get, createKey, revokeKey },
 } as unknown as Backend
 const settings = { current: { backup: { schedule: 'off' } }, update: vi.fn() } as unknown as SettingsState
-const mount = (component: typeof AccountSettings | typeof SharedNotes | typeof McpSettings | typeof BackupSettings | typeof UpdateSettings, source: Backend = backend) =>
+const mount = (component: typeof AccountSettings | typeof SharedNotes | typeof McpSettings | typeof RelaySettings | typeof BackupSettings | typeof UpdateSettings, source: Backend = backend) =>
   render(CloudSettingsHarness, { props: { component, backend: source, session, i18n, notifier, settings } })
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 
@@ -86,6 +87,59 @@ test('update checks are owner-only', () => {
   mount(UpdateSettings, { ...backend, capabilities: { ...backend.capabilities, updateCheck: true }, update: { check } } as Backend)
   expect(screen.queryByRole('button', { name: 'Check again' })).toBeNull()
   expect(check).not.toHaveBeenCalled()
+})
+
+test('relay is owner-only, shows the token once and validates repositories', async () => {
+  const relay = {
+    get: vi.fn(async () => ({ enabled: false, endpoint: 'https://example.com/relay/v1', audience: 'https://example.com', keys: [], repos: [], protocols: ['openai-chat', 'anthropic-messages'] })),
+    createKey: vi.fn(async () => ({ key: { id: 'k/1', name: 'omp', createdAt: 1, lastUsedAt: null, expiresAt: null, todayRequests: 0 }, token: 'anr_secret' })),
+    revokeKey: vi.fn(async () => ({ ok: true as const })),
+    addRepo: vi.fn(async () => ({ repos: [{ repo: 'me/app', workflow: 'me/app/.github/workflows/agent.yml', ref: 'refs/heads/main' }] })),
+  }
+  const source = { ...backend, relay } as unknown as Backend
+  mount(RelaySettings, source)
+  expect(relay.get).not.toHaveBeenCalled()
+  cleanup()
+  const owner = { ...session, user: { ...session.user, role: 'owner' } } as unknown as SessionState
+  render(CloudSettingsHarness, { props: { component: RelaySettings, backend: source, session: owner, i18n, notifier, settings } })
+  await screen.findByText('Model relay is paused. Relay requests return 503.')
+  const snippet = screen.getByText(/baseUrl: "https:\/\/example\.com\/relay\/v1"/).textContent!
+  expect(snippet).toContain('api: openai-completions\n    discovery:\n      type: openai-models-list')
+  expect(snippet).toContain('api: anthropic-messages')
+  expect(snippet).not.toContain('api: openai-responses')
+  await fireEvent.input(screen.getByLabelText('Access key name'), { target: { value: 'omp' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Create key' }))
+  await screen.findByText('anr_secret')
+  await fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+  await waitFor(() => expect(screen.queryByText('anr_secret')).toBeNull())
+  expect(screen.getByText(/never expires/)).toBeTruthy()
+  await fireEvent.input(screen.getByLabelText('Repository'), { target: { value: 'bad' } })
+  await fireEvent.input(screen.getByLabelText('Allowed workflow'), { target: { value: 'me/app/.github/workflows/agent.yml' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Add repository' }))
+  await screen.findByText('Enter the repository as owner/repo')
+  expect(relay.addRepo).not.toHaveBeenCalled()
+  await fireEvent.input(screen.getByLabelText('Repository'), { target: { value: 'me/app' } })
+  await fireEvent.input(screen.getByLabelText('Trusted branch'), { target: { value: 'main' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Add repository' }))
+  await screen.findByText('Enter the branch as refs/heads/name or refs/tags/name')
+  expect(relay.addRepo).not.toHaveBeenCalled()
+  await fireEvent.input(screen.getByLabelText('Trusted branch'), { target: { value: 'refs/heads/main' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Add repository' }))
+  await screen.findByText('me/app/.github/workflows/agent.yml')
+  expect(relay.addRepo).toHaveBeenCalledWith('me/app', 'me/app/.github/workflows/agent.yml', 'refs/heads/main', expect.anything())
+})
+
+test.each([
+  { protocols: [], expected: 'providers: {}' },
+  { protocols: ['openai-responses'], expected: 'api: openai-responses' },
+])('relay snippet follows supported protocols $protocols', async ({ protocols, expected }) => {
+  const relay = { get: vi.fn(async () => ({ enabled: true, endpoint: 'https://example.com/relay/v1', audience: 'https://example.com', keys: [], repos: [], protocols })) }
+  const source = { ...backend, relay } as unknown as Backend
+  const owner = { ...session, user: { ...session.user, role: 'owner' } } as unknown as SessionState
+  render(CloudSettingsHarness, { props: { component: RelaySettings, backend: source, session: owner, i18n, notifier, settings } })
+  const snippet = await screen.findByText((_, element) => element?.tagName === 'PRE' && !!element.textContent?.includes(expected))
+  expect(snippet.textContent).not.toContain('api: openai-completions')
+  expect(snippet.textContent).not.toContain('api: anthropic-messages')
 })
 
 test('desktop never fetches private Worker settings even with inconsistent capabilities', () => {

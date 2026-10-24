@@ -2,7 +2,7 @@ import type { Backend, BackendCapabilities } from '@app/backend'
 import type { HostSettingsSection } from '@app/root/types'
 
 export type SettingsSectionId =
-  'appearance' | 'editor' | 'backup' | 'sync' | 'mcp' | 'account' | 'data' | 'shares' | 'about'
+  'appearance' | 'editor' | 'backup' | 'sync' | 'mcp' | 'relay' | 'account' | 'data' | 'shares' | 'about'
 
 export type SettingsResourceId = 'backupTargets' | 'backupRuns' | 'mcp' | 'stats' | 'totp' | 'shares'
 
@@ -23,6 +23,7 @@ const BUILTINS: readonly (BuiltinSettingsSection & { canShow(capabilities: Backe
   },
   { id: 'sync', titleKey: 'settings.sync', resources: [], canShow: (c) => c.realtime || c.remoteSync },
   { id: 'mcp', titleKey: 'settings.mcp', resources: ['mcp'], canShow: (c) => c.mcp === 'remote' },
+  { id: 'relay', titleKey: 'settings.relay', resources: [], canShow: () => true },
   { id: 'account', titleKey: 'settings.account', resources: ['totp'], canShow: (c) => c.accounts },
   { id: 'data', titleKey: 'settings.data', resources: [], canShow: () => true },
   { id: 'shares', titleKey: 'share.shared_notes', resources: ['shares'], canShow: (c) => c.share },
@@ -34,11 +35,13 @@ export type VisibleSettingsSection = BuiltinSettingsSection | HostSettingsSectio
 export function settingsSections(
   backend: Backend,
   extensions: readonly HostSettingsSection[],
+  role?: string,
 ): VisibleSettingsSection[] {
   const builtins: VisibleSettingsSection[] = BUILTINS.filter(
     (section) =>
       section.canShow(backend.capabilities) &&
-      (backend.kind === 'web' || !['backup', 'sync', 'mcp', 'account', 'shares'].includes(section.id)),
+      (section.id !== 'relay' || (!!backend.relay && role === 'owner')) &&
+      (backend.kind === 'web' || !['backup', 'sync', 'mcp', 'relay', 'account', 'shares'].includes(section.id)),
   ).map(({ id, titleKey, resources }) => ({ id, titleKey, resources }))
   const ids = new Set(builtins.map((section) => section.id))
   const hosted: HostSettingsSection[] = []

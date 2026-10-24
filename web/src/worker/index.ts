@@ -9,6 +9,7 @@ import { purgeRevokedMcpApiKeys } from './mcp/api-keys'
 import { purgeExpiredMcpOperations } from './mcp/operations'
 import { purgeExpiredOperationalData } from './lib/maintenance'
 import { purgeExpiredChatImages } from './ai/images'
+import { purgeRelayKeys } from './ai/relay'
 
 export { SyncHub } from './realtime/sync-hub'
 export { CredentialVault } from './durable/credential-vault'
@@ -44,6 +45,7 @@ export default {
         drainAiIndexQueue(env, 300),
         drainAllFtsQueues(env.DB),
         purgeExpiredChatImages(env),
+        purgeRelayKeys(env.DB),
       ])
     })())
   },
