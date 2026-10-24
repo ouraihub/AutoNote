@@ -722,6 +722,15 @@ const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
       `ALTER TABLE ai_chat_turns ADD COLUMN cost_currency TEXT`,
     ],
   },
+  {
+    version: 29,
+    skipIfColumnExists: { table: 'ai_endpoints', column: 'key_strategy' },
+    statements: [
+      `ALTER TABLE ai_endpoints ADD COLUMN key_strategy TEXT NOT NULL DEFAULT 'round_robin' CHECK(key_strategy IN ('round_robin','fill_first'))`,
+      `ALTER TABLE ai_endpoint_keys ADD COLUMN exhausted_until INTEGER`,
+      `ALTER TABLE ai_endpoint_keys ADD COLUMN exhausted_reason TEXT`,
+    ],
+  },
 ]
 
 const FTS_STATEMENT = `CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
@@ -771,8 +780,8 @@ const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ai_index_queue: ['user_id', 'note_id', 'kind', 'created_at'],
   fts_index_queue: ['user_id', 'note_id', 'kind', 'created_at'],
   ai_providers: ['id', 'user_id', 'name', 'enabled', 'notes', 'preset_id', 'position', 'created_at', 'updated_at'],
-  ai_endpoints: ['id', 'user_id', 'provider_id', 'slug', 'base_url', 'protocol', 'position', 'image_base_url', 'headers', 'image_edit_base_url'],
-  ai_endpoint_keys: ['id', 'user_id', 'endpoint_id', 'label', 'enabled', 'key_ciphertext', 'position'],
+  ai_endpoints: ['id', 'user_id', 'provider_id', 'slug', 'base_url', 'protocol', 'position', 'image_base_url', 'headers', 'image_edit_base_url', 'key_strategy'],
+  ai_endpoint_keys: ['id', 'user_id', 'endpoint_id', 'label', 'enabled', 'key_ciphertext', 'position', 'exhausted_until', 'exhausted_reason'],
   ai_models: ['user_id', 'endpoint_id', 'model_id', 'model_type', 'type_source', 'context_window', 'can_vision', 'position', 'max_output', 'supports_tools', 'reasoning', 'native_web_search', 'name', 'group_name', 'pricing'],
   ai_roles: ['user_id', 'role', 'endpoint_id', 'model_id'],
   ai_chat_conversations: ['id', 'user_id', 'title', 'scope', 'created_at', 'updated_at', 'selected_turn_id', 'revision'],
