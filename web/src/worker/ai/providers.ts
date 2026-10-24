@@ -342,15 +342,17 @@ export async function requestKeys(
   }
   const apiKeys = await Promise.all(usable.map((row) => openKey(env, row)))
   if (!apiKeys.length) return { apiKeys, setAside: null }
-  const ids = new Map(apiKeys.map((key, index) => [key, usable[index]!.id]))
+  const ids = usable.map((row) => row.id)
   return {
     apiKeys,
     setAside: async (key, until, reason) => {
+      const index = apiKeys.indexOf(key)
       await env.DB.prepare('UPDATE ai_endpoint_keys SET exhausted_until = ?1, exhausted_reason = ?2 WHERE id = ?3 AND user_id = ?4')
-        .bind(until, reason, ids.get(key)!, userId)
+        .bind(until, reason, ids[index]!, userId)
         .run()
       // Later tool rounds of the same run reuse this pool.
-      apiKeys.splice(apiKeys.indexOf(key), 1)
+      apiKeys.splice(index, 1)
+      ids.splice(index, 1)
     },
   }
 }

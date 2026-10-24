@@ -10,6 +10,7 @@ import { upstreamFailure } from '../src/worker/ai/kit'
 import { resolveModel, withKeys } from '../src/worker/ai/providers'
 import { SseParser } from '../src/worker/ai/protocol'
 import { hashPassword } from '../src/worker/lib/password'
+import { encryptAiKey } from '../src/worker/lib/crypto'
 import { addKey, chatModel, createHarness, fixture, frames, streamOf, type Harness } from './support/ai-kit-harness'
 
 const KEY = 'sk-test-abcdefghijklmnop'
@@ -1612,6 +1613,23 @@ describe('run and history routes', () => {
     await run(h, model)
     await run(h, model)
     expect(sent().sort()).toEqual([`Bearer ${KEY}`, `Bearer ${SECOND}`].sort())
+  })
+
+  it('fill-first suspends each duplicate credential row and does not retry it on the next request', async () => {
+    const h = await createHarness()
+    const { providerId, endpointId } = await saveProvider(h)
+    const duplicateId = await addKey(h, 'user-a', endpointId, 'sk-distinct-backup')
+    await h.env.DB.prepare('UPDATE ai_endpoint_keys SET key_ciphertext = ?1 WHERE id = ?2')
+      .bind(await encryptAiKey(h.env, duplicateId, KEY), duplicateId).run()
+    await h.json('user-a', 'PUT', '/providers', {
+      id: providerId, name: 'Acme',
+      endpoints: [{ id: endpointId, slug: 'main', baseUrl: 'https://api.example.com', protocol: 'openai-chat', models: [chatModel('m1')], keyStrategy: 'fill_first' }],
+    })
+    const connection = await resolveModel(h.env, 'user-a', { endpointId, modelId: 'm1' })
+    await expect(withKeys(connection, async () => { throw upstreamFailure(402, 'insufficient balance', [KEY]) })).rejects.toMatchObject({ code: 'upstream' })
+    const rows = await h.env.DB.prepare('SELECT exhausted_until AS until FROM ai_endpoint_keys WHERE endpoint_id = ?1').bind(endpointId).all<{ until: number | null }>()
+    expect(rows.results.map(row => row.until)).toEqual([clock + 86_400_000, clock + 86_400_000])
+    await expect(resolveModel(h.env, 'user-a', { endpointId, modelId: 'm1' })).rejects.toMatchObject({ code: 'rate_limited', details: { reason: 'keys_exhausted' } })
   })
 
   it('fill-first keeps a set-aside key out of later rounds of the same request and never falls back to no key', async () => {
