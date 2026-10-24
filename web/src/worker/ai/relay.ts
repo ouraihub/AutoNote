@@ -31,9 +31,9 @@ export interface RelayModel {
   object: 'model'
   owned_by: string
   protocol: Protocol
+  model_type: 'chat' | 'image'
 }
 
-/** OpenAI/Anthropic-style error body, which agent clients already understand. */
 export const relayError = (status: number, type: string, message: string): Response =>
   Response.json({ type: 'error', error: { type, message } }, { status })
 
@@ -178,6 +178,8 @@ export async function removeRelayRepo(db: D1Database, userId: string, repo: stri
 interface LineRow {
   endpointId: string
   baseUrl: string
+  imageBaseUrl: string | null
+  imageEditBaseUrl: string | null
   protocol: Protocol
   headers: string
   keyStrategy: KeyStrategy
@@ -185,23 +187,26 @@ interface LineRow {
   providerId: string
   providerName: string
   modelId: string
+  modelType: 'chat' | 'image'
 }
 
-/** Every enabled chat model of the user, in provider then endpoint order. */
-async function chatLines(db: D1Database, userId: string): Promise<LineRow[]> {
+/** Every enabled model of one type, in provider then endpoint order. */
+async function modelLines(db: D1Database, userId: string, modelType: 'chat' | 'image'): Promise<LineRow[]> {
   const { results } = await db
     .prepare(
-      `SELECT e.id AS endpointId, e.base_url AS baseUrl, e.protocol, e.headers, e.key_strategy AS keyStrategy, e.slug,
-              p.id AS providerId, p.name AS providerName, m.model_id AS modelId
+      `SELECT e.id AS endpointId, e.base_url AS baseUrl, e.image_base_url AS imageBaseUrl, e.image_edit_base_url AS imageEditBaseUrl,
+              e.protocol, e.headers, e.key_strategy AS keyStrategy, e.slug,
+              p.id AS providerId, p.name AS providerName, m.model_id AS modelId, m.model_type AS modelType
          FROM ai_models m JOIN ai_endpoints e ON e.id = m.endpoint_id AND e.user_id = m.user_id
          JOIN ai_providers p ON p.id = e.provider_id AND p.user_id = m.user_id
-        WHERE m.user_id = ?1 AND p.enabled = 1 AND m.model_type = 'chat'
+        WHERE m.user_id = ?1 AND p.enabled = 1 AND m.model_type = ?2
         ORDER BY p.position, p.id, e.position, e.id, m.position`,
     )
-    .bind(userId)
+    .bind(userId, modelType)
     .all<LineRow>()
   return results
 }
+
 
 /** Plain ids for the first provider offering a model; later providers with the same model also get `provider/id`. */
 export async function relayModels(db: D1Database, userId: string): Promise<RelayModel[]> {
@@ -209,19 +214,149 @@ export async function relayModels(db: D1Database, userId: string): Promise<Relay
   const seen = new Set<string>()
   const providers = new Set<string>()
   const models: RelayModel[] = []
-  for (const line of await chatLines(db, userId)) {
-    const model = `${line.modelId}\u0000${line.protocol}`
-    const providerModel = `${line.providerId}\u0000${model}`
-    if (providers.has(providerModel)) continue
-    providers.add(providerModel)
-    if (!first.has(model)) first.set(model, line.providerId)
-    const id = first.get(model) === line.providerId ? line.modelId : `${line.providerName}/${line.modelId}`
-    const key = `${id}\u0000${line.protocol}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    models.push({ id, object: 'model', owned_by: line.providerName, protocol: line.protocol })
+  for (const modelType of ['chat', 'image'] as const) {
+    for (const line of await modelLines(db, userId, modelType)) {
+      const model = `${line.modelId}\u0000${line.protocol}`
+      const providerModel = `${line.providerId}\u0000${model}`
+      if (providers.has(providerModel)) continue
+      providers.add(providerModel)
+      if (!first.has(model)) first.set(model, line.providerId)
+      const id = first.get(model) === line.providerId ? line.modelId : `${line.providerName}/${line.modelId}`
+      const key = `${id}\u0000${line.protocol}\u0000${modelType}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      models.push({ id, object: 'model', owned_by: line.providerName, protocol: line.protocol, model_type: modelType })
+    }
   }
   return models
+}
+
+/** Forwards OpenAI-compatible image generation and edit requests to image models. */
+export async function forwardImage(env: Env, userId: string, keyId: string, request: Request, edit: boolean): Promise<Response> {
+  const running = inFlight.get(keyId) ?? 0
+  if (running >= MAX_CONCURRENT) return relayError(429, 'rate_limit_error', `at most ${MAX_CONCURRENT} concurrent requests per access key`)
+  inFlight.set(keyId, running + 1)
+  try {
+    const declared = Number(request.headers.get('content-length') ?? '0')
+    if (declared > MAX_BODY) return relayError(413, 'invalid_request_error', 'request body exceeds 10 MB')
+    const { bytes: body, overflow } = await readUpTo(request.body, MAX_BODY)
+    if (overflow) return relayError(413, 'invalid_request_error', 'request body exceeds 10 MB')
+    let model: unknown
+    let payload: Record<string, unknown> | null = null
+    let form: FormData | null = null
+    if (edit) {
+      try {
+        form = await new Request('https://relay.invalid', { method: 'POST', headers: { 'content-type': request.headers.get('content-type') ?? '' }, body }).formData()
+        model = form.get('model')
+      } catch {
+        return relayError(400, 'invalid_request_error', 'request body is not valid multipart form data')
+      }
+    } else {
+      try {
+        const parsed: unknown = JSON.parse(new TextDecoder().decode(body))
+        payload = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null
+        model = payload?.model
+      } catch {
+        return relayError(400, 'invalid_request_error', 'request body is not JSON')
+      }
+    }
+    if (typeof model !== 'string' || !model) return relayError(400, 'invalid_request_error', 'model is required')
+    const configured = await modelLines(env.DB, userId, 'image')
+    const select = (candidate: string): LineRow[] => {
+      const direct = configured.filter((line) => line.modelId === candidate)
+      if (direct.length) return direct
+      const selected = configured.find((line) => candidate === `${line.providerName}/${line.modelId}`)
+      return selected ? configured.filter((line) => line.providerId === selected.providerId && line.modelId === selected.modelId) : []
+    }
+    const lines = select(model)
+    if (!lines.length) return relayError(404, 'not_found_error', `model ${model} is not configured for image generation`)
+    let upstreamBody: Uint8Array | string = body
+    let contentType = request.headers.get('content-type')
+    if (model !== lines[0]!.modelId) {
+      if (form) {
+        form.set('model', lines[0]!.modelId)
+        const rewritten = new Request('https://relay.invalid', { method: 'POST', body: form })
+        upstreamBody = new Uint8Array(await rewritten.arrayBuffer())
+        contentType = rewritten.headers.get('content-type')
+      } else upstreamBody = JSON.stringify({ ...payload, model: lines[0]!.modelId })
+    }
+    let last: KitFailure | null = null
+    let rejected: { status: number; text: string; contentType: string } | null = null
+    let resumeAt: number | null = null
+    let pausedLines = 0
+    let configurationFailure: KitFailure | null = null
+    for (const line of lines) {
+      const base = edit ? line.imageEditBaseUrl ?? line.baseUrl : line.imageBaseUrl ?? line.baseUrl
+      const url = parseTarget(`${apiBase(base)}/images/${edit ? 'edits' : 'generations'}`)
+      if (!(await addressAllowed(env.DB, url))) {
+        last = new KitFailure('bad_request', 'upstream address blocked', { reason: 'blocked_address' })
+        configurationFailure = last
+        continue
+      }
+      let pool
+      try {
+        pool = await requestKeys(env, userId, line.endpointId, line.keyStrategy, `${line.providerName} · ${line.slug}`)
+      } catch (error) {
+        if (!(error instanceof KitFailure)) throw error
+        last = error
+        if (error.resumeAt !== null) {
+          resumeAt = Math.min(resumeAt ?? error.resumeAt, error.resumeAt)
+          pausedLines++
+        } else configurationFailure = error
+        continue
+      }
+      if (!pool.apiKeys.length && !isLoopback(url)) {
+        last = new KitFailure('needs_config', 'missing key', { reason: 'missing_key' })
+        configurationFailure = last
+        continue
+      }
+      const known = [...pool.apiKeys]
+      try {
+        const response = await withKeys(pool, async (key) => {
+          let upstream: Response
+          try {
+            upstream = await fetch(url, {
+              method: 'POST',
+              headers: { ...Object.fromEntries(Object.entries(JSON.parse(line.headers) as Record<string, string>).map(([name, value]) => [name.toLowerCase(), value])), ...authHeaders('openai-chat', key), ...(contentType ? { 'content-type': contentType } : {}) },
+              body: upstreamBody,
+              redirect: 'manual',
+              signal: request.signal,
+            })
+          } catch {
+            if (request.signal.aborted) throw new KitFailure('cancelled', 'cancelled')
+            throw new KitFailure('network', 'upstream unreachable')
+          }
+          const read = await readUpTo(upstream.body, MAX_BODY).catch(() => {
+            if (request.signal.aborted) throw new KitFailure('cancelled', 'cancelled')
+            throw new KitFailure('network', 'upstream unreachable')
+          })
+          const text = new TextDecoder().decode(read.bytes)
+          if (!upstream.ok) {
+            const masked = known.reduce((value, secret) => (secret.trim() ? value.replaceAll(secret.trim(), '***') : value), text)
+            rejected = { status: upstream.status, text: masked, contentType: upstream.headers.get('content-type') ?? 'application/json' }
+            throw upstreamFailure(upstream.status, text, known, upstream.headers.get('retry-after'))
+          }
+          if (read.overflow) throw new KitFailure('bad_request', 'image response exceeds 10 MB', { field: 'images', reason: 'size' })
+          return new Response(read.bytes, { status: upstream.status, headers: { 'content-type': upstream.headers.get('content-type') ?? 'application/json' } })
+        })
+        return response
+      } catch (error) {
+        if (!(error instanceof KitFailure)) throw error
+        last = error
+        if (!error.upstream) break
+        if (!(error.upstream.usedUp || KEY_STATUS.includes(Number(error.details.status)))) break
+      }
+    }
+    if (rejected !== null) {
+      const failed = rejected as { status: number; text: string; contentType: string }
+      return new Response(failed.text, { status: failed.status, headers: { 'content-type': failed.contentType } })
+    }
+    if (last?.code === 'cancelled') return relayError(499, 'cancelled', 'cancelled')
+    if (resumeAt !== null && pausedLines === lines.length) return relayError(429, 'rate_limit_error', `every key of the matching lines is set aside; earliest recovery ${new Date(resumeAt).toISOString()}`)
+    return relayError(502, 'api_error', configurationFailure?.message ?? last?.message ?? 'no usable line')
+  } finally {
+    inFlight.set(keyId, Math.max(0, (inFlight.get(keyId) ?? 1) - 1))
+  }
 }
 
 // ponytail: per-isolate counter, so the 8-request cap holds per Worker instance; move to a Durable Object if keys get shared widely.
@@ -248,7 +383,7 @@ export async function forward(env: Env, userId: string, keyId: string, protocol:
     const model = 'model' in payload ? payload.model : undefined
     if (typeof model !== 'string' || !model) return relayError(400, 'invalid_request_error', 'model is required')
 
-    const configured = await chatLines(env.DB, userId)
+    const configured = await modelLines(env.DB, userId, 'chat')
     const all = configured.filter((line) => line.protocol === protocol)
     let lines = all.filter((line) => line.modelId === model)
     let upstreamBody: Uint8Array | string = body

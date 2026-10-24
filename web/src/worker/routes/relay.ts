@@ -13,6 +13,7 @@ import {
   createRelayKey,
   exchangeGithubToken,
   forward,
+  forwardImage,
   listRelayKeys,
   listRelayRepos,
   relayEnabled,
@@ -29,7 +30,6 @@ const PAUSED = '模型转发已暂停，请在 AutoNote 设置中启用'
 const kitError = (error: unknown, c: Parameters<typeof errorResponse>[0]): Response =>
   error instanceof KitFailure ? c.json({ error: error.toJSON() }, HTTP_STATUS[error.code] as ContentfulStatusCode) : errorResponse(c, error)
 
-/** Agent-facing relay (docs/43 §4): access-key auth, no session, no client header. */
 export const relayRoutes = new Hono<AppBindings & { Variables: { relayUser: string; relayKey: string } }>()
 
 const STATUS_TYPE: Record<number, string> = {
@@ -77,6 +77,8 @@ const ROUTES: [string, Protocol][] = [
 for (const [path, protocol] of ROUTES) {
   relayRoutes.post(path, (c) => forward(c.env, c.get('relayUser'), c.get('relayKey'), protocol, c.req.raw))
 }
+relayRoutes.post('/v1/images/generations', (c) => forwardImage(c.env, c.get('relayUser'), c.get('relayKey'), c.req.raw, false))
+relayRoutes.post('/v1/images/edits', (c) => forwardImage(c.env, c.get('relayUser'), c.get('relayKey'), c.req.raw, true))
 relayRoutes.all('*', () => relayError(404, 'not_found_error', 'unknown relay path'))
 
 function audience(request: Request, configured?: string): string {
@@ -95,7 +97,6 @@ const RepoSchema = z.strictObject({
 const KeySchema = z.strictObject({ name: z.string().trim().min(1).max(80) })
 const EnabledSchema = z.strictObject({ enabled: z.boolean() })
 
-/** Owner settings for the relay, under `/api/relay`. */
 export const relaySettingsRoutes = new Hono<AppBindings>()
 
 relaySettingsRoutes.onError((error, c) => kitError(error, c))
