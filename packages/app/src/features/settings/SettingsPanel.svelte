@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy, type Component } from 'svelte'
   import { Dialog as DialogPrimitive } from 'bits-ui'
-  import { BrainCircuit, Cloud, Database, Info, Keyboard, Link2, Palette, RefreshCw, Type, UserRound, X } from '@lucide/svelte'
+  import { BrainCircuit, Cloud, Database, Info, Keyboard, Link2, Palette, RefreshCw, Type, UserRound, Waypoints, X } from '@lucide/svelte'
   import type { MessageKey } from '@shared/locales/en-US'
   import DialogPortal from '@app/components/ui/dialog/dialog-portal.svelte'
   import Button from '@app/components/primitives/Button.svelte'
@@ -19,6 +19,7 @@
     backup: Cloud,
     sync: RefreshCw,
     mcp: BrainCircuit,
+    relay: Waypoints,
     account: UserRound,
     data: Database,
     shares: Link2,
@@ -30,6 +31,7 @@
     backup: () => import('./BackupSettings.svelte').then((module) => module.default),
     sync: () => import('./SyncSettings.svelte').then((module) => module.default),
     mcp: () => import('./McpSettings.svelte').then((module) => module.default),
+    relay: () => import('./RelaySettings.svelte').then((module) => module.default),
     account: () => import('./AccountSettings.svelte').then((module) => module.default),
     data: () => import('./DataSettings.svelte').then((module) => module.default),
     shares: () => import('./SharedNotes.svelte').then((module) => module.default),
@@ -58,7 +60,7 @@
   let Page = $state<Component | undefined>()
   let sequence = 0
   let scope: number | undefined
-  const sections = $derived(settingsSections(backend, extensions.settingsSections))
+  const sections = $derived(settingsSections(backend, extensions.settingsSections, session.user?.role))
   const active = $derived(sections.find((section) => section.id === selected) ?? sections[0])
   $effect(() => {
     const epoch = session.epoch

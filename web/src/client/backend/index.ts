@@ -30,6 +30,7 @@ import { HttpSharePort } from './ports/share'
 import { HttpBackupPort } from './ports/backup'
 import { HttpUpdatePort } from './ports/update'
 import { HttpRemoteMcpPort } from './ports/mcp'
+import { HttpRelayPort } from './ports/relay'
 import { createHttpAiHostPort } from './ports/ai-host'
 
 export interface WebBackendDeps {
@@ -340,6 +341,7 @@ export function createWebBackend(deps: WebBackendDeps): Backend {
     backup: new HttpBackupPort({ transport }),
     mcp: new HttpRemoteMcpPort({ transport }),
     update: new HttpUpdatePort({ transport }),
+    relay: new HttpRelayPort({ transport }),
     dispose() {
       if (disposed) return Promise.resolve()
       if (disposing) return disposing
