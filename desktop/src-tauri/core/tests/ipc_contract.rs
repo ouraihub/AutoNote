@@ -1,6 +1,6 @@
 //! Builds `desktop/fixtures/ipc-contract.json` from a real `Library` through
 //! the public API only, and fails when the committed file drifts.
-//! Regenerate (from `desktop/`): `UPDATE_FIXTURES=1 node scripts/cargo.mjs test -p note-core --test ipc_contract`.
+//! Regenerate (from `desktop/`): `UPDATE_FIXTURES=1 pnpm exec desktop-kit cargo test -p note-core --test ipc_contract`.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "fixture generator")]
 
 use std::sync::atomic::{AtomicI64, Ordering};

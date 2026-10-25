@@ -3,8 +3,9 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir, homedir } from 'node:os'
 import path from 'node:path'
 import { randomBytes } from 'node:crypto'
-import { root } from '../build/release-artifacts.mjs'
 
+const root = path.resolve(import.meta.dirname, '..')
+const desktopKit = path.join(root, '..', 'node_modules', '@ouraihub', 'desktop-kit', 'dist', 'cli.mjs')
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { cwd: root, stdio: 'inherit', ...options })
   if (result.error) throw result.error
@@ -15,7 +16,8 @@ if (process.argv.includes('--session') || process.platform === 'win32') {
   try {
     for (const command of ['seal', 'open', 'tamper', 'forget'])
       run(process.execPath, [
-        'scripts/cargo.mjs',
+        desktopKit,
+        'cargo',
         'run',
         '-p',
         'autonote-shell',
@@ -50,7 +52,7 @@ if (process.argv.includes('--session') || process.platform === 'win32') {
           '--',
           'bash',
           '-euc',
-          'printf "%s" "autonote-ci-only" | gnome-keyring-daemon --unlock --components=secrets; exec node scripts/test/test-secrets.mjs --session',
+          'printf "%s" "autonote-ci-only" | gnome-keyring-daemon --unlock --components=secrets; exec node scripts/test-secrets.mjs --session',
         ],
         { env },
       )
@@ -72,7 +74,7 @@ if (process.argv.includes('--session') || process.platform === 'win32') {
         run('security', ['unlock-keychain', '-p', password, keychain])
         run('security', ['default-keychain', '-d', 'user', '-s', keychain])
         run('security', ['list-keychains', '-d', 'user', '-s', keychain, ...searchList])
-        run(process.execPath, ['scripts/test/test-secrets.mjs', '--session'], { env: process.env })
+        run(process.execPath, ['scripts/test-secrets.mjs', '--session'], { env: process.env })
       } catch (error) {
         failure = error
       } finally {

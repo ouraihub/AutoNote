@@ -116,13 +116,13 @@ jobs:
       - name: Enforce runner compiler ownership
         if: steps.scope.outputs.run == 'true' && runner.os == 'Windows'
         shell: cmd
-        run: call node_modules\@ouraihub\msvc-kit\msvc-env.bat
+        run: call node_modules\@ouraihub\desktop-kit\msvc\msvc-env.bat
       - name: Desktop checks, native packages, secure store and packaged startup smoke
         if: steps.scope.outputs.run == 'true'
         run: pnpm run ci:desktop
       - name: Verify platform candidate manifest
         if: github.event_name != 'pull_request'
-        run: node desktop/scripts/build/release-candidates.mjs verify desktop/dist/candidate-${{ matrix.platform }}/candidate.json
+        run: pnpm --dir desktop exec desktop-kit candidate verify dist/candidate-${{ matrix.platform }}
       - name: Upload verified platform candidates
         if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v6
