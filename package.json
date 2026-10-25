@@ -20,7 +20,7 @@
     "desktop:verify": "pnpm --filter autonote-desktop verify",
     "desktop:package:verify": "pnpm --filter autonote-desktop package:verify",
     "ci:desktop": "pnpm run desktop:verify && pnpm run desktop:package:verify",
-    "ci": "release-kit check && node .github/scripts/ai-review.mjs --self-test && pnpm run web:check && pnpm run web:test && pnpm run web:build && pnpm run ci:desktop"
+    "ci": "release-kit check && pnpm run web:check && pnpm run web:test && pnpm run web:build && pnpm run ci:desktop"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

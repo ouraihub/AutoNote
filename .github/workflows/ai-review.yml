@@ -20,27 +20,16 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      # A skipped job counts as passed, so fork PRs fail here instead of being skipped.
-      - name: Only branches of this repository are reviewed
-        if: github.event.pull_request.head.repo.full_name != github.repository
-        run: exit 1
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - name: Review
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          AI_BASE_URL: ${{ secrets.AI_BASE_URL }}
-          AI_API_KEY: ${{ secrets.AI_API_KEY }}
-          AI_MODEL: ${{ vars.AI_MODEL }}
-        run: node .github/scripts/ai-review.mjs
-      # The merge must be done by RELEASE_TOKEN: a GITHUB_TOKEN merge would not trigger the main
-      # workflows that build, open the release PR and tag. Branch protection still waits for all checks.
-      # The release PR is merged once a day by release-kit.yml instead, so features batch into one build.
-      - name: Merge once every required check passes
-        if: ${{ !startsWith(github.head_ref, 'release-please--') }}
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-        run: gh pr merge ${{ github.event.pull_request.number }} -R ${{ github.repository }} --auto --merge
+      # Fork PRs fail; on approval RELEASE_TOKEN enables auto-merge (a GITHUB_TOKEN merge would not
+      # trigger the main workflows that build, open the release PR and tag). release-please PRs are
+      # skipped: release-kit.yml merges them once a day, so features batch into one build.
+      - uses: ouraihub/release-kit/review@v0
+        with:
+          base-url: ${{ secrets.AI_BASE_URL }}
+          api-key: ${{ secrets.AI_API_KEY }}
+          model: ${{ vars.AI_MODEL }}
+          merge-token: ${{ secrets.RELEASE_TOKEN }}
