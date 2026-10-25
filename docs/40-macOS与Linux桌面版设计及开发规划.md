@@ -33,7 +33,7 @@ AutoNote 同步复用 Aether 的非 Windows 凭据实现（现有 SecretStore �
 
 ## 5. 构建发布
 
-沿用 pnpm 和 Rust 1.92.0，不换 UI 框架，不增加第二套应用。Node 平台分发脚本在 Windows 调用现有 MSVC wrapper、其他平台直接 cargo --manifest-path。原生 CI 使用 macOS ARM64、Ubuntu x64、Windows x64；安装 WebKitGTK/GTK/AppIndicator/OpenSSL/打包依赖。desktop:verify 包含 check --workspace --all-targets、完整现有测试、Clippy、fmt、发布边界与原生凭据冒烟，检查不删减。根 pnpm run ci 同步包含 desktop:package:verify，构建真实安装包；非 Windows 再检查格式/内嵌版本/架构、真实窗口、隔离 HOME 中 library.db schema/quick_check 与截图，结束删除隔离数据。该启动冒烟不等于人工验收全部交互。
+沿用 pnpm 和 Rust 1.92.0，不换 UI 框架，不增加第二套应用。Node 平台分发脚本在 Windows 调用现有 MSVC wrapper、其他平台直接 cargo --manifest-path。原生 CI 使用 macOS ARM64、Ubuntu x64、Windows x64；安装 WebKitGTK/GTK/AppIndicator/OpenSSL/打包依赖。desktop:verify 包含 Clippy（`--all-targets`，覆盖 `check --workspace --all-targets`）、完整现有测试、fmt、发布边界与原生凭据冒烟，检查不删减。根 pnpm run ci 同步包含 desktop:package:verify，构建真实安装包；非 Windows 再检查格式/内嵌版本/架构、真实窗口、隔离 HOME 中 library.db schema/quick_check 与截图，结束删除隔离数据。该启动冒烟不等于人工验收全部交互。
 
 保留 Windows 现有构建收集，给非 Windows 增加明确的平台 manifest，校验版本、包种类、非空正规文件、路径包含、SHA256，不上传数据/密钥/日志。`desktop.yml` 统一执行三平台质量门与打包冒烟，成功后上传三个候选 artifact（非 PR，保留30天）；`desktop-release.yml` 仅下载、核验并发布，不再编译。先等待 main 目标提交的 Desktop 成功，再打 `desktop-v<version>` tag；发行自动选择相同提交最近成功的 Desktop run，也支持手动指定 `build_run_id`（workflow ref 必须为所选 tag）。必须同时满足 main 来源、完成且成功、三项原生任务成功、同一提交/run、版本及五包哈希；候选缺失或过期直接失败，需明确运行 Desktop，不能静默回退重编。使用现有 RELEASE_TOKEN 创建公开 Release；公开仓库不复制私有 Git 对象、构建日志或自动生成私有 commit 说明。
 

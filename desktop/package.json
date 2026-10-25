@@ -28,7 +28,7 @@
     "test:secrets": "node scripts/test-secrets.mjs",
     "test:release": "node scripts/release-artifacts.test.mjs && node scripts/release-gate.test.mjs && node scripts/release-candidates.test.mjs",
     "clean": "node scripts/app.mjs clean",
-    "verify": "pnpm run check && pnpm run check:rust && pnpm run test && pnpm run test:release && pnpm run test:rust && pnpm run test:secrets && pnpm run clippy && pnpm run fmt:rust",
+    "verify": "pnpm run check && pnpm run test && pnpm run test:release && pnpm run test:rust && pnpm run test:secrets && pnpm run clippy && pnpm run fmt:rust",
     "tauri": "tauri"
   },
   "dependencies": {
