@@ -182,5 +182,6 @@ try {
     await launch(path.join(image, 'AppRun'), image, 'appimage')
   }
 } finally {
-  rmSync(stage, { recursive: true, force: true })
+  // The killed app's WebKit/IndexedDB writers can still create files for a moment: retry on ENOTEMPTY.
+  rmSync(stage, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
 }

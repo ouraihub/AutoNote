@@ -25,7 +25,8 @@
     "package:verify": "node scripts/package-verify.mjs",
     "test:secrets": "node scripts/test-secrets.mjs",
     "clean": "desktop-kit clean",
-    "verify": "pnpm run check && pnpm run test && pnpm run test:rust && pnpm run test:secrets && pnpm run clippy && pnpm run fmt:rust",
+    "test:release": "desktop-kit self-test",
+    "verify": "pnpm run check && pnpm run test && pnpm run test:release && pnpm run test:rust && pnpm run test:secrets && pnpm run clippy && pnpm run fmt:rust",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -34,7 +35,7 @@
     "@tauri-apps/api": "2.11.1"
   },
   "devDependencies": {
-    "@ouraihub/desktop-kit": "github:ouraihub/desktop-kit#c7c8281885dc0e88293abda4f67fd5570dee37db",
+    "@ouraihub/desktop-kit": "github:ouraihub/desktop-kit#7ec9bb565d88209e8000323be0bfbde7e8cdd5ea",
     "@sveltejs/adapter-static": "3.0.10",
     "@sveltejs/kit": "2.70.3",
     "@sveltejs/vite-plugin-svelte": "7.3.0",
