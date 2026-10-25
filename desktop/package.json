@@ -22,7 +22,6 @@
     "fmt:rust:fix": "node scripts/cargo.mjs fmt --all",
     "dev:app": "node scripts/app.mjs dev",
     "build:app": "node scripts/app.mjs build",
-    "smoke:app": "node scripts/smoke-app.mjs",
     "smoke:native": "node scripts/smoke-native.mjs",
     "package:verify": "node scripts/package-verify.mjs",
     "test:secrets": "node scripts/test-secrets.mjs",
