@@ -86,6 +86,6 @@ https://autonote.ouraihub.com/relay/v1/chat/completions
 ## 参考
 
 - 本项目工作流：`.github/workflows/ai-review.yml`
-- 本项目调用脚本：`.github/scripts/ai-review.mjs`
+- 审查组件：[`ouraihub/release-kit/review`](https://github.com/ouraihub/release-kit#ai-审查与自动合并)
 - [GitHub 官方：使用 Secrets](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets?tool=webui)
 - [GitHub 官方：重新运行工作流和任务](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs)
