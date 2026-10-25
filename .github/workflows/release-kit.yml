@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Daily release (03:00 Beijing): every merge between two releases ships in one desktop build.
+  schedule:
+    - cron: '0 19 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -11,6 +15,7 @@ permissions:
 jobs:
   # No path filter: docs-only pushes skip web.yml/desktop.yml but their commits still get checked.
   check:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
     name: Commit rules
     runs-on: ubuntu-24.04
     steps:
@@ -37,3 +42,18 @@ jobs:
       - uses: ouraihub/release-kit@v0
         with:
           token: ${{ secrets.RELEASE_TOKEN }}
+
+  # Enables auto-merge on the open release PR; branch protection still waits for every required
+  # check, including AI review. No open release PR (nothing to release) is a no-op.
+  release:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Merge the release PR once its checks pass
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          pr=$(gh pr list -R ${{ github.repository }} --state open --json number,headRefName \
+            -q '[.[] | select(.headRefName | startswith("release-please--"))][0].number // empty')
+          if [ -z "$pr" ]; then echo "nothing to release"; exit 0; fi
+          gh pr merge "$pr" -R ${{ github.repository }} --auto --merge

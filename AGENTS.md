@@ -34,7 +34,7 @@
 ## 5. 改动走 PR，审查和合并都不需要人工
 
 - main 受分支保护，不能直推。改动推到新分支，用 `gh pr create` 开 PR。
-- PR 由 `ai-review.yml` 调用模型审查。审查通过、必需检查全绿后自动合并；发布 PR 也走同一流程，合并即发版。
+- PR 由 `ai-review.yml` 调用模型审查。审查通过、必需检查全绿后自动合并。发布 PR 不跟着合并，由 `release-kit.yml` 每天北京时间 3 点合并一次，合并即发版；用户要求立即发版时，运行 `gh workflow run release-kit.yml -R ouraihub/AutoNote`。
 - 审查要求修改时，按 PR 上的意见修改后推到同一分支，会重新审查。不要关掉审查、跳过检查，也不要用管理员权限合并（§4 的例外除外）。
 - 分支名用 `<type>/<简述>`（type 同提交类型），一个分支只对应一个 PR。合并后 GitHub 自动删除远端分支；本地运行 `git switch main && git pull --prune` 并删除本地分支，不要在已合并的分支上继续提交。
 - 到 GitHub Actions 看结果：`gh run list -R ouraihub/AutoNote -L 3`，需要先登录。失败就立刻修复。
