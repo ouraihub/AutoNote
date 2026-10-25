@@ -1,19 +1,14 @@
 name: Desktop
 
 on:
-  # No path filter on PRs: the three builds are required for every merge, and a filtered-out
-  # workflow would leave them pending forever.
+  # PRs always run: the three Build checks are required. The `scope` step below skips the heavy work
+  # when a PR cannot change the desktop app, and still reports success.
   pull_request:
+  # main only builds a release merge: desktop-release.yml publishes candidates from exactly that
+  # commit, and every other main commit was already built as its PR.
   push:
     branches: [main]
     paths:
-      - desktop/**
-      - packages/**
-      - pnpm-lock.yaml
-      - pnpm-workspace.yaml
-      - package.json
-      - .github/workflows/desktop.yml
-      - .github/workflows/desktop-release.yml
       - .release-please-manifest.json
   workflow_dispatch:
 
@@ -52,20 +47,52 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      # Required checks must report, so a PR that cannot change the desktop app skips the work, not
+      # the job. Decided from the diff only (branch names and authors are not trusted): every file is
+      # on the no-desktop list, or is a version file whose changed lines are all version strings
+      # (release-please's PR). Anything skipped here is still fully built by the release merge
+      # push before a tag, so nothing ships unverified.
+      - name: Decide whether this PR needs a desktop build
+        id: scope
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          run=true
+          if [ "$EVENT" = pull_request ]; then
+            safe='^(web/|docs/|[^/]+\.md$|\.github/scripts/|\.github/workflows/(web|ai-review|release-kit)\.yml$)'
+            versioned='^(\.release-please-manifest\.json|desktop/package\.json|desktop/src-tauri/Cargo\.(toml|lock))$'
+            ver() { git show "$1:.release-please-manifest.json" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[^"]*' | sed 's/\./\\./g'; }
+            version_line="^[<>][[:space:]]*(\"version\": |version = |\"\\.\": )\"($(ver HEAD^1)|$(ver HEAD))\",?\$"
+            rest=$(git diff --name-only HEAD^1 HEAD | grep -vE "$safe" || true)
+            if [ -z "$rest" ]; then
+              run=false; echo "no desktop-relevant changes"
+            elif ! grep -qvE "$versioned" <<<"$rest" \
+              && ! git diff -U0 --output-indicator-new='>' --output-indicator-old='<' HEAD^1 HEAD -- $rest \
+                | grep -E '^[<>]' | grep -qvE "$version_line"; then
+              run=false; echo "version bump only"
+            fi
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
       - uses: pnpm/action-setup@v6
+        if: steps.scope.outputs.run == 'true'
       - uses: actions/setup-node@v7
+        if: steps.scope.outputs.run == 'true'
         with:
           node-version: 24
           cache: pnpm
       - name: Install Linux build, package and real desktop smoke dependencies
-        if: runner.os == 'Linux'
+        if: steps.scope.outputs.run == 'true' && runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev patchelf libfuse2 libsecret-1-dev gnome-keyring dbus-x11 xvfb xdotool openbox imagemagick
       - name: Require native Apple Silicon
-        if: runner.os == 'macOS'
+        if: steps.scope.outputs.run == 'true' && runner.os == 'macOS'
         run: test "$(uname -m)" = arm64
       - name: Install the pinned Rust toolchain and target
+        if: steps.scope.outputs.run == 'true'
         working-directory: desktop
         shell: bash
         run: |
@@ -74,20 +101,23 @@ jobs:
       # PRs restore main's cache but never write their own: saving costs ~2 min per job and the
       # branch caches are evicted unused.
       - uses: Swatinem/rust-cache@v2
+        if: steps.scope.outputs.run == 'true'
         with:
           workspaces: desktop/src-tauri
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # Explicit runner-only MSVC branch; local CI=true never selects system tools.
       - uses: ilammy/msvc-dev-cmd@v1
-        if: runner.os == 'Windows'
+        if: steps.scope.outputs.run == 'true' && runner.os == 'Windows'
         with:
           arch: x64
       - name: Enforce runner compiler ownership
-        if: runner.os == 'Windows'
+        if: steps.scope.outputs.run == 'true' && runner.os == 'Windows'
         shell: cmd
         run: call desktop\scripts\msvc-env.bat
       - run: pnpm install --frozen-lockfile
+        if: steps.scope.outputs.run == 'true'
       - name: Desktop checks, native packages, secure store and packaged startup smoke
+        if: steps.scope.outputs.run == 'true'
         run: pnpm run ci:desktop
       - name: Verify platform candidate manifest
         if: github.event_name != 'pull_request'

@@ -5,7 +5,7 @@
 ## 1. 本地验证改动，GitHub 执行完整门禁
 
 - 本地先跑受影响模块的类型/静态检查、相关测试套件，并实际运行改变的路径；不把只跑单个测试文件当作全部验收，不用完整 CI 反复调试。
-- 完整门禁由 GitHub 执行：`release-kit.yml` 检查提交与注释；`web.yml` 执行 `web:check`、`web:test`、`web:build` 和 API e2e；`desktop.yml` 三平台各执行 `ci:desktop`（`desktop:verify`、`desktop:package:verify`），不重复 Web 检查。所有必需检查通过才允许合并。
+- 完整门禁由 GitHub 执行：`release-kit.yml` 检查提交与注释；`web.yml` 执行 `web:check`、`web:test`、`web:build` 和 API e2e；`desktop.yml` 三平台各执行 `ci:desktop`（`desktop:verify`、`desktop:package:verify`），不重复 Web 检查。没有改动桌面相关路径的 PR、只改版本号的发布 PR 会跳过桌面构建，但仍上报成功；main 只在发版合并时构建（规则见 `docs/42` §1）。所有必需检查通过才允许合并。
 - `pnpm run ci` 保留为需要时手动执行的完整本机入口，不再是提交/推送前的强制步骤；本地通过不能替代 GitHub 必需检查，远端失败不能汇报交付完成。
 - 改了 `web/src/worker` 或 API，本地还要跑 e2e：在 `web/` 用 `AUTONOTE_EPHEMERAL_DEV=1 pnpm exec vite --port 7712 --strictPort` 起临时实例，再在根目录运行 `node web/scripts/e2e.mjs http://localhost:7712`。
 - 新增 CI 检查时，同时更新对应脚本、完整 `ci` 入口和工作流，覆盖保持一致；共享应用检查由 Web job 执行一次，桌面平台检查仍逐平台执行。
@@ -28,13 +28,14 @@
 
 - 不删除、跳过或放宽测试，不加 `.skip`、`allow(...)`，也不删 lint 规则来让 CI 通过。测试过时，就按新行为改写，不能直接删掉。
 - 不从 `pnpm run ci` 或 `.github/workflows/` 里删步骤。确实需要调整时，先说明理由并取得用户同意。
+- AI 审查对减少检查的 CI 改动一律拒绝，这是有意的。用户在对话中明确同意某个这类 PR 后，等全部构建检查通过、只剩 AI 审查未过时，可以用 `gh pr merge --merge --admin` 合并，并在 PR 里留言写明用户同意的内容。只限这一种情况，其他任何 PR 都不得用管理员权限合并。
 - `web/scripts/comment-allowlist.json` 只为确有必要的注释添加条目。不要为了消除报错整体重新生成。
 
 ## 5. 改动走 PR，审查和合并都不需要人工
 
 - main 受分支保护，不能直推。改动推到新分支，用 `gh pr create` 开 PR。
 - PR 由 `ai-review.yml` 调用模型审查。审查通过、必需检查全绿后自动合并；发布 PR 也走同一流程，合并即发版。
-- 审查要求修改时，按 PR 上的意见修改后推到同一分支，会重新审查。不要关掉审查、跳过检查，也不要用管理员权限合并。
+- 审查要求修改时，按 PR 上的意见修改后推到同一分支，会重新审查。不要关掉审查、跳过检查，也不要用管理员权限合并（§4 的例外除外）。
 - 分支名用 `<type>/<简述>`（type 同提交类型），一个分支只对应一个 PR。合并后 GitHub 自动删除远端分支；本地运行 `git switch main && git pull --prune` 并删除本地分支，不要在已合并的分支上继续提交。
 - 到 GitHub Actions 看结果：`gh run list -R ouraihub/AutoNote -L 3`，需要先登录。失败就立刻修复。
 - 不要部署到 Cloudflare，除非用户明确要求。
