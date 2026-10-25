@@ -16,6 +16,7 @@
 - 聊天、模型服务、技能、MCP 的 UI 和 Rust 后端在 `../Aether`，那里有它自己的 `AGENTS.md`，推送前要跑通它的 `pnpm run ci`。
 - 本仓库通过 commit 引用 Aether，共 4 处，必须同时修改：`web/package.json`、`desktop/package.json`、`packages/app/package.json`、`desktop/src-tauri/Cargo.toml`（`rev`），然后运行 `pnpm install`。
 - 只能引用 CI 已经通过的 Aether commit。
+- 桌面构建、发布、清理和 Windows 编译环境在共用工具 [desktop-kit](https://github.com/ouraihub/desktop-kit)（`desktop/package.json` 锁定 commit，配置在其 `desktopKit` 字段）。通用逻辑改在 desktop-kit，不要在本仓库重新写一份脚本。
 
 ## 3. 改契约时，全仓库找旧名字
 

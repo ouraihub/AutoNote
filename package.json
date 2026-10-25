@@ -16,7 +16,7 @@
     "web:test": "pnpm --filter @autonote/shared test && pnpm --filter autonote-web test:unit",
     "web:build": "pnpm --filter autonote-web build",
     "desktop:dev": "pnpm --filter autonote-desktop dev:app",
-    "clean": "node desktop/scripts/app.mjs clean",
+    "clean": "pnpm --filter autonote-desktop clean",
     "desktop:verify": "pnpm --filter autonote-desktop verify",
     "desktop:package:verify": "pnpm --filter autonote-desktop package:verify",
     "ci:desktop": "pnpm run desktop:verify && pnpm run desktop:package:verify",
