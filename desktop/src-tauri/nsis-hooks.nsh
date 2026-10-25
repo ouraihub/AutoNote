@@ -1,5 +1,5 @@
 ; Only application payload is bundled. Tauri's non-recursive RMDir leaves data intact.
-; Verified by install-lifecycle.mjs, never inferred solely from these hooks.
+; Uninstall keeping data is checked by hand (docs/21 §6.6), never inferred solely from these hooks.
 !macro NSIS_HOOK_PREINSTALL
   Push $R0
   Push $R1
