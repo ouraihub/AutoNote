@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.6](https://github.com/ouraihub/AutoNote/compare/desktop-v0.2.5...desktop-v0.2.6) (2026-10-25)
+
+
+### 新功能
+
+* **ai:** 检测时识别中转支持 Anthropic 协议并建议切换 ([a925997](https://github.com/ouraihub/AutoNote/commit/a925997834113ad0dfb68a2128d37c0e54077c16))
+
 ## [0.2.5](https://github.com/ouraihub/AutoNote/compare/desktop-v0.2.4...desktop-v0.2.5) (2026-10-24)
 
 
