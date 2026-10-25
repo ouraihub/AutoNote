@@ -39,6 +39,8 @@
 | --- | --- |
 | `release-artifacts.test.mjs` | 发布 CLI 参数、缺包失败、不碰用户数据 |
 | `release-candidates.test.mjs` | 候选包清单校验 |
+| `release-gate.test.mjs` | Windows：本地缺便携 MSVC 必须失败；运行 `release-safety.test.ps1` |
+| `release-safety.test.ps1` | 清理不碰任何 `data`、junction 和 `web/.wrangler`，`--deep` 删光 node_modules |
 | `test-secrets.mjs` | 系统凭据存储真实读写 |
 
 ## tools/ 手动工具
