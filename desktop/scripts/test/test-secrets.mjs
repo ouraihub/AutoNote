@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir, homedir } from 'node:os'
 import path from 'node:path'
 import { randomBytes } from 'node:crypto'
-import { root } from './release-artifacts.mjs'
+import { root } from '../build/release-artifacts.mjs'
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { cwd: root, stdio: 'inherit', ...options })
@@ -50,7 +50,7 @@ if (process.argv.includes('--session') || process.platform === 'win32') {
           '--',
           'bash',
           '-euc',
-          'printf "%s" "autonote-ci-only" | gnome-keyring-daemon --unlock --components=secrets; exec node scripts/test-secrets.mjs --session',
+          'printf "%s" "autonote-ci-only" | gnome-keyring-daemon --unlock --components=secrets; exec node scripts/test/test-secrets.mjs --session',
         ],
         { env },
       )
@@ -72,7 +72,7 @@ if (process.argv.includes('--session') || process.platform === 'win32') {
         run('security', ['unlock-keychain', '-p', password, keychain])
         run('security', ['default-keychain', '-d', 'user', '-s', keychain])
         run('security', ['list-keychains', '-d', 'user', '-s', keychain, ...searchList])
-        run(process.execPath, ['scripts/test-secrets.mjs', '--session'], { env: process.env })
+        run(process.execPath, ['scripts/test/test-secrets.mjs', '--session'], { env: process.env })
       } catch (error) {
         failure = error
       } finally {

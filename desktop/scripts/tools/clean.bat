@@ -6,7 +6,7 @@ rem Remove build artifacts.
 rem Keep this file CRLF and ASCII-only (cmd.exe mis-parses LF-only batch files,
 rem and UTF-8 Chinese in the OEM code page can break parsing mid-line).
 
-for %%R in ("%~dp0..") do set "ROOT=%%~fR\"
+for %%R in ("%~dp0..\..") do set "ROOT=%%~fR\"
 set "PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 where /q pwsh && set "PS=pwsh"
 
@@ -35,14 +35,13 @@ echo Will remove:
 echo   - dist\installer       (NSIS setup and portable zip)
 echo   - dist\AutoNote\*.exe  (collected release binary; dist\AutoNote\data is kept)
 echo   - generated Rust caches and binaries ^(every data subtree and junction kept^)
-echo   - build                (SvelteKit static output)
-echo   - .svelte-kit          (SvelteKit generated types)
+echo   - build, .svelte-kit   (desktop SvelteKit output and generated types)
+echo   - web\dist, web\.svelte-kit
 echo   - .tmp                 (test work files)
 if defined DEEP (
   echo.
-  echo   --deep also removes:
-  echo   - node_modules
-  echo   Needs 'pnpm install' afterwards.
+  echo   --deep also removes every node_modules in the repo ^(root, desktop, web, packages^).
+  echo   Run 'pnpm install' afterwards. web\.wrangler and the Cloudflare login are kept.
 )
 echo.
 echo NOT touched: source files, git history, docs, or any data\ folder next to
@@ -81,7 +80,7 @@ if defined STRAY if defined KILL (
 
 set "DEEP_FLAG="
 if defined DEEP set "DEEP_FLAG=-Deep"
-"%PS%" -NoProfile -ExecutionPolicy Bypass -File "%ROOT%scripts\clean-artifacts.ps1" -Root "%ROOT%." %DEEP_FLAG%
+"%PS%" -NoProfile -ExecutionPolicy Bypass -File "%~dp0clean-artifacts.ps1" -Root "%ROOT%." %DEEP_FLAG%
 if errorlevel 1 exit /b 1
 
 echo.
@@ -90,7 +89,7 @@ echo   Done.
 echo ============================================
 echo.
 echo Next release build:
-echo   scripts\build-app.bat
+echo   pnpm run build:app
 goto end
 
 :strayPids
@@ -102,7 +101,7 @@ exit /b 0
 
 
 :usage
-echo Usage: scripts\clean.bat [--deep] [--kill] [--yes]
+echo Usage: pnpm run clean ^(or scripts\tools\clean.bat^) [--deep] [--kill] [--yes]
 echo.
 echo   --deep, -d   also remove node_modules
 echo   --kill, -k   terminate stale node processes from this repo

@@ -48,7 +48,7 @@ function buildRelease() {
     throw new Error(`Release platform ${options.platform} does not match host ${platform}`)
   if (options.target !== targets[platform]) throw new Error(`Unsupported release target: ${options.target}`)
   console.log(`[release] ${platform} release`)
-  run(process.execPath, ['scripts/version-check.mjs'])
+  run(process.execPath, ['scripts/build/version-check.mjs'])
   const version = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version
   prepareNativeIcon()
   if (!options.skipVerify) run('pnpm', ['run', 'verify'])

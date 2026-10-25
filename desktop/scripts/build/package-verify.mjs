@@ -41,4 +41,4 @@ if (process.platform === 'linux') {
   } finally {
     rmSync(home, { recursive: true, force: true })
   }
-} else if (process.platform === 'darwin') run(process.execPath, ['scripts/smoke-native.mjs'])
+} else if (process.platform === 'darwin') run(process.execPath, ['scripts/build/smoke-native.mjs'])

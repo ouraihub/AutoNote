@@ -111,18 +111,18 @@ jobs:
         if: steps.scope.outputs.run == 'true' && runner.os == 'Windows'
         with:
           arch: x64
+      - run: pnpm install --frozen-lockfile
+        if: steps.scope.outputs.run == 'true'
       - name: Enforce runner compiler ownership
         if: steps.scope.outputs.run == 'true' && runner.os == 'Windows'
         shell: cmd
-        run: call desktop\scripts\msvc-env.bat
-      - run: pnpm install --frozen-lockfile
-        if: steps.scope.outputs.run == 'true'
+        run: call node_modules\@ouraihub\msvc-kit\msvc-env.bat
       - name: Desktop checks, native packages, secure store and packaged startup smoke
         if: steps.scope.outputs.run == 'true'
         run: pnpm run ci:desktop
       - name: Verify platform candidate manifest
         if: github.event_name != 'pull_request'
-        run: node desktop/scripts/release-candidates.mjs verify desktop/dist/candidate-${{ matrix.platform }}/candidate.json
+        run: node desktop/scripts/build/release-candidates.mjs verify desktop/dist/candidate-${{ matrix.platform }}/candidate.json
       - name: Upload verified platform candidates
         if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v6
