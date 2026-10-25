@@ -26,6 +26,12 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Dev/test debuginfo only grows target/ and the cache in CI; release profile is unaffected.
+  # rust-cache already sets CARGO_INCREMENTAL=0.
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  CARGO_PROFILE_TEST_DEBUG: '0'
+
 jobs:
   verify:
     name: Build (${{ matrix.platform }})
@@ -65,9 +71,12 @@ jobs:
         run: |
           rustup show
           rustup target add ${{ matrix.target }}
+      # PRs restore main's cache but never write their own: saving costs ~2 min per job and the
+      # branch caches are evicted unused.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop/src-tauri
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # Explicit runner-only MSVC branch; local CI=true never selects system tools.
       - uses: ilammy/msvc-dev-cmd@v1
         if: runner.os == 'Windows'
