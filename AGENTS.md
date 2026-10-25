@@ -5,7 +5,7 @@
 ## 1. 本地验证改动，GitHub 执行完整门禁
 
 - 本地先跑受影响模块的类型/静态检查、相关测试套件，并实际运行改变的路径；不把只跑单个测试文件当作全部验收，不用完整 CI 反复调试。
-- 完整门禁由 GitHub 执行：`release-kit.yml` 检查提交与注释；`web.yml` 执行 `web:check`、`web:test`、`web:build` 和 API e2e；`desktop.yml` 三平台各执行 `ci:desktop`（`desktop:verify`、`desktop:package:verify`），不重复 Web 检查。所有必需检查通过才允许合并。
+- 完整门禁由 GitHub 执行：`release-kit.yml` 检查提交与注释；`web.yml` 执行 `web:check`、`web:test`、`web:build` 和 API e2e；`desktop.yml` 三平台各执行 `ci:desktop`（`desktop:verify`、`desktop:package:verify`），不重复 Web 检查。没有改动桌面相关路径的 PR、只改版本号的发布 PR 会跳过桌面构建，但仍上报成功；main 只在发版合并时构建（规则见 `docs/42` §1）。所有必需检查通过才允许合并。
 - `pnpm run ci` 保留为需要时手动执行的完整本机入口，不再是提交/推送前的强制步骤；本地通过不能替代 GitHub 必需检查，远端失败不能汇报交付完成。
 - 改了 `web/src/worker` 或 API，本地还要跑 e2e：在 `web/` 用 `AUTONOTE_EPHEMERAL_DEV=1 pnpm exec vite --port 7712 --strictPort` 起临时实例，再在根目录运行 `node web/scripts/e2e.mjs http://localhost:7712`。
 - 新增 CI 检查时，同时更新对应脚本、完整 `ci` 入口和工作流，覆盖保持一致；共享应用检查由 Web job 执行一次，桌面平台检查仍逐平台执行。
