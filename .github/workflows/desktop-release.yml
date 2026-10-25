@@ -79,6 +79,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          BUILD_RUN_ID: ${{ steps.candidate.outputs.run_id }}
         run: |
           pnpm exec release-kit notes "${RELEASE_TAG#desktop-v}" > "$RUNNER_TEMP/changes.md"
-          pnpm --dir desktop exec desktop-kit publish "$RELEASE_TAG" --changes "$RUNNER_TEMP/changes.md"
+          pnpm --dir desktop exec desktop-kit publish "$RELEASE_TAG" --changes "$RUNNER_TEMP/changes.md" --run "$BUILD_RUN_ID"

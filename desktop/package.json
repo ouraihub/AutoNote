@@ -35,7 +35,7 @@
     "@tauri-apps/api": "2.11.1"
   },
   "devDependencies": {
-    "@ouraihub/desktop-kit": "github:ouraihub/desktop-kit#7ec9bb565d88209e8000323be0bfbde7e8cdd5ea",
+    "@ouraihub/desktop-kit": "github:ouraihub/desktop-kit#83889a82abbbf99c6e1fc3cc46ef4942ac37dc5f",
     "@sveltejs/adapter-static": "3.0.10",
     "@sveltejs/kit": "2.70.3",
     "@sveltejs/vite-plugin-svelte": "7.3.0",
