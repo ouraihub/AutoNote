@@ -934,15 +934,17 @@ export async function probe(
     } else if (target.keyId !== undefined) throw notFound('key')
   }
   const probeUrl = `${apiBase(baseUrl)}/models`
-  const done = (models: ProbedModel[], error: ProbeError | null): ProbeResult => ({ probeUrl, models, error })
+  const done = (models: ProbedModel[], error: ProbeError | null, suggestedProtocol: Protocol | null = null): ProbeResult => ({ probeUrl, models, error, suggestedProtocol })
   const url = parseTarget(probeUrl)
   if (!(await addressAllowed(env.DB, url))) return done([], failure('blocked_address'))
   if (!keys.length && !isLoopback(url)) return done([], failure('missing_key'))
   const ipHost = /^\[.*\]$|^\d+\.\d+\.\d+\.\d+$/.test(url.hostname)
   const candidates = keys.length ? keys : [null]
   let body: { bytes: Uint8Array; overflow: boolean } | null = null
+  let used: string | null = null
   for (let index = 0; ; index++) {
     const key = candidates[index] ?? null
+    used = key
     const timeout = AbortSignal.timeout(PROBE_TIMEOUT_MS)
     const transport = (): ProbeResult => {
       if (signal.aborted) throw cancelled()
@@ -985,27 +987,46 @@ export async function probe(
   }
   const ids = body ? modelIds(new TextDecoder().decode(body.bytes)) : null
   if (!ids?.length) return done([], failure('invalid_body'))
-  return done(
-    ids.map((id) => {
-      const inferred = inferModel(id)
-      return {
-        group: inferred.group,
-        id,
-        modelType: inferred.modelType,
-        typeSource: 'inferred',
-        contextWindow: inferred.contextWindow,
-        maxOutput: inferred.maxOutput,
-        canVision: inferred.canVision,
-        supportsTools: inferred.supportsTools,
-        reasoning: inferred.modelType === 'chat' ? inferReasoning(id, protocol, baseUrl, inferred.maxOutput) : null,
-        nativeWebSearch: false,
-        name: null,
-        groupName: inferred.group,
-        pricing: null,
-      }
-    }),
-    null,
-  )
+  const models = ids.map((id): ProbedModel => {
+    const inferred = inferModel(id)
+    return {
+      group: inferred.group,
+      id,
+      modelType: inferred.modelType,
+      typeSource: 'inferred',
+      contextWindow: inferred.contextWindow,
+      maxOutput: inferred.maxOutput,
+      canVision: inferred.canVision,
+      supportsTools: inferred.supportsTools,
+      reasoning: inferred.modelType === 'chat' ? inferReasoning(id, protocol, baseUrl, inferred.maxOutput) : null,
+      nativeWebSearch: false,
+      name: null,
+      groupName: inferred.group,
+      pricing: null,
+    }
+  })
+  // Relays resolve the model before validating the body, so ask with a listed one.
+  const claude = models.find((model) => model.group === 'claude')?.id
+  const speaks = protocol !== 'anthropic-messages' && claude !== undefined && (await speaksMessages(baseUrl, claude, used, headers, signal))
+  return done(models, null, speaks ? 'anthropic-messages' : null)
+}
+
+/** Whether `POST <api_base>/messages` exists for this key: an empty `messages` list is rejected (400/422) before any model runs, so no tokens are spent. */
+async function speaksMessages(baseUrl: string, model: string, key: string | null, headers: Record<string, string>, signal: AbortSignal): Promise<boolean> {
+  try {
+    const response = await fetch(`${apiBase(baseUrl)}/messages`, {
+      method: 'POST',
+      headers: { ...headers, ...authHeaders('anthropic-messages', key), 'content-type': 'application/json' },
+      body: JSON.stringify({ model, max_tokens: 1, messages: [] }),
+      redirect: 'manual',
+      signal: AbortSignal.any([signal, AbortSignal.timeout(PROBE_TIMEOUT_MS)]),
+    })
+    await response.body?.cancel()
+    return response.status === 400 || response.status === 422
+  } catch {
+    if (signal.aborted) throw cancelled()
+    return false
+  }
 }
 
 function modelIds(text: string): string[] | null {

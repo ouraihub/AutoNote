@@ -382,6 +382,35 @@ describe('provider routes', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
+  it('suggests Anthropic Messages only when a claude relay validates the empty request there', async () => {
+    const h = await createHarness()
+    const { endpointId } = await saveProvider(h)
+    const reply = (messages: number, listed = [{ id: 'claude-sonnet-5-5' }, { id: 'gpt-6-sol' }]) =>
+      fetchMock.mockImplementation(async (url) =>
+        String(url).endsWith('/messages') ? new Response('{"error":{}}', { status: messages }) : Response.json({ data: listed }))
+    const check = (protocol: string) =>
+      h.json<{ error: unknown; suggestedProtocol: string | null }>('user-a', 'POST', '/probe', { kind: 'draft', baseUrl: 'https://api.example.com', protocol, endpointId })
+    for (const status of [400, 422]) {
+      reply(status)
+      fetchMock.mockClear()
+      expect((await check('openai-chat')).body).toMatchObject({ error: null, suggestedProtocol: 'anthropic-messages' })
+      const [url, init] = fetchMock.mock.calls[1]!
+      expect(String(url)).toBe('https://api.example.com/v1/messages')
+      expect(init).toMatchObject({ method: 'POST', redirect: 'manual', headers: { 'x-api-key': KEY, 'anthropic-version': '2023-06-01' } })
+      expect(JSON.parse(String(init!.body))).toEqual({ model: 'claude-sonnet-5-5', max_tokens: 1, messages: [] })
+    }
+    for (const status of [404, 401, 500]) {
+      reply(status)
+      expect((await check('openai-chat')).body).toMatchObject({ error: null, suggestedProtocol: null })
+    }
+    reply(400)
+    fetchMock.mockClear()
+    expect((await check('anthropic-messages')).body.suggestedProtocol).toBeNull()
+    reply(400, [{ id: 'gpt-6-sol' }])
+    expect((await check('openai-chat')).body.suggestedProtocol).toBeNull()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('probes with failover across keys, or with one chosen key', async () => {
     const h = await createHarness()
     const { endpointId } = await saveProvider(h)
