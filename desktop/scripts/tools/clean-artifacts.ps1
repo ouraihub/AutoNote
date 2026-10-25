@@ -38,6 +38,17 @@ foreach ($target in $targets | Select-Object -Unique) {
   }
   foreach ($name in @('.rustc_info.json','CACHEDIR.TAG')) { Remove-Generated (Join-Path $target $name) }
 }
+$repo = [IO.Path]::GetDirectoryName($Root)
 foreach ($name in @('dist\installer','dist\release.json','build','.svelte-kit','.tmp')) { Remove-Generated (Join-Path $Root $name) }
 Remove-Generated (Join-Path $Root 'dist\AutoNote\AutoNote.exe')
-if ($Deep) { Remove-Generated (Join-Path $Root 'node_modules') }
+# web\.wrangler keeps local D1 state; the Cloudflare login lives in the user profile, not the repo.
+foreach ($name in @('web\dist','web\.svelte-kit')) { Remove-Generated (Join-Path $repo $name) }
+if ($Deep) {
+  # Hoisted pnpm installs into the repo root; workspaces may also have their own node_modules.
+  # Dependencies hold no user data, so use rd: fast, and it removes junctions without following them.
+  $modules = @('node_modules', 'desktop\node_modules', 'web\node_modules') + @(Get-ChildItem -LiteralPath (Join-Path $repo 'packages') -Directory -Force -ErrorAction SilentlyContinue | ForEach-Object { "packages\$($_.Name)\node_modules" })
+  foreach ($dir in $modules) {
+    $path = Join-Path $repo $dir
+    if (Test-Path -LiteralPath $path) { cmd /d /c "rd /s /q `"$path`""; if (Test-Path -LiteralPath $path) { throw "Could not remove $path (files in use?)" } }
+  }
+}

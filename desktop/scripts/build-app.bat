@@ -29,12 +29,12 @@ echo.
 
 rem The Node orchestrator owns version checks, verify, Tauri build, packaging,
 rem artifact hashes and candidate collection. This file only owns MSVC setup.
-call "%ROOT%scripts\msvc-env.bat"
+call "%ROOT%..\node_modules\@ouraihub\msvc-kit\msvc-env.bat"
 if errorlevel 1 goto fail
 for /f "delims=" %%C in ('where cl.exe 2^>nul') do if not defined BUILD_CL set "BUILD_CL=%%C"
 echo cl.exe: %BUILD_CL%
 echo.
-node "%ROOT%scripts\release-build.mjs" build --platform windows
+node "%ROOT%scripts\build\release-build.mjs" build --platform windows
 if errorlevel 1 goto fail
 exit /b 0
 

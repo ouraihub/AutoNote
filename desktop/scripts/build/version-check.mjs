@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const [config, pkg, cargo] = await Promise.all([
   readFile(resolve(root, 'src-tauri/tauri.conf.json'), 'utf8'),
   readFile(resolve(root, 'package.json'), 'utf8'),

@@ -22,10 +22,10 @@
     "fmt:rust:fix": "node scripts/cargo.mjs fmt --all",
     "dev:app": "node scripts/app.mjs dev",
     "build:app": "node scripts/app.mjs build",
-    "smoke:native": "node scripts/smoke-native.mjs",
-    "package:verify": "node scripts/package-verify.mjs",
-    "test:secrets": "node scripts/test-secrets.mjs",
-    "test:release": "node scripts/release-artifacts.test.mjs && node scripts/release-gate.test.mjs && node scripts/release-candidates.test.mjs",
+    "smoke:native": "node scripts/build/smoke-native.mjs",
+    "package:verify": "node scripts/build/package-verify.mjs",
+    "test:secrets": "node scripts/test/test-secrets.mjs",
+    "test:release": "node scripts/test/release-artifacts.test.mjs && node scripts/test/release-gate.test.mjs && node scripts/test/release-candidates.test.mjs",
     "clean": "node scripts/app.mjs clean",
     "verify": "pnpm run check && pnpm run test && pnpm run test:release && pnpm run test:rust && pnpm run test:secrets && pnpm run clippy && pnpm run fmt:rust",
     "tauri": "tauri"
@@ -36,6 +36,7 @@
     "@tauri-apps/api": "2.11.1"
   },
   "devDependencies": {
+    "@ouraihub/msvc-kit": "github:ouraihub/msvc-kit#60cfbc1a0a463df647aa62d02a9449165903a492",
     "@sveltejs/adapter-static": "3.0.10",
     "@sveltejs/kit": "2.70.3",
     "@sveltejs/vite-plugin-svelte": "7.3.0",

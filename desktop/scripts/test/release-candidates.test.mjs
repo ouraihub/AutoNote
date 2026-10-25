@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { aggregateCandidates, packages, verifyBuildRun, verifyCandidate } from './release-candidates.mjs'
-import { sha256 } from './release-artifacts.mjs'
+import { aggregateCandidates, packages, verifyBuildRun, verifyCandidate } from '../build/release-candidates.mjs'
+import { sha256 } from '../build/release-artifacts.mjs'
 
 const stage = realpathSync(mkdtempSync(path.join(tmpdir(), 'autonote-candidates-')))
 const expected = { version: '0.2.0', sourceSha: 'a'.repeat(40), buildRunId: '123' }

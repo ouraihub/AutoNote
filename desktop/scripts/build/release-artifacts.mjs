@@ -4,7 +4,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
-export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 export const target = path.resolve(root, 'src-tauri', process.env.CARGO_TARGET_DIR || 'target')
 export const sha256 = file => createHash('sha256').update(readFileSync(file)).digest('hex')
 // Prefer PowerShell 7 on PATH; fall back to the always-present 5.1 by absolute path (its dir may be missing from PATH).
