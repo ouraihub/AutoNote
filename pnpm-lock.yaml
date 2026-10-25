@@ -209,9 +209,9 @@ importers:
         specifier: 2.11.1
         version: 2.11.1
     devDependencies:
-      '@ouraihub/msvc-kit':
-        specifier: github:ouraihub/msvc-kit#60cfbc1a0a463df647aa62d02a9449165903a492
-        version: https://codeload.github.com/ouraihub/msvc-kit/tar.gz/60cfbc1a0a463df647aa62d02a9449165903a492
+      '@ouraihub/desktop-kit':
+        specifier: github:ouraihub/desktop-kit#c7c8281885dc0e88293abda4f67fd5570dee37db
+        version: https://codeload.github.com/ouraihub/desktop-kit/tar.gz/c7c8281885dc0e88293abda4f67fd5570dee37db
       '@sveltejs/adapter-static':
         specifier: 3.0.10
         version: 3.0.10(@sveltejs/kit@2.70.3(@sveltejs/vite-plugin-svelte@7.3.0(svelte@5.57.1(@typescript-eslint/types@8.71.0))(vite@8.3.0(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0)))(svelte@5.57.1(@typescript-eslint/types@8.71.0))(typescript@5.9.3)(vite@8.3.0(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0)))
@@ -1307,9 +1307,11 @@ packages:
     peerDependencies:
       svelte: ^5.57.1
 
-  '@ouraihub/msvc-kit@https://codeload.github.com/ouraihub/msvc-kit/tar.gz/60cfbc1a0a463df647aa62d02a9449165903a492':
-    resolution: {gitHosted: true, integrity: sha512-pjqEt1XpiH5bb2E5r1QzU/o6cuC6VHFAHJfiMwSzTdgs6+Si5xRHLMlR17sFPaHVzTdqi9WuGbDMzHDrFuN61Q==, tarball: https://codeload.github.com/ouraihub/msvc-kit/tar.gz/60cfbc1a0a463df647aa62d02a9449165903a492}
-    version: 0.1.0
+  '@ouraihub/desktop-kit@https://codeload.github.com/ouraihub/desktop-kit/tar.gz/c7c8281885dc0e88293abda4f67fd5570dee37db':
+    resolution: {gitHosted: true, integrity: sha512-E606ivfsSZgRFKNn+zTW24vsxkWATzScZdlxUcMCyj4JK/5RxwdijUgS0JosBOxyZLynnSgLvy87wfhQSwOVKw==, tarball: https://codeload.github.com/ouraihub/desktop-kit/tar.gz/c7c8281885dc0e88293abda4f67fd5570dee37db}
+    version: 0.2.0
+    engines: {node: '>=22.18'}
+    hasBin: true
 
   '@ouraihub/release-kit@https://codeload.github.com/ouraihub/release-kit/tar.gz/f5703e5ee7c348e91d22178a3ba1a106da5fa0aa':
     resolution: {gitHosted: true, integrity: sha512-3EwXtN6QBYjuReIVtZljVO7OhCsk9u1TRqf4HIoXCqWAmxN3+pKQx56wZSvp4rr3vJB8BeCbxilTA0JqVwAEMQ==, tarball: https://codeload.github.com/ouraihub/release-kit/tar.gz/f5703e5ee7c348e91d22178a3ba1a106da5fa0aa}
@@ -4873,7 +4875,7 @@ snapshots:
       - tailwind-merge
       - tailwindcss
 
-  '@ouraihub/msvc-kit@https://codeload.github.com/ouraihub/msvc-kit/tar.gz/60cfbc1a0a463df647aa62d02a9449165903a492': {}
+  '@ouraihub/desktop-kit@https://codeload.github.com/ouraihub/desktop-kit/tar.gz/c7c8281885dc0e88293abda4f67fd5570dee37db': {}
 
   '@ouraihub/release-kit@https://codeload.github.com/ouraihub/release-kit/tar.gz/f5703e5ee7c348e91d22178a3ba1a106da5fa0aa': {}
 

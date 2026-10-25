@@ -15,19 +15,17 @@
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
     "test": "vitest run --passWithNoTests",
-    "check:rust": "node scripts/cargo.mjs check --workspace --all-targets",
-    "test:rust": "node scripts/cargo.mjs test --workspace",
-    "clippy": "node scripts/cargo.mjs clippy --workspace --all-targets -- -D warnings",
-    "fmt:rust": "node scripts/cargo.mjs fmt --all -- --check",
-    "fmt:rust:fix": "node scripts/cargo.mjs fmt --all",
-    "dev:app": "node scripts/app.mjs dev",
-    "build:app": "node scripts/app.mjs build",
-    "smoke:native": "node scripts/build/smoke-native.mjs",
-    "package:verify": "node scripts/build/package-verify.mjs",
-    "test:secrets": "node scripts/test/test-secrets.mjs",
-    "test:release": "node scripts/test/release-artifacts.test.mjs && node scripts/test/release-gate.test.mjs && node scripts/test/release-candidates.test.mjs",
-    "clean": "node scripts/app.mjs clean",
-    "verify": "pnpm run check && pnpm run test && pnpm run test:release && pnpm run test:rust && pnpm run test:secrets && pnpm run clippy && pnpm run fmt:rust",
+    "test:rust": "desktop-kit cargo test --workspace",
+    "clippy": "desktop-kit cargo clippy --workspace --all-targets -- -D warnings",
+    "fmt:rust": "desktop-kit cargo fmt --all -- --check",
+    "fmt:rust:fix": "desktop-kit cargo fmt --all",
+    "dev:app": "desktop-kit dev",
+    "build:app": "desktop-kit build",
+    "smoke:native": "node scripts/smoke-native.mjs",
+    "package:verify": "node scripts/package-verify.mjs",
+    "test:secrets": "node scripts/test-secrets.mjs",
+    "clean": "desktop-kit clean",
+    "verify": "pnpm run check && pnpm run test && pnpm run test:rust && pnpm run test:secrets && pnpm run clippy && pnpm run fmt:rust",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -36,7 +34,7 @@
     "@tauri-apps/api": "2.11.1"
   },
   "devDependencies": {
-    "@ouraihub/msvc-kit": "github:ouraihub/msvc-kit#60cfbc1a0a463df647aa62d02a9449165903a492",
+    "@ouraihub/desktop-kit": "github:ouraihub/desktop-kit#c7c8281885dc0e88293abda4f67fd5570dee37db",
     "@sveltejs/adapter-static": "3.0.10",
     "@sveltejs/kit": "2.70.3",
     "@sveltejs/vite-plugin-svelte": "7.3.0",
@@ -49,5 +47,17 @@
     "typescript": "5.9.3",
     "vite": "8.3.0",
     "vitest": "4.1.10"
+  },
+  "desktopKit": {
+    "platforms": ["windows", "macos", "linux"],
+    "tagPrefix": "desktop-v",
+    "forbidTauriVersion": true,
+    "portable": { "files": ["../LICENSE"] },
+    "release": {
+      "repo": "OurAIApps/AutoNote",
+      "title": "AutoNote Desktop {version}",
+      "notes": "release-notes.md",
+      "workflow": ".github/workflows/desktop.yml"
+    }
   }
 }

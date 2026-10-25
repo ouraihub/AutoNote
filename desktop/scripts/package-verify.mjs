@@ -2,14 +2,15 @@ import { spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { root } from './release-artifacts.mjs'
 
+// The real release build (verify already ran in CI), then a packaged startup smoke on macOS/Linux.
+const root = path.resolve(import.meta.dirname, '..')
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { cwd: root, stdio: 'inherit', ...options })
   if (result.error) throw result.error
   if (result.status !== 0) throw new Error(`${command} failed (${result.status})`)
 }
-run(process.execPath, ['scripts/app.mjs', 'build'], { env: { ...process.env, AUTONOTE_SKIP_VERIFY: '1' } })
+run(process.execPath, [path.join(root, '..', 'node_modules', '@ouraihub', 'desktop-kit', 'dist', 'cli.mjs'), 'build', '--skip-verify'])
 if (process.platform === 'linux') {
   const home = mkdtempSync(path.join(tmpdir(), 'autonote-desktop-session-'))
   const runtime = path.join(home, 'run')
@@ -25,7 +26,7 @@ if (process.platform === 'linux') {
         '--',
         'bash',
         '-euc',
-        'trap \'if mountpoint -q "$XDG_RUNTIME_DIR/doc"; then fusermount3 -u "$XDG_RUNTIME_DIR/doc"; fi\' EXIT; printf "%s" "autonote-ci-only" | gnome-keyring-daemon --unlock --components=secrets; openbox & node scripts/build/smoke-native.mjs',
+        'trap \'if mountpoint -q "$XDG_RUNTIME_DIR/doc"; then fusermount3 -u "$XDG_RUNTIME_DIR/doc"; fi\' EXIT; printf "%s" "autonote-ci-only" | gnome-keyring-daemon --unlock --components=secrets; openbox & node scripts/smoke-native.mjs',
       ],
       {
         env: {
@@ -41,4 +42,4 @@ if (process.platform === 'linux') {
   } finally {
     rmSync(home, { recursive: true, force: true })
   }
-} else if (process.platform === 'darwin') run(process.execPath, ['scripts/build/smoke-native.mjs'])
+} else if (process.platform === 'darwin') run(process.execPath, ['scripts/smoke-native.mjs'])

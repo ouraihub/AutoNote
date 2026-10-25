@@ -3,14 +3,14 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync }
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { root } from './release-artifacts.mjs'
-import { verifyCandidate } from './release-candidates.mjs'
+import { CandidateStore } from '@ouraihub/desktop-kit'
 
 if (!['darwin', 'linux'].includes(process.platform)) throw new Error('Native smoke requires macOS or Linux')
+const root = path.resolve(import.meta.dirname, '..')
 const platform = process.platform === 'darwin' ? 'macos' : 'linux'
 const dir = path.join(root, 'dist', `candidate-${platform}`)
 const version = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8')).version
-const manifest = verifyCandidate(path.join(dir, 'candidate.json'), { version })
+const manifest = new CandidateStore('AutoNote', 'zip').verify(dir, { version })
 const stage = mkdtempSync(path.join(tmpdir(), 'autonote-native-smoke-'))
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { encoding: 'utf8', ...options })
