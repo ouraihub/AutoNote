@@ -3,10 +3,10 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, realpathSync, symlink
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { currentArtifacts, noLinks, root, sha256 } from './release-artifacts.mjs'
-import { run } from './release-build.mjs'
+import { currentArtifacts, noLinks, root, sha256 } from '../build/release-artifacts.mjs'
+import { run } from '../build/release-build.mjs'
 
-const releaseEntry = path.join(root, 'scripts/release-build.mjs')
+const releaseEntry = path.join(root, 'scripts/build/release-build.mjs')
 for (const [args, message] of [
   [['unexpected'], /Usage:/],
   [['build', '--platform', 'invalid'], /Unsupported release platform/],
@@ -25,8 +25,8 @@ console.log('PASS: release CLI rejects invalid commands/targets; real pnpm start
 const stage = realpathSync(mkdtempSync(path.join(tmpdir(), 'AutoNote-release-fixture-')))
 const desktop = path.join(stage, 'desktop')
 const target = path.join(desktop, 'src-tauri/target/x86_64-pc-windows-msvc/release')
-mkdirSync(path.join(desktop, 'scripts'), { recursive: true })
-copyFileSync(path.join(root, 'scripts/release-artifacts.mjs'), path.join(desktop, 'scripts/release-artifacts.mjs'))
+mkdirSync(path.join(desktop, 'scripts/build'), { recursive: true })
+copyFileSync(path.join(root, 'scripts/build/release-artifacts.mjs'), path.join(desktop, 'scripts/build/release-artifacts.mjs'))
 mkdirSync(path.join(target, 'bundle/nsis'), { recursive: true })
 mkdirSync(path.join(desktop, 'dist/AutoNote/data/files'), { recursive: true })
 writeFileSync(path.join(stage, 'LICENSE'), 'Fixture license')
@@ -37,7 +37,7 @@ const sentinel = path.join(desktop, 'dist/AutoNote/data/files/attachment.bin')
 writeFileSync(sentinel, 'user bytes')
 const exeHash = sha256(oldExe)
 const sentinelHash = sha256(sentinel)
-const result = spawnSync(process.execPath, [path.join(desktop, 'scripts/release-artifacts.mjs'), 'collect', '0.1.0', String(Date.now())], { encoding: 'utf8', env: { ...process.env, CARGO_TARGET_DIR: '' } })
+const result = spawnSync(process.execPath, [path.join(desktop, 'scripts/build/release-artifacts.mjs'), 'collect', '0.1.0', String(Date.now())], { encoding: 'utf8', env: { ...process.env, CARGO_TARGET_DIR: '' } })
 assert.notEqual(result.status, 0, 'Missing NSIS must fail')
 assert.equal(sha256(oldExe), exeHash, 'Missing NSIS must leave old runnable exe')
 assert.equal(sha256(sentinel), sentinelHash, 'Collection never removes data')
@@ -53,7 +53,7 @@ if (process.argv.includes('--with-current-build')) {
   copyFileSync(actualExe, path.join(target, 'AutoNote.exe'))
   const installer = real.artifacts.find(item => item.kind === 'nsis').file
   copyFileSync(installer, path.join(target, 'bundle/nsis', path.basename(installer)))
-  const collected = spawnSync(process.execPath, [path.join(desktop, 'scripts/release-artifacts.mjs'), 'collect', real.version, '0'], { encoding: 'utf8', env: { ...process.env, CARGO_TARGET_DIR: '' } })
+  const collected = spawnSync(process.execPath, [path.join(desktop, 'scripts/build/release-artifacts.mjs'), 'collect', real.version, '0'], { encoding: 'utf8', env: { ...process.env, CARGO_TARGET_DIR: '' } })
   assert.equal(collected.status, 0, collected.stderr)
   assert.equal(sha256(sentinel), sentinelHash, 'Collecting a second real build must preserve user data bytes')
   assert.equal(sha256(oldExe), real.exeSha256)

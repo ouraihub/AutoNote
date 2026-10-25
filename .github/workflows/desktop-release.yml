@@ -38,7 +38,7 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"
-          node desktop/scripts/version-check.mjs "$RELEASE_TAG"
+          node desktop/scripts/build/version-check.mjs "$RELEASE_TAG"
       - name: Select successful Desktop run for the exact tag commit
         id: candidate
         env:
@@ -77,4 +77,4 @@ jobs:
           RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
           BUILD_RUN_ID: ${{ steps.candidate.outputs.run_id }}
-        run: node desktop/scripts/publish-release.mjs
+        run: node desktop/scripts/build/publish-release.mjs

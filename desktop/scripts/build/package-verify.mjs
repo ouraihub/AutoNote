@@ -25,7 +25,7 @@ if (process.platform === 'linux') {
         '--',
         'bash',
         '-euc',
-        'trap \'if mountpoint -q "$XDG_RUNTIME_DIR/doc"; then fusermount3 -u "$XDG_RUNTIME_DIR/doc"; fi\' EXIT; printf "%s" "autonote-ci-only" | gnome-keyring-daemon --unlock --components=secrets; openbox & node scripts/smoke-native.mjs',
+        'trap \'if mountpoint -q "$XDG_RUNTIME_DIR/doc"; then fusermount3 -u "$XDG_RUNTIME_DIR/doc"; fi\' EXIT; printf "%s" "autonote-ci-only" | gnome-keyring-daemon --unlock --components=secrets; openbox & node scripts/build/smoke-native.mjs',
       ],
       {
         env: {
@@ -41,4 +41,4 @@ if (process.platform === 'linux') {
   } finally {
     rmSync(home, { recursive: true, force: true })
   }
-} else if (process.platform === 'darwin') run(process.execPath, ['scripts/smoke-native.mjs'])
+} else if (process.platform === 'darwin') run(process.execPath, ['scripts/build/smoke-native.mjs'])
