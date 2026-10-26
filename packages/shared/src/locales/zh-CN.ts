@@ -890,7 +890,7 @@ export const ZH_CN_MESSAGES = {
   'settings.relay_ref': '受信分支',
   'settings.relay_ref_invalid': '请按 refs/heads/分支名 或 refs/tags/标签名 格式填写',
   'settings.relay_ref_placeholder': 'refs/heads/main',
-  'settings.relay_repos_desc': '只有在完全匹配的受信 ref 上，由 push、workflow_dispatch 或 schedule 触发的指定工作流能换取 2 小时访问密钥。首次成功交换会绑定仓库 ID；删除重建的仓库需要先移除再登记。',
+  'settings.relay_repos_desc': '只有在完全匹配的受信 ref 上，由 push、workflow_dispatch 或 schedule 触发的指定工作流能换取 6 小时访问密钥。首次成功交换会绑定仓库 ID；删除重建的仓库需要先移除再登记。',
   'settings.relay_repos_empty': '还没有登记仓库。',
   'settings.relay_running': '转发中',
   'settings.relay_setup': '接入说明',

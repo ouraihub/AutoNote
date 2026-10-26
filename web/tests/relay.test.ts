@@ -273,23 +273,34 @@ describe('relay forwarding', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  it('caps one access key at 8 concurrent requests', async () => {
+  it('caps manual keys at 8 and GitHub run keys at 32 concurrent requests, answering 429 with Retry-After', async () => {
     const { h, relay, auth } = await setup()
     await relay.request('PUT', '/api/relay', { enabled: true })
     await provider(h, 'Acme', 'https://acme.example.com', 'sk-acme-0123456789')
-    let release: () => void = () => {}
-    const gate = new Promise<void>((resolve) => (release = resolve))
-    fetchMock.mockImplementation(async () => {
-      await gate
-      return Response.json({ ok: true })
-    })
-    const running = Array.from({ length: 8 }, () => relay.request('POST', '/relay/v1/chat/completions', { model: 'm1' }, auth))
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(8))
-    expect((await relay.request('POST', '/relay/v1/chat/completions', { model: 'm1' }, auth)).status).toBe(429)
-    release()
-    await Promise.all((await Promise.all(running)).map((response) => response.text()))
-    fetchMock.mockResolvedValue(Response.json({ ok: true }))
-    expect((await relay.request('POST', '/relay/v1/chat/completions', { model: 'm1' }, auth)).status).toBe(200)
+    const github = `anr_${'g'.repeat(43)}`
+    await h.env.DB.prepare(`INSERT INTO relay_access_keys (id, user_id, name, key_hash, created_at, expires_at, github_run)
+      VALUES ('github', 'user-a', 'GitHub', ?1, 0, ?2, 'acme/app#1#1')`).bind(await sha256Hex(github), Date.now() + 100_000).run()
+    const chat = (headers: Record<string, string>) => relay.request('POST', '/relay/v1/chat/completions', { model: 'm1' }, headers)
+
+    for (const [headers, cap] of [[auth, 8], [{ authorization: `Bearer ${github}` }, 32]] as const) {
+      fetchMock.mockReset()
+      let release: () => void = () => {}
+      const gate = new Promise<void>((resolve) => (release = resolve))
+      fetchMock.mockImplementation(async () => {
+        await gate
+        return Response.json({ ok: true })
+      })
+      const running = Array.from({ length: cap }, () => chat(headers))
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(cap))
+      const busy = await chat(headers)
+      expect(busy.status).toBe(429)
+      expect(busy.headers.get('retry-after')).toBe('2')
+      expect(await busy.json()).toMatchObject({ error: { type: 'rate_limit_error', message: expect.stringContaining(`at most ${cap} concurrent`) } })
+      release()
+      await Promise.all((await Promise.all(running)).map((response) => response.text()))
+      fetchMock.mockResolvedValue(Response.json({ ok: true }))
+      expect((await chat(headers)).status).toBe(200)
+    }
   })
 
   it('deduplicates repeated endpoints and qualifies only later providers per protocol', async () => {
@@ -460,7 +471,7 @@ describe('GitHub OIDC exchange', () => {
     return { jwks: { keys: [{ ...jwk, kid: 'k1' }] }, sign }
   }
 
-  it('issues a 2-hour key only to the registered workflow of a registered repository while the relay is enabled', async () => {
+  it('issues a 6-hour key only to the registered workflow of a registered repository while the relay is enabled', async () => {
     const { h, relay } = await setup()
     await provider(h, 'Acme', 'https://acme.example.com', 'sk-acme-0123456789')
     const { jwks, sign } = await signer()
@@ -518,7 +529,8 @@ describe('GitHub OIDC exchange', () => {
     const issued = await exchange(await sign(claims))
     const body = (await issued.json()) as { key: string; expiresAt: number; models: unknown[] }
     expect(body.key).toMatch(/^anr_/)
-    expect(body.expiresAt - Date.now()).toBeGreaterThan(7_190_000)
+    expect(body.expiresAt - Date.now()).toBeGreaterThan(6 * 3_600_000 - 10_000)
+    expect(body.expiresAt - Date.now()).toBeLessThanOrEqual(6 * 3_600_000)
     expect(body.models).toEqual([{ id: 'm1', object: 'model', owned_by: 'Acme', protocol: 'openai-chat', model_type: 'chat' }])
     const settings = await relay.json<{ keys: { name: string; expiresAt: number | null }[] }>('GET', '/api/relay')
     expect(settings.keys.map((key) => key.name)).toContain('GitHub acme/app 42')

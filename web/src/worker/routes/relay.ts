@@ -30,7 +30,7 @@ const PAUSED = '模型转发已暂停，请在 AutoNote 设置中启用'
 const kitError = (error: unknown, c: Parameters<typeof errorResponse>[0]): Response =>
   error instanceof KitFailure ? c.json({ error: error.toJSON() }, HTTP_STATUS[error.code] as ContentfulStatusCode) : errorResponse(c, error)
 
-export const relayRoutes = new Hono<AppBindings & { Variables: { relayUser: string; relayKey: string } }>()
+export const relayRoutes = new Hono<AppBindings & { Variables: { relayUser: string; relayKey: string; relayMaxConcurrent: number } }>()
 
 const STATUS_TYPE: Record<number, string> = {
   400: 'invalid_request_error',
@@ -66,6 +66,7 @@ relayRoutes.use('/v1/*', async (c, next) => {
   if (!(await relayEnabled(c.env.DB, auth.userId))) return relayError(503, 'relay_paused', PAUSED)
   c.set('relayUser', auth.userId)
   c.set('relayKey', auth.keyId)
+  c.set('relayMaxConcurrent', auth.maxConcurrent)
   await next()
 })
 relayRoutes.get('/v1/models', async (c) => c.json({ object: 'list', data: await relayModels(c.env.DB, c.get('relayUser')) }))
@@ -75,10 +76,10 @@ const ROUTES: [string, Protocol][] = [
   ['/v1/messages', 'anthropic-messages'],
 ]
 for (const [path, protocol] of ROUTES) {
-  relayRoutes.post(path, (c) => forward(c.env, c.get('relayUser'), c.get('relayKey'), protocol, c.req.raw))
+  relayRoutes.post(path, (c) => forward(c.env, c.get('relayUser'), c.get('relayKey'), c.get('relayMaxConcurrent'), protocol, c.req.raw))
 }
-relayRoutes.post('/v1/images/generations', (c) => forwardImage(c.env, c.get('relayUser'), c.get('relayKey'), c.req.raw, false))
-relayRoutes.post('/v1/images/edits', (c) => forwardImage(c.env, c.get('relayUser'), c.get('relayKey'), c.req.raw, true))
+relayRoutes.post('/v1/images/generations', (c) => forwardImage(c.env, c.get('relayUser'), c.get('relayKey'), c.get('relayMaxConcurrent'), c.req.raw, false))
+relayRoutes.post('/v1/images/edits', (c) => forwardImage(c.env, c.get('relayUser'), c.get('relayKey'), c.get('relayMaxConcurrent'), c.req.raw, true))
 relayRoutes.all('*', () => relayError(404, 'not_found_error', 'unknown relay path'))
 
 function audience(request: Request, configured?: string): string {

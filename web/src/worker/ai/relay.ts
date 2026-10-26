@@ -13,7 +13,9 @@ import { requestKeys, withKeys } from './providers'
 const KEY_RE = /^anr_[A-Za-z0-9_-]{43}$/
 const ACTIVE_KEYS_MAX = 20
 const MAX_BODY = 10 * 1024 * 1024
-const MAX_CONCURRENT = 8
+const MAX_CONCURRENT_MANUAL = 8
+const MAX_CONCURRENT_GITHUB = 32
+const BUSY_RETRY_SECONDS = '2'
 const KEEP_HEADERS = ['anthropic-version', 'anthropic-beta', 'content-type', 'accept']
 const KEY_STATUS = [401, 402, 403, 429]
 
@@ -34,8 +36,8 @@ export interface RelayModel {
   model_type: 'chat' | 'image'
 }
 
-export const relayError = (status: number, type: string, message: string): Response =>
-  Response.json({ type: 'error', error: { type, message } }, { status })
+export const relayError = (status: number, type: string, message: string, headers?: HeadersInit): Response =>
+  Response.json({ type: 'error', error: { type, message } }, { status, headers })
 
 const today = (now: number): string => new Date(now).toISOString().slice(0, 10)
 
@@ -127,8 +129,8 @@ export async function purgeRelayKeys(db: D1Database): Promise<void> {
     .run()
 }
 
-/** Resolves an access key and counts the request; null for unknown, revoked, expired or malformed keys. */
-export async function verifyRelayKey(db: D1Database, token: string): Promise<{ userId: string; keyId: string } | null> {
+/** Resolves an access key and counts the request; null for unknown, revoked, expired or malformed keys. `maxConcurrent` depends on the key kind. */
+export async function verifyRelayKey(db: D1Database, token: string): Promise<{ userId: string; keyId: string; maxConcurrent: number } | null> {
   if (!KEY_RE.test(token)) return null
   const now = Date.now()
   const day = today(now)
@@ -137,11 +139,11 @@ export async function verifyRelayKey(db: D1Database, token: string): Promise<{ u
       `UPDATE relay_access_keys
           SET last_used_at = ?2, day_requests = CASE WHEN day = ?3 THEN day_requests + 1 ELSE 1 END, day = ?3
         WHERE key_hash = ?1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?2)
-        RETURNING id, user_id AS userId`,
+        RETURNING id, user_id AS userId, github_run IS NOT NULL AS github`,
     )
     .bind(await sha256Hex(token), now, day)
-    .first<{ id: string; userId: string }>()
-  return row ? { userId: row.userId, keyId: row.id } : null
+    .first<{ id: string; userId: string; github: number }>()
+  return row ? { userId: row.userId, keyId: row.id, maxConcurrent: row.github ? MAX_CONCURRENT_GITHUB : MAX_CONCURRENT_MANUAL } : null
 }
 
 export interface RelayRepo {
@@ -232,10 +234,9 @@ export async function relayModels(db: D1Database, userId: string): Promise<Relay
 }
 
 /** Forwards OpenAI-compatible image generation and edit requests to image models. */
-export async function forwardImage(env: Env, userId: string, keyId: string, request: Request, edit: boolean): Promise<Response> {
-  const running = inFlight.get(keyId) ?? 0
-  if (running >= MAX_CONCURRENT) return relayError(429, 'rate_limit_error', `at most ${MAX_CONCURRENT} concurrent requests per access key`)
-  inFlight.set(keyId, running + 1)
+export async function forwardImage(env: Env, userId: string, keyId: string, maxConcurrent: number, request: Request, edit: boolean): Promise<Response> {
+  const busy = acquire(keyId, maxConcurrent)
+  if (busy) return busy
   try {
     const declared = Number(request.headers.get('content-length') ?? '0')
     if (declared > MAX_BODY) return relayError(413, 'invalid_request_error', 'request body exceeds 10 MB')
@@ -355,19 +356,32 @@ export async function forwardImage(env: Env, userId: string, keyId: string, requ
     if (resumeAt !== null && pausedLines === lines.length) return relayError(429, 'rate_limit_error', `every key of the matching lines is set aside; earliest recovery ${new Date(resumeAt).toISOString()}`)
     return relayError(502, 'api_error', configurationFailure?.message ?? last?.message ?? 'no usable line')
   } finally {
-    inFlight.set(keyId, Math.max(0, (inFlight.get(keyId) ?? 1) - 1))
+    release(keyId)
   }
 }
 
-// ponytail: per-isolate counter, so the 8-request cap holds per Worker instance; move to a Durable Object if keys get shared widely.
+// ponytail: per-isolate counter, so the cap holds per Worker instance; move to a Durable Object if keys get shared widely.
 const inFlight = new Map<string, number>()
 
-/** Forwards one agent request to the first matching line with a usable key (docs/43 §4). */
-export async function forward(env: Env, userId: string, keyId: string, protocol: Protocol, request: Request): Promise<Response> {
+/** Takes one request slot for the key, or answers 429 with Retry-After so agents wait and resend instead of failing. */
+function acquire(keyId: string, maxConcurrent: number): Response | null {
   const running = inFlight.get(keyId) ?? 0
-  if (running >= MAX_CONCURRENT) return relayError(429, 'rate_limit_error', `at most ${MAX_CONCURRENT} concurrent requests per access key`)
+  if (running >= maxConcurrent) {
+    return relayError(429, 'rate_limit_error', `at most ${maxConcurrent} concurrent requests per access key; retry shortly`, { 'retry-after': BUSY_RETRY_SECONDS })
+  }
   inFlight.set(keyId, running + 1)
-  let release = true
+  return null
+}
+
+const release = (keyId: string): void => {
+  inFlight.set(keyId, Math.max(0, (inFlight.get(keyId) ?? 1) - 1))
+}
+
+/** Forwards one agent request to the first matching line with a usable key (docs/43 §4). */
+export async function forward(env: Env, userId: string, keyId: string, maxConcurrent: number, protocol: Protocol, request: Request): Promise<Response> {
+  const busy = acquire(keyId, maxConcurrent)
+  if (busy) return busy
+  let held = true
   try {
     const declared = Number(request.headers.get('content-length') ?? '0')
     if (declared > MAX_BODY) return relayError(413, 'invalid_request_error', 'request body exceeds 10 MB')
@@ -460,7 +474,7 @@ export async function forward(env: Env, userId: string, keyId: string, protocol:
         const done = (): void => {
           if (finished) return
           finished = true
-          inFlight.set(keyId, Math.max(0, (inFlight.get(keyId) ?? 1) - 1))
+          release(keyId)
         }
         const readable = new ReadableStream<Uint8Array>({
           async pull(controller) {
@@ -472,7 +486,7 @@ export async function forward(env: Env, userId: string, keyId: string, protocol:
           },
           cancel(reason) { done(); return reader.cancel(reason) },
         })
-        release = false
+        held = false
         return new Response(readable, { status: response.status, headers: { 'content-type': response.headers.get('content-type') ?? 'application/json' } })
       } catch (error) {
         if (!(error instanceof KitFailure)) throw error
@@ -492,12 +506,13 @@ export async function forward(env: Env, userId: string, keyId: string, protocol:
     }
     return relayError(502, 'api_error', configurationFailure?.message ?? last?.message ?? 'no usable line')
   } finally {
-    if (release) inFlight.set(keyId, Math.max(0, (inFlight.get(keyId) ?? 1) - 1))
+    if (held) release(keyId)
   }
 }
 
 const GITHUB_ISSUER = 'https://token.actions.githubusercontent.com'
-const GITHUB_KEY_TTL_MS = 2 * 3_600_000
+// Covers a GitHub-hosted job's 6-hour limit, so a long agent run never outlives its key (docs/43 §12).
+const GITHUB_KEY_TTL_MS = 6 * 3_600_000
 const JwtHeader = z.object({ alg: z.literal('RS256'), kid: z.string() })
 const GithubClaims = z.object({
   iss: z.literal(GITHUB_ISSUER),
@@ -549,7 +564,7 @@ export async function verifyGithubToken(token: string, audience: string, now = D
 // Only runs started by a push, a manual dispatch or a schedule; PR, comment and workflow_run triggers may run untrusted code.
 const TRUSTED_EVENTS = ['push', 'workflow_dispatch', 'schedule']
 
-/** Exchanges a trusted run of the registered workflow for a 2-hour access key of the repository's user (docs/43 §5.2). */
+/** Exchanges a trusted run of the registered workflow for a 6-hour access key of the repository's user (docs/43 §5.2, §12). */
 export async function exchangeGithubToken(env: Env, token: string, audience: string): Promise<Response> {
   const claims = await verifyGithubToken(token, audience)
   const repo = claims.repository.toLowerCase()
