@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.7](https://github.com/ouraihub/AutoNote/compare/desktop-v0.2.6...desktop-v0.2.7) (2026-10-26)
+
+
+### 新功能
+
+* **relay:** GitHub 临时密钥 6 小时有效，并发超限提示重试 ([653619a](https://github.com/ouraihub/AutoNote/commit/653619a6a0be3076073c3239ac9bb164deb85eaf))
+* **relay:** GitHub 临时密钥有效 6 小时，并发超限时提示稍后重试 ([02d9829](https://github.com/ouraihub/AutoNote/commit/02d9829edd0fbd63531cbe238cd0e0268a0212c8))
+
 ## [0.2.6](https://github.com/ouraihub/AutoNote/compare/desktop-v0.2.5...desktop-v0.2.6) (2026-10-25)
 
 
