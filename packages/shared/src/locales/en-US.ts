@@ -930,7 +930,7 @@ export const EN_US_MESSAGES = {
   'settings.relay_ref_invalid': 'Enter the branch as refs/heads/name or refs/tags/name',
   'settings.relay_ref_placeholder': 'refs/heads/main',
   'settings.relay_repos_desc':
-    'Only the specified workflow on the exact trusted ref, triggered by push, workflow_dispatch or schedule, can exchange an OIDC token for a 2-hour access key. The first successful exchange pins the repository ID; replacing the repository requires removing and registering it again.',
+    'Only the specified workflow on the exact trusted ref, triggered by push, workflow_dispatch or schedule, can exchange an OIDC token for a 6-hour access key. The first successful exchange pins the repository ID; replacing the repository requires removing and registering it again.',
   'settings.relay_repos_empty': 'No repositories registered.',
   'settings.relay_running': 'Running',
   'settings.relay_setup': 'Setup',
