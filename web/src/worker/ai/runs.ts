@@ -58,6 +58,7 @@ export const RunRequestSchema = z.strictObject({
   targetLanguage: z.string().nullable().optional(),
   webSearch: z.boolean().optional().default(false),
   reasoningEffort: z.enum(['default', 'none', 'auto', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']).default('default'),
+  permissionMode: z.enum(['default', 'plan', 'accept_edits', 'auto', 'full_access']).default('default'),
   language: z.string(),
   images: ImagesSchema,
   generateImage: z.boolean().optional().default(false),
@@ -188,6 +189,7 @@ function truncate(text: string, limit: number): string {
 }
 
 export async function prepareRun(env: Env, userId: string, req: RunRequestInput): Promise<PreparedRun> {
+  if (req.permissionMode !== 'default') throw badRequest('permission_mode', 'not_allowed')
   checkLength('input', req.input, 100_000)
   checkLength('conversationId', req.conversationId, 128)
   checkLength('scope', req.scope, 200)

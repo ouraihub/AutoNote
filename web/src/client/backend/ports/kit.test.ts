@@ -4,7 +4,14 @@ import { MemoryTabBus } from '../tab-bus'
 import { HttpTransport } from '../transport'
 import { createHttpKitPorts } from './kit'
 
-const request: RunRequest = { purpose: 'chat', skills: [], input: '你好', regenerate: false, language: 'zh-CN' }
+const request: RunRequest = {
+  purpose: 'chat',
+  skills: [],
+  permissionMode: 'default',
+  input: '你好',
+  regenerate: false,
+  language: 'zh-CN',
+}
 const accepted = 'data: {"kind":"accepted","runId":"r1","conversationId":"c1","turnId":"t1"}\n\n'
 
 function ports(handler: (request: Request) => Response | Promise<Response>) {
@@ -188,4 +195,24 @@ test('run forwards retry, model, selected ancestry and translation fields unchan
   await expect(requests[0]!.json()).resolves.toEqual(retry)
   await expect(requests[1]!.json()).resolves.toEqual(translation)
   await expect(requests[2]!.json()).resolves.toEqual(continuation)
+})
+
+test('HTTP ports preserve permission mode and surface unsupported-mode rejection without downgrading', async () => {
+  const { chat, requests } = ports(() =>
+    Response.json(
+      {
+        error: {
+          code: 'bad_request',
+          message: 'Mode not allowed',
+          details: { field: 'permission_mode', reason: 'not_allowed' },
+        },
+      },
+      { status: 400 },
+    ),
+  )
+  await expect(chat.run({ ...request, permissionMode: 'full_access' }, () => {})).rejects.toMatchObject({
+    code: 'bad_request',
+    details: { field: 'permission_mode', reason: 'not_allowed' },
+  })
+  await expect(requests[0]!.json()).resolves.toMatchObject({ permissionMode: 'full_access' })
 })

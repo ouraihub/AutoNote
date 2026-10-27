@@ -6,6 +6,8 @@ mod commands;
 mod events;
 mod protocol;
 mod shortcut;
+mod skill_process;
+mod skill_runner;
 mod tray;
 mod window;
 
@@ -45,6 +47,18 @@ struct WritingRequest {
 fn validate_writing(
     req: &tauri_plugin_aether::RunRequest,
 ) -> Result<WritingRequest, tauri_plugin_aether::KitError> {
+    if !req.skills.is_empty() {
+        return Err(tauri_plugin_aether::KitError::bad_request(
+            "skills",
+            "writing_not_allowed",
+        ));
+    }
+    if req.permission_mode.unwrap_or_default() != tauri_plugin_aether::PermissionMode::Default {
+        return Err(tauri_plugin_aether::KitError::bad_request(
+            "permission_mode",
+            "not_allowed",
+        ));
+    }
     if req.input.len() > WRITING_TOTAL_MAX_BYTES {
         return Err(tauri_plugin_aether::KitError::bad_request(
             "input", "too_long",
@@ -161,6 +175,7 @@ struct AetherHost {
     library: Arc<OnceLock<Arc<Library>>>,
     providers: Arc<ProviderStore>,
     chat_store: Arc<LazyChatStore>,
+    skills: skill_runner::SkillRunner,
 }
 
 struct LazyChatStore {
@@ -319,7 +334,60 @@ impl tauri_plugin_aether::ConversationStore for LazyChatStore {
     }
 }
 
+#[async_trait::async_trait]
 impl tauri_plugin_aether::KitHost for AetherHost {
+    fn permission_modes(
+        &self,
+        req: &tauri_plugin_aether::RunRequest,
+    ) -> Vec<tauri_plugin_aether::PermissionMode> {
+        use tauri_plugin_aether::PermissionMode;
+        if req.purpose == "writing" {
+            vec![PermissionMode::Default]
+        } else if req.purpose == "chat" {
+            vec![
+                PermissionMode::Default,
+                PermissionMode::Plan,
+                PermissionMode::AcceptEdits,
+                PermissionMode::Auto,
+                PermissionMode::FullAccess,
+            ]
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn mcp_tools(&self, req: &tauri_plugin_aether::RunRequest) -> bool {
+        req.purpose == "chat"
+    }
+
+    fn tools(
+        &self,
+        req: &tauri_plugin_aether::RunRequest,
+        run_id: &str,
+    ) -> Vec<tauri_plugin_aether::HostTool> {
+        self.skills.tools(req, run_id)
+    }
+
+    fn run_finished(&self, run_id: &str) {
+        self.skills.finish(run_id);
+    }
+
+    fn authorize(
+        &self,
+        call: &tauri_plugin_aether::ToolCall,
+        ctx: &tauri_plugin_aether::AuthorizeContext<'_>,
+    ) -> tauri_plugin_aether::Approval {
+        self.skills.authorize(call, ctx)
+    }
+
+    async fn call_tool(
+        &self,
+        call: &tauri_plugin_aether::ToolCall,
+        cancel: &tauri_plugin_aether::CancellationToken,
+    ) -> Result<tauri_plugin_aether::ToolOutput, tauri_plugin_aether::ToolError> {
+        self.skills.execute(call, cancel).await
+    }
+
     fn select_model(
         &self,
         req: &tauri_plugin_aether::RunRequest,
@@ -582,6 +650,22 @@ pub fn run() {
             return;
         }
     };
+    let skill_stores = aether_skills::Store::open(&data_dir, &[])
+        .and_then(|host| aether_skills::Store::open(&data_dir, &[]).map(|plugin| (host, plugin)));
+    let (host_skills, plugin_skills) = match skill_stores {
+        Ok(stores) => stores,
+        Err(_) => {
+            eprintln!("AutoNote could not start: skills store unavailable");
+            return;
+        }
+    };
+    let mcp_client = match aether_mcp_client::Store::open(&data_dir) {
+        Ok(store) => store,
+        Err(_) => {
+            eprintln!("AutoNote could not start: MCP client store unavailable");
+            return;
+        }
+    };
     let host_library = Arc::new(OnceLock::new());
     let chat_store: Arc<LazyChatStore> = Arc::new(LazyChatStore {
         root: data_dir.clone(),
@@ -592,6 +676,7 @@ pub fn run() {
         library: host_library.clone(),
         providers: providers.clone(),
         chat_store: chat_store.clone(),
+        skills: skill_runner::SkillRunner::new(host_skills, data_dir.clone()),
     });
     let settings: autonote_shell::desktop_prefs::McpHostSettings =
         autonote_shell::desktop_prefs::load(&autonote_shell::paths::mcp_settings_file(&data_dir))
@@ -620,6 +705,8 @@ pub fn run() {
         .search(search)
         .chat(tauri_plugin_aether::ChatConfig::default(), Some(chat_store))
         .mcp_server(aether_server)
+        .skills(plugin_skills)
+        .mcp_client(mcp_client)
         .build()
     {
         Ok(plugin) => plugin,

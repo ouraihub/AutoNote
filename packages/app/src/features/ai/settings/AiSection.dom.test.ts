@@ -17,6 +17,8 @@ vi.mock('@ouraihub/aether-ui/providers', async (importOriginal) => {
   return { ...actual, ProvidersSettings }
 })
 
+vi.mock('./presets', () => ({ PROVIDER_PRESETS: [] }))
+
 afterEach(cleanup)
 
 test('usedBy lists localized roles bound to a model, including fallback writing', async () => {
@@ -45,6 +47,12 @@ test('saving a provider refreshes both role selectors and deleting it clears sta
   let options: ModelOption[] = []
   let roles: AiRoleBinding[] = []
   const setRole = vi.fn(async () => roles)
+  const remove = vi.fn(async () => {
+    providers = []
+    options = []
+    roles = []
+    return providers
+  })
   const backend = {
     aiHost: {
       roles: async () => roles,
@@ -100,12 +108,7 @@ test('saving a provider refreshes both role selectors and deleting it clears sta
             ]
             return providers
           },
-          remove: async () => {
-            providers = []
-            options = []
-            roles = []
-            return providers
-          },
+          remove,
         },
       },
     },
@@ -125,6 +128,8 @@ test('saving a provider refreshes both role selectors and deleting it clears sta
   await fireEvent.click(await screen.findByRole('button', { name: 'Provider settings' }))
   await fireEvent.click(await screen.findByRole('button', { name: 'Delete provider' }))
   await waitFor(() => {
+    expect(remove).toHaveBeenCalledOnce()
+    expect(remove).toHaveBeenCalledWith('provider')
     const refreshed = screen.getAllByRole('button', { name: 'Select a model' })
     expect(refreshed.every((button) => (button as HTMLButtonElement).disabled)).toBe(true)
     expect(refreshed[0]?.textContent).not.toContain('Saved model')
