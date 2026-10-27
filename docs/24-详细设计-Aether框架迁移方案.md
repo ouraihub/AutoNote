@@ -941,3 +941,4 @@ R6-1 的推荐版文档核对属于 Aether 自身发布工作，不阻塞 AutoNo
 - 原有思考强度滑杆保留：正式 WebView2 选择“高”后实际请求包含 `reasoning_effort: high`；恢复默认后实际请求省略该字段。权限菜单使用五个独立图标、黄色信息提示、红色危险项、固定状态列与选中背景，正式 AutoNote 窗口已观察，不以 Aether 示例代替宿主验收。
 - 脚本以用户权限执行，工作目录、规则扫描与环境过滤均不是操作系统沙箱；不能保证其不访问工作区外文件或网络。此限制在设置、聊天和批准输入中明确显示。
 - Linux 退出回归修正：`kill -0` 会把已经终止、等待 init 回收的 `Z` 进程误报为存活。测试改用 `ps stat` 区分，并有界等待信号生效；新增真实活进程必须拒绝、杀死但未回收必须接受的边界。生产进程组清理不变。WSL2 直接引用原 `skill_process.rs` 的临时小 crate 验证全部 7 项进程测试通过；另用 subreaper 保留孤儿僵尸，实测 `Z` 状态且全部 7 项通过。WSL 缺 GTK/WebKitGTK，未编译完整 Tauri 应用，不能冒充 Linux 打包／窗口通过。
+- `skill_run` 宿主终裁首先保留 `ctx.proposed == Deny`，在任何权限模式下都不得改为 Ask／Auto，也不登记可执行调用。新增 Default／Plan／AcceptEdits／Auto／FullAccess 五模式拒绝回归：修复前 Default 实测错误返回 Ask；修复后拒绝并且执行入口返回 `not_allowed`。

@@ -125,6 +125,32 @@ fn auto_requires_approval_for_risky_selected_package() {
 }
 
 #[tokio::test]
+async fn proposed_deny_never_registers_an_executable_call_in_any_mode() {
+    for mode in [
+        PermissionMode::Default,
+        PermissionMode::Plan,
+        PermissionMode::AcceptEdits,
+        PermissionMode::Auto,
+        PermissionMode::FullAccess,
+    ] {
+        let (_root, runner, req, _) = fixture("console.log('must not execute')");
+        let tool = call(&runner, &req, "run");
+        let mut ctx = context("run", mode);
+        ctx.proposed = Approval::Deny;
+        assert_eq!(runner.authorize(&tool, &ctx), Approval::Deny, "{mode:?}");
+        assert_eq!(
+            runner
+                .execute(&tool, &CancellationToken::new())
+                .await
+                .unwrap_err()
+                .code,
+            "not_allowed",
+            "{mode:?} registered a denied call"
+        );
+    }
+}
+
+#[tokio::test]
 async fn approval_binds_exact_bytes_arguments_and_one_execution() {
     let (root, runner, req, package) =
         fixture("console.log(require('node:fs').readFileSync('references/input.txt','utf8'))");

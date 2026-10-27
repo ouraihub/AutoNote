@@ -176,6 +176,9 @@ impl SkillRunner {
         if call.name != "skill_run" {
             return ctx.proposed;
         }
+        if ctx.proposed == Approval::Deny {
+            return Approval::Deny;
+        }
         if ctx.purpose != "chat"
             || ctx.mode == PermissionMode::Plan
             || !matches!(ctx.source, ToolSource::Host)
