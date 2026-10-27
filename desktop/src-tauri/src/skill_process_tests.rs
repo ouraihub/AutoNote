@@ -69,26 +69,72 @@ fn descendant_source(exit_root: bool) -> String {
     )
 }
 
-fn assert_descendant_ended(cwd: &Path) {
+async fn assert_descendant_ended(cwd: &Path) {
     let pid = fs::read_to_string(cwd.join("pid")).unwrap();
-    #[cfg(windows)]
-    let status = std::process::Command::new("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            &format!(
-                "if(Get-Process -Id {pid} -ErrorAction SilentlyContinue){{exit 1}}else{{exit 0}}"
-            ),
-        ])
-        .status()
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        #[cfg(windows)]
+        let ended = std::process::Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                &format!(
+                    "if(Get-Process -Id {pid} -ErrorAction SilentlyContinue){{exit 1}}else{{exit 0}}"
+                ),
+            ])
+            .status()
+            .unwrap()
+            .success();
+        #[cfg(unix)]
+        let ended = {
+            // A killed orphan may await init's reap; a zombie cannot execute.
+            let output = std::process::Command::new("ps")
+                .args(["-o", "stat=", "-p", pid.trim()])
+                .output()
+                .unwrap();
+            let state = std::str::from_utf8(&output.stdout).unwrap().trim();
+            assert!(
+                output.status.success() || (output.status.code() == Some(1) && state.is_empty()),
+                "cannot inspect descendant {pid}: {:?}",
+                output
+            );
+            state.is_empty() || state.starts_with('Z')
+        };
+        if ended {
+            return;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "descendant {pid} survived"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn descendant_check_rejects_running_process_but_accepts_unreaped_exit() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut child = std::process::Command::new("sh")
+        .args(["-c", "exec sleep 30"])
+        .spawn()
         .unwrap();
-    #[cfg(unix)]
-    let status = std::process::Command::new("sh")
-        .args(["-c", &format!("! kill -0 {pid} 2>/dev/null")])
-        .status()
-        .unwrap();
-    assert!(status.success(), "descendant {pid} survived");
+    fs::write(dir.path().join("pid"), child.id().to_string()).unwrap();
+    let running = tokio::time::timeout(
+        Duration::from_millis(100),
+        assert_descendant_ended(dir.path()),
+    )
+    .await;
+    child.kill().unwrap();
+    let exited =
+        tokio::time::timeout(Duration::from_secs(2), assert_descendant_ended(dir.path())).await;
+    child.wait().unwrap();
+    assert!(running.is_err(), "running descendant was accepted as ended");
+    assert!(
+        exited.is_ok(),
+        "killed but unreaped descendant was rejected"
+    );
 }
 
 #[tokio::test]
@@ -98,7 +144,7 @@ async fn normal_root_exit_also_ends_descendants() {
         .await
         .unwrap();
     assert_eq!(result["success"], true);
-    assert_descendant_ended(&cwd);
+    assert_descendant_ended(&cwd).await;
 }
 
 #[tokio::test]
@@ -110,7 +156,7 @@ async fn timeout_ends_entire_process_tree() {
         .unwrap_err();
     assert_eq!(error.code, "timeout");
     assert!(error.unknown);
-    assert_descendant_ended(&cwd);
+    assert_descendant_ended(&cwd).await;
 }
 
 #[tokio::test]
@@ -125,7 +171,7 @@ async fn cancellation_ends_entire_process_tree() {
     let error = run_script(&cwd, &args, &cancel).await.unwrap_err();
     assert_eq!(error.code, "cancelled");
     assert!(error.unknown);
-    assert_descendant_ended(&cwd);
+    assert_descendant_ended(&cwd).await;
 }
 
 #[tokio::test]
