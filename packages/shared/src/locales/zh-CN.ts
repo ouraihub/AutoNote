@@ -1,6 +1,9 @@
 import type { MessageKey } from './en-US'
 export const ZH_CN_MESSAGES = {
   'ai.search_title': '网络搜索',
+  'ai.skills_title': '技能',
+  'ai.mcp_client_title': 'MCP 连接',
+  'ai.skills_runner_warning': '获准运行的技能脚本以当前用户身份执行，可以访问文件系统和网络。工作目录不是沙箱。请只运行你信任的技能。',
   'settings.transfer_export_completed': '导出完成',
   'settings.transfer_conflict': '笔记已存在时',
   'settings.transfer_skip': '跳过已有笔记',

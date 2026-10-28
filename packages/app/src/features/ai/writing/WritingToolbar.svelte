@@ -98,6 +98,7 @@
           purpose: 'writing',
           model: null,
           skills: [],
+          permissionMode: 'default',
           context: { kind: 'autonote-note', id: snapshot.noteId },
           scope: `note:${snapshot.noteId}:writing`,
           input: JSON.stringify({

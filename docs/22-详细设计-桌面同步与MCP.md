@@ -1,6 +1,6 @@
 # 22 详细设计：桌面同步与 MCP
 
-> 状态：阶段设计基线；本文件只描述 D4（本地 MCP 服务）和 D5（同步到 Web 实例），不代表代码已经完成。D5（§6–§8、§9 的 D5 任务）于 2026-10-21 按"脏标记 + 基准版本 CAS + 冲突副本"方案重写，后续实现以此为准。
+> 状态：阶段设计基线；本文件主体描述 D4（本地 MCP 服务）和 D5（同步到 Web 实例），不代表代码已经完成；桌面 AI 的 MCP Client 接入边界见 §1.5 与 [24](24-详细设计-Aether框架迁移方案.md)。D5（§6–§8、§9 的 D5 任务）于 2026-10-21 按"脏标记 + 基准版本 CAS + 冲突副本"方案重写，后续实现以此为准。
 > 契约来源：`02-概要设计.md`（§3 端口、§4 类型、§5 错误码、§6 ChangeFeed、§7 写入语义、§8 IPC）；工程写法来源：`04-工程规范.md`。
 > 引用约定：`20 §x` 指 `20-详细设计-桌面内核.md`，`21 §x` 指 `21-详细设计-桌面宿主.md`，`10 §x` 指 `10-详细设计-共享应用层.md`。所有路径以 AutoPad 仓库根为准。
 
@@ -41,6 +41,14 @@ D5 只调用现有 HTTP/WS 接口，不改 Worker 或服务端 schema。服务�
 MCP 写操作必须由 `note-core` 在**一个 SQLite transaction** 中完成：查幂等记录、校验请求哈希、读取/检查版本、修改领域数据及索引、写 `mcp_operations` 并保存完整结果，最后一次提交。禁止 MCP 层先开一个事务查 `mcp_operations`、再让 Library 开第二个事务写入；禁止“业务已提交但幂等结果未提交”或相反的两阶段实现。提交后释放数据库锁，再发 `autonote://library-changed`，不在事务内发事件。
 
 文件系统附件不能假定和 SQLite 同一事务。附件采用临时文件、fsync、原子 rename、数据库引用保护和启动恢复扫描；未被已提交记录引用的临时文件可清理，已被记录引用的正式文件不得误删。
+
+### 1.5 桌面 AI 的外部 MCP Client 与本地 Server 分离
+
+桌面 AI 通过 Aether `mcp-client` 连接用户配置的外部 **HTTP（Streamable HTTP）或 stdio** 服务；Store 为同数据根下的 `mcp-client.db`，配置与凭据不放 `library.db` 或 `mcp-server.db`。共享设置提供独立的 MCP Client 分区，显式配置、信任和启用；本地 MCP Server 仍只向外提供上述知识库工具，其端口、token、scope 与启停开关不被 Client 设置取代。启用细节见 [24 §9](24-详细设计-Aether框架迁移方案.md#9-aether-接入方式)。
+
+外部工具以 `ToolSource::Mcp`、`effect=Other` 进入当前 chat run，`readOnlyHint` 不是可信权限声明。Default 保留逐工具审批；Plan 不列出 MCP 工具；AcceptEdits 不自动放宽 MCP；Auto 也保持 MCP 原审批；FullAccess 可将 Ask 改为 Auto，但自身 Deny 与宿主最终裁决不变。FullAccess 必须每次运行显式选择并交互式危险确认，不能持久化、恢复或自动复用。**writing 固定 Default，无技能，并通过 `mcp_tools=false` 同时排除工具目录和会话启动**，不能只在执行时拒绝工具。
+
+stdio 配置会启动当前用户权限下的本地进程，不是远程 HTTP 地址，也不是沙箱；清空继承环境并过滤敏感变量，不能把 provider/MCP 密钥作为通用子进程环境泄露。会话结束和取消使用 `process-wrap = "=10.0.1"` 管理完整进程树（Windows kill-on-close Job Object；Unix 进程组），根进程已退出也不能留下后代；不使用外部 `taskkill`/`kill` 清理方案。`skill_run` 是另一个受所选固定修订技能约束的宿主工具，不提供通用 shell/文件能力；它的临时物化、120 秒默认/1800 秒最大超时、stdout/stderr 各 64 KiB 和运行后清理见 [24 §8.5](24-详细设计-Aether框架迁移方案.md#85-所选技能脚本执行skill_run)。技能脚本同样拥有用户实际文件系统与网络权限，cwd 不是隔离边界；Auto 风险规则只是便利性护栏，不是安全保证。
 
 ## 2. 范围、依赖与模块布局
 

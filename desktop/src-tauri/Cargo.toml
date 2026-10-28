@@ -13,12 +13,14 @@ note-core = { path = "core" }
 note-sync = { path = "sync" }
 note-mcp = { path = "mcp" }
 autonote-shell = { path = "shell" }
-aether-observability = { git = "https://github.com/ouraihub/Aether.git", rev = "a63f3fc7ce284b8bd58917e9aee35e60404f5a03" }
-aether-providers = { git = "https://github.com/ouraihub/Aether.git", rev = "a63f3fc7ce284b8bd58917e9aee35e60404f5a03" }
-aether-chat = { git = "https://github.com/ouraihub/Aether.git", rev = "a63f3fc7ce284b8bd58917e9aee35e60404f5a03" }
-aether-mcp-server = { git = "https://github.com/ouraihub/Aether.git", rev = "a63f3fc7ce284b8bd58917e9aee35e60404f5a03" }
-aether-search = { git = "https://github.com/ouraihub/Aether.git", rev = "a63f3fc7ce284b8bd58917e9aee35e60404f5a03" }
-tauri-plugin-aether = { git = "https://github.com/ouraihub/Aether.git", rev = "a63f3fc7ce284b8bd58917e9aee35e60404f5a03" }
+aether-observability = { git = "https://github.com/ouraihub/Aether.git", rev = "855c55bc2eb23c162323c9bfe29c2d9f8e430b9e" }
+aether-providers = { git = "https://github.com/ouraihub/Aether.git", rev = "855c55bc2eb23c162323c9bfe29c2d9f8e430b9e" }
+aether-chat = { git = "https://github.com/ouraihub/Aether.git", rev = "855c55bc2eb23c162323c9bfe29c2d9f8e430b9e" }
+aether-mcp-server = { git = "https://github.com/ouraihub/Aether.git", rev = "855c55bc2eb23c162323c9bfe29c2d9f8e430b9e" }
+aether-search = { git = "https://github.com/ouraihub/Aether.git", rev = "855c55bc2eb23c162323c9bfe29c2d9f8e430b9e" }
+aether-skills = { git = "https://github.com/ouraihub/Aether.git", rev = "855c55bc2eb23c162323c9bfe29c2d9f8e430b9e" }
+aether-mcp-client = { git = "https://github.com/ouraihub/Aether.git", rev = "855c55bc2eb23c162323c9bfe29c2d9f8e430b9e" }
+tauri-plugin-aether = { git = "https://github.com/ouraihub/Aether.git", rev = "855c55bc2eb23c162323c9bfe29c2d9f8e430b9e" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
@@ -69,7 +71,7 @@ tauri-plugin-single-instance = "=2.5.2"
 tauri-plugin-global-shortcut = "=2.4.0"
 tauri-plugin-dialog = "=2.8.1"
 tauri-plugin-opener = "=2.7.1"
-tokio = { version = "=1.53.1", features = ["time"] }
+tokio = { version = "=1.53.1", features = ["time", "process", "io-util", "macros", "rt"] }
 note-sync.workspace = true
 note-mcp.workspace = true
 aether-observability.workspace = true
@@ -77,9 +79,18 @@ aether-providers.workspace = true
 aether-chat.workspace = true
 aether-mcp-server.workspace = true
 aether-search.workspace = true
-tauri-plugin-aether = { workspace = true, features = ["providers", "chat", "mcp-server", "search"] }
+aether-skills.workspace = true
+aether-mcp-client.workspace = true
+tauri-plugin-aether = { workspace = true, features = ["providers", "chat", "mcp-server", "search", "skills", "mcp-client"] }
+async-trait = "0.1"
+uuid = { version = "1", features = ["v4"] }
+process-wrap = { version = "=10.0.1", default-features = false, features = ["tokio1", "job-object", "process-group", "kill-on-drop", "creation-flags"] }
+tokio-util = "0.7"
 zeroize = "=1.8.2"
 getrandom = "0.4"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_System_Threading"] }
 
 [dev-dependencies]
 tempfile.workspace = true

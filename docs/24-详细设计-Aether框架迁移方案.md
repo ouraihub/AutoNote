@@ -1,6 +1,6 @@
 # 24 详细设计：AutoNote 接入 Aether 框架
 
-> 状态：迁移基线，未实施。
+> 状态：Aether 迁移与桌面 AI 宿主接入基线；skills、MCP Client 和权限模式的接入合同见 §7–§9，不表示已完成集成验收。
 > 目标：在不背历史数据兼容负担的前提下，把 AutoNote 的 AI、日志和本地 MCP 能力接入 Aether；保留 AutoNote 的笔记领域、同步和产品界面。
 > 仓库：`https://github.com/ouraihub/AutoNote`
 > 框架：`https://github.com/ouraihub/Aether`
@@ -103,7 +103,7 @@ Aether 在 AutoNote 中初期使用固定 Git commit：
 aether-chat = { git = "https://github.com/ouraihub/Aether.git", rev = "<固定提交>" }
 ```
 
-开发 Aether 本身时可临时使用本地 `path` 依赖，但提交到 AutoNote 前必须恢复 Git `rev`，防止构建依赖开发者本机路径。
+AutoNote 始终保留 Aether 的固定 Git/package 提交引用。本次 skills 与权限模式接入不使用本地 `path`、包目录替换或依赖补丁；Aether 合并后，由父集成人统一更新 Cargo 与三个 `package.json` 的 SHA 及对应锁文件，前后端必须指向同一正式提交。
 
 ### 3.2 提交规则
 
@@ -139,6 +139,9 @@ refactor: remove obsolete AI and MCP implementations
 ├── providers.db     Aether：provider / endpoint / model / encrypted key
 ├── chat.db          Aether：通用 AI 会话和消息
 ├── mcp-server.db    Aether：MCP token / scope / operations
+├── skills.db        Aether：技能与修订快照
+├── mcp-client.db    Aether：外部 MCP Client 配置与凭据
+├── staging/skill-runs/  AutoNote：按次技能执行的临时材料
 ├── files/           AutoNote 附件
 └── logs/            Aether observability 日志
 ```
@@ -221,11 +224,11 @@ note:<noteId>
 
 这三层含义不同：
 
-| 字段 | 用途 |
-|---|---|
+| 字段      | 用途                                       |
+| --------- | ------------------------------------------ |
 | `purpose` | 选择产品运行语义和角色，`chat` / `writing` |
-| `context` | 宿主从哪个领域对象加载上下文 |
-| `scope` | 会话隔离、历史和 UI 绑定范围 |
+| `context` | 宿主从哪个领域对象加载上下文               |
+| `scope`   | 会话隔离、历史和 UI 绑定范围               |
 
 ### 5.2 Chat 运行流程
 
@@ -344,8 +347,11 @@ RunRequest.purpose = "writing"
 RunRequest.context = { kind: "autonote-note", id: noteId }
 RunRequest.scope = "note:<noteId>:writing"
 RunRequest.input = 固定动作提示词 + selectedText
-RunRequest.skills = [] 或用户明确选择的技能
+RunRequest.skills = []
+RunRequest.permissionMode = "default"
 ```
+
+`purpose=writing` 固定 Default，不继承聊天权限模式；不带技能，也不提供 `skill_run`。宿主的 `mcp_tools(req)` 对 writing 返回 `false`：既不启动 HTTP/stdio MCP 会话，也不向模型列出 MCP 工具。写作始终只是生成候选文本，再由 §6.4 的编辑器安全门写回。
 
 AutoNote HostAdapter 的 `system_prompt` 组装：
 
@@ -435,14 +441,16 @@ struct AutoNoteHost {
 
 职责：
 
-| 方法 | AutoNote 行为 |
-|---|---|
-| `select_model` | 根据 `purpose` 选择 `chat` 或 `writing` role；显式 `model` 优先，但必须属于已配置模型 |
-| `system_prompt` | 生成 chat/writing 固定 system prompt |
-| `context` | 根据 `ContextRef` 读取 note-core 当前笔记，返回有界 ContextBlock |
-| `tools` | 返回 AutoNote 领域工具；writing 默认不提供写笔记工具 |
-| `call_tool` | 调用 note-core 公开 API，不执行脚本，不直接 SQL |
-| `authorize` | 只读工具 Auto；写工具 Ask；危险工具按产品设置 Deny |
+| 方法               | AutoNote 行为                                                                                                                                 |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `select_model`     | 根据 `purpose` 选择 `chat` 或 `writing` role；显式 `model` 优先，但必须属于已配置模型                                                         |
+| `system_prompt`    | 生成 chat/writing 固定 system prompt                                                                                                          |
+| `context`          | 根据 `ContextRef` 读取 note-core 当前笔记，返回有界 ContextBlock                                                                              |
+| `tools`            | chat 仅在本次选中的固定修订技能含脚本时提供 `skill_run`（`effect=Exec`）；writing 不提供工具；本文 §8.1–§8.2 的领域目录不因本次接入自动启用   |
+| `call_tool`        | `skill_run` 仅运行所选技能快照中的脚本，执行约束见 §8.5；领域操作仍须走 note-core，不直接 SQL                                                 |
+| `permission_modes` | chat 显式允许全部五种模式；writing 只允许 Default                                                                                             |
+| `mcp_tools`        | writing 返回 false，其余聊天运行允许按配置建立 MCP Client 会话                                                                                |
+| `authorize`        | 使用 `AuthorizeContext { mode, purpose, run_id, effect, source, proposed }` 作同步、纯内存的最终裁决；`skill_run` 规则见 §7.4，不能在此做 I/O |
 
 ### 7.2 模型选择优先级
 
@@ -476,6 +484,24 @@ text = 有界的标题 + 正文摘要/正文
 ```
 
 不存在、已删除或超限时返回结构化错误，不返回空白上下文冒充成功。
+
+### 7.4 按次运行的五种权限模式
+
+`RunRequest.permissionMode` 可省略，缺省为 `default`。宿主通过 `KitHost::permission_modes` 声明允许列表；未允许的请求模式在受理时以 `bad_request{field:"permission_mode", reason:"not_allowed"}` 拒绝。模式在运行开始时固定，模型、技能正文与工具结果都不能在运行中改变它。
+
+| 模式                                        | 工具目录与审批语义                                                                                        | `skill_run`                             |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| Default（逐次确认，`default`）              | 保留目录，沿用各工具原有审批配置；并非所有只读工具都需要确认                                              | Ask                                     |
+| Plan（仅规划，`plan`）                      | 只向模型提供 `effect=Read` 的工具，保留其原审批；界面显示仅规划标记，需要执行时由用户在下一次运行切换模式 | 不提供（Exec）                          |
+| AcceptEdits（自动接受编辑，`accept_edits`） | 仅将 Edit 工具的 Ask 改为 Auto，执行与其他效果不变                                                        | Ask（Exec 不属于 Edit）                 |
+| Auto（智能批准，`auto`）                    | 宿主工具的 Ask 可自动批准，再由宿主风险规则改回 Ask；MCP 维持原审批                                       | `script_risk` 未命中时 Auto，命中时 Ask |
+| FullAccess（完全访问，`full_access`）       | 包括 MCP 在内的 Ask 改为 Auto，仍受宿主最终裁决约束                                                       | Auto                                    |
+
+任何模式都不能把工具自身的 Deny 放宽；MCP 工具统一声明 `effect=Other`，不能根据不可信的 `readOnlyHint` 把它们纳入 Plan 或自动接受编辑。`authorize` 的返回值是最终裁决，宿主仍可将 Auto 改回 Ask 或 Deny。
+
+聊天包装层向 Aether `ChatPanel` 传宿主允许列表（当前公开 prop 为 `permissionModes`），通过可绑定的 `permissionMode` 传递下一次运行选择。**FullAccess 必须由用户为本次运行显式选择，并在每次启动前完成交互式危险确认**；不能仅依赖曾经选中过该模式时的确认。它不保存为偏好或默认值，不从会话/历史恢复，也不被发送、重试、重新生成等后续运行自动复用；取消确认不启动运行。普通模式的偏好保存不能间接持久化 FullAccess。writing 只发送 Default，不显示可提升权限的选择。
+
+Auto 的 `aether_chat::risk::script_risk` 检查只是在常见危险脚本前减少误操作、增加确认的**便利性护栏，不是安全边界**；未命中不等于脚本安全。FullAccess 也不是越过操作系统权限或解除所有安全约束的许可。
 
 ---
 
@@ -515,26 +541,34 @@ upload_attachment
 
 ### 8.3 Writing 默认工具
 
-默认不提供写工具。Writing 是“生成候选文本 → 前端安全写回”，而不是让模型直接修改笔记。
-
-如果未来需要 writing 调用只读工具，只加入：
-
-```text
-read_note
-search_notes
-```
-
-不要给 writing 默认 `update_note`，避免模型绕过选区安全门。
+Writing 不提供工具，不带技能，权限固定 Default，也不启动或列出 MCP 工具。Writing 是“生成候选文本 → 前端安全写回”，而不是让模型直接修改笔记；不提供 `update_note` 或 `skill_run` 绕过选区安全门。
 
 ### 8.4 MCP 工具来源
 
-AutoNote 自己的工具注册为 `ToolSource::Host`。以后外部 MCP 工具由 Aether `mcp-client` 接入，注册为 `ToolSource::Mcp`。两者进入同一个 Aether 工具目录和审批流程。
+AutoNote 自己的工具注册为 `ToolSource::Host`。外部 MCP 工具由 Aether `mcp-client` 接入，注册为 `ToolSource::Mcp`，和宿主工具进入同一个 Aether 工具目录及审批流程，但不把 MCP 的只读提示视为可信权限声明。MCP Client 支持 HTTP（Streamable HTTP）和 stdio；它与面向外部客户端的 AutoNote 本地 MCP Server 是两个独立方向。设置、启用与信任由用户明确配置，不能因为模型请求某个工具就自动信任或启动新服务。writing 完全排除 MCP 会话。
+
+### 8.5 所选技能脚本执行：`skill_run`
+
+`skill_run` 是 `ToolSource::Host`、`ToolEffect::Exec` 的窄入口，不是通用 shell 或文件操作工具。只在本次 chat 运行明确选中的技能含可执行脚本时注册；不得接受模型提供的任意脚本正文、宿主绝对路径或未选中的技能，也不另行开放任意 shell、文件读写工具。
+
+宿主独立打开与插件相同数据根的 skills Store，以本次所选技能的 `{id, revision}` 读取全部文件并固定执行快照。脚本只能从该固定快照中选择，不能执行当前最新修订、重新导入版本或后来替换的文件。技能已删除或修订变化时按 `skill_changed` 冲突失败，不能悄悄改用新版本。
+
+执行流程与限制：
+
+1. 将已读取的完整技能快照临时落到 `data_dir/staging/skill-runs/<uuid>/`；拒绝逃逸路径，脚本入口必须属于该快照。
+2. 按脚本扩展名选择受支持的解释器，以该临时目录为 cwd。解释器必须在用户系统上实际可用；不让模型指定任意解释器或命令字符串。
+3. 清空继承环境，只保留运行所需的非敏感环境；过滤密钥、token、密码、凭据等敏感变量，不向子进程注入 provider/MCP 凭据。环境过滤不是文件或网络隔离。
+4. 超时默认 **120 秒**，最多 **1800 秒**；stdout 与 stderr 分别最多保留 **64 KiB**，超出后截断但继续排空管道，不能因输出达到上限而死锁。
+5. 取消、超时及运行结束时清理**完整进程树**，包括根进程先退出后仍存活的后代。使用固定依赖 `process-wrap = "=10.0.1"`（关闭 default features，开启 `tokio1`、`job-object`、`process-group`、`kill-on-drop`、`creation-flags`）：Windows 用 kill-on-close Job Object，Unix 用进程组；不依赖外部 `taskkill`/`kill` 命令，也不在根进程已退出时跳过后代清理。
+6. 进程树结束后删除该次临时目录，不将物化目录复用为下次运行或技能源；取消与失败同样进入清理流程。
+
+**这不是沙箱。脚本以当前用户的真实操作系统权限执行，可以访问该用户可访问的文件系统与网络。cwd 只是工作目录，不是文件访问边界；临时物化、路径校验、输出截断、敏感环境过滤和风险规则都不会把脚本限制在临时目录内。** 用户应先审阅技能及脚本，只运行信任的来源；Default/AcceptEdits 的逐次审批与 FullAccess 的按次危险确认必须明确保留这一风险含义。
 
 ---
 
 ## 9. Aether 接入方式
 
-### 9.1 第一阶段依赖
+### 9.1 固定依赖与功能开关
 
 AutoNote `desktop/src-tauri/Cargo.toml` 依赖：
 
@@ -543,10 +577,14 @@ aether-observability = { git = "https://github.com/ouraihub/Aether.git", rev = "
 aether-providers = { git = "https://github.com/ouraihub/Aether.git", rev = "<fixed-commit>" }
 aether-chat = { git = "https://github.com/ouraihub/Aether.git", rev = "<fixed-commit>" }
 aether-mcp-server = { git = "https://github.com/ouraihub/Aether.git", rev = "<fixed-commit>" }
-tauri-plugin-aether = { git = "https://github.com/ouraihub/Aether.git", rev = "<fixed-commit>", features = ["providers", "chat", "mcp-server"] }
+aether-skills = { git = "https://github.com/ouraihub/Aether.git", rev = "<fixed-commit>" }
+aether-mcp-client = { git = "https://github.com/ouraihub/Aether.git", rev = "<fixed-commit>" }
+tauri-plugin-aether = { git = "https://github.com/ouraihub/Aether.git", rev = "<fixed-commit>", features = ["providers", "chat", "mcp-server", "skills", "mcp-client"] }
 ```
 
 实际 Cargo 依赖名是 `tauri-plugin-aether`；代码中的 Rust import 名为 `tauri_plugin_aether`。上面的依赖声明只展示接入方向，`aether-support` 等私有依赖由各 Aether crate 的传递依赖解决。
+
+上述为依赖方向示意，原有 search 等功能开关须保留。实际固定 SHA 由父集成人在 Aether 合并后统一更新（§3.1），本接入不改为本地依赖。
 
 ### 9.2 Builder 装配
 
@@ -563,10 +601,14 @@ let host = Arc::new(AutoNoteHost::new(library.clone(), roles, tools));
 let builder = tauri_plugin_aether::Builder::new(host, logs)
     .providers(aether_providers::Store::open(&root)?)
     .chat(tauri_plugin_aether::ChatConfig::default(), Some(chat_store))
+    .skills(aether_skills::Store::open(&root, &[])?)
+    .mcp_client(aether_mcp_client::Store::open(&root)?)
     .mcp_server(mcp_server);
 ```
 
 实际实现必须使用真实公开 API；本段是装配目标，不是当前可复制代码。若 Aether 的 `Builder` 只暴露 `tauri_plugin_aether::Builder`，不得额外建立第二个 facade。
+
+宿主另开同数据根的 skills Store，用于 §8.5 的固定修订读取；不能拿最新配置替代运行选中快照。`capabilities/default.json` 增加 `aether:skills`、`aether:mcp-client`，桌面端 `createTauriPorts` 打开 `skills: true`、`mcpClient: true`。共享设置按 `kit.skills`/`kit.mcpClient` 是否存在挂载 `SkillsSettings`/`McpClientSettings`，无端口不显示分区；ChatPanel 通过 skills 端口内置选择器提交本次 `{id, revision}`。MCP Client 设置允许分别配置 HTTP 服务与 stdio 命令/参数、显式信任和启用；stdio 启动的是用户权限下的本地进程，需同样谨慎对待来源和环境。现有本地 MCP Server 设置不挪为 Client，也不改变其 token/scope 权限。
 
 ### 9.3 数据目录
 
@@ -577,6 +619,9 @@ AutoNote 继续使用 exe 同级 `data` 决策，不调用 Aether 的 `data_root
 <exe>/data/providers.db
 <exe>/data/chat.db
 <exe>/data/mcp-server.db
+<exe>/data/skills.db
+<exe>/data/mcp-client.db
+<exe>/data/staging/skill-runs/<uuid>/
 <exe>/data/logs/
 ```
 
@@ -885,3 +930,15 @@ A0 → A1 logging → A2 providers/role → A3 chat → A4 writing → A5 MCP �
 推进。
 
 R6-1 的推荐版文档核对属于 Aether 自身发布工作，不阻塞 AutoNote 分支建立；AutoNote 迁移只依赖 Aether 已发布且稳定的公开 API。
+
+## 14. 技能脚本、MCP Client 与权限模式接入（2026-10-27）
+
+- Aether Rust、桌面／共享应用／Web 的 UI 依赖统一固定到已合并修订 `855c55bc2eb23c162323c9bfe29c2d9f8e430b9e`。权限与菜单分别经 Aether PR #9、#10，四项必需检查通过；该主分支修订的三平台 CI 也通过。
+- AutoNote 开启 skills 与 mcp-client，新增独立设置分区；技能脚本固定本 run 的 revision、文件字节与批准参数。默认／自动接受编辑仍需脚本审批；智能批准依规则；完全访问只消费一次，不保存为默认。写作不载入技能或外部 MCP。
+- 完整 `pnpm run ci` 通过，包括 Web 检查／测试／构建、桌面类型与 Rust workspace 测试、原生密钥检查、Clippy、格式与实际 Windows NSIS／portable 构建。未执行 macOS／Linux AutoNote 原生窗口验收、NSIS 安装卸载和付费模型联验。
+- 隔离正式桌面程序实测：真实文件选择导入含 `scripts/run.js` 的 ZIP，预览显示脚本与文件清单，安装成功；聊天中的 `skill_run` 显示带 revision、路径和完整参数的批准卡片，点击“允许本次”后返回 `AUTONOTE_APPROVED_SCRIPT_OK`，运行临时目录清空。测试使用本地回环模型服务，不修改用户模型、笔记和凭据。
+- 同一桌面设置里保存本地 stdio filesystem 服务，测试连接发现 14 个工具。命令直接为 `npx`，参数包括固定版本 `@modelcontextprotocol/server-filesystem@2.0.1` 和隔离允许目录；服务保持未启用／未信任，不自动提供给聊天。
+- 原有思考强度滑杆保留：正式 WebView2 选择“高”后实际请求包含 `reasoning_effort: high`；恢复默认后实际请求省略该字段。权限菜单使用五个独立图标、黄色信息提示、红色危险项、固定状态列与选中背景，正式 AutoNote 窗口已观察，不以 Aether 示例代替宿主验收。
+- 脚本以用户权限执行，工作目录、规则扫描与环境过滤均不是操作系统沙箱；不能保证其不访问工作区外文件或网络。此限制在设置、聊天和批准输入中明确显示。
+- Linux 退出回归修正：`kill -0` 会把已经终止、等待 init 回收的 `Z` 进程误报为存活。测试改用 `ps stat` 区分，并有界等待信号生效；新增真实活进程必须拒绝、杀死但未回收必须接受的边界。生产进程组清理不变。WSL2 直接引用原 `skill_process.rs` 的临时小 crate 验证全部 7 项进程测试通过；另用 subreaper 保留孤儿僵尸，实测 `Z` 状态且全部 7 项通过。WSL 缺 GTK/WebKitGTK，未编译完整 Tauri 应用，不能冒充 Linux 打包／窗口通过。
+- `skill_run` 宿主终裁首先保留 `ctx.proposed == Deny`，在任何权限模式下都不得改为 Ask／Auto，也不登记可执行调用。新增 Default／Plan／AcceptEdits／Auto／FullAccess 五模式拒绝回归：修复前 Default 实测错误返回 Ask；修复后拒绝并且执行入口返回 `not_allowed`。

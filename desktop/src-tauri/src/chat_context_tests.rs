@@ -46,6 +46,10 @@ fn fixture(base_url: &str) -> (tempfile::TempDir, AetherHost, NoteId, ModelRef) 
     let host = AetherHost {
         library: Arc::new(OnceLock::from(library)),
         providers,
+        skills: skill_runner::SkillRunner::new(
+            aether_skills::Store::open(dir.path(), &[]).unwrap(),
+            dir.path().to_owned(),
+        ),
         chat_store: Arc::new(LazyChatStore {
             root: dir.path().to_owned(),
             store: Mutex::new(None),
@@ -142,6 +146,41 @@ fn note_scope_authorization_survives_null_context() {
 }
 
 #[test]
+fn permissions_are_desktop_only_and_writing_never_opens_mcp() {
+    use tauri_plugin_aether::PermissionMode;
+    let (_dir, host, note, model) = fixture("http://127.0.0.1:9");
+    let mut req = request(&note, &model);
+    assert_eq!(host.permission_modes(&req).len(), 5);
+    assert!(host.mcp_tools(&req));
+    req.purpose = "writing".into();
+    req.scope = Some(format!("note:{note}:writing"));
+    req.input = json!({"action":"polish", "noteId":note, "selectedText":"x", "beforeText":"", "afterText":"", "cursorOffset":0, "language":"en-US", "title":"Plan"}).to_string();
+    assert_eq!(host.permission_modes(&req), vec![PermissionMode::Default]);
+    assert!(!host.mcp_tools(&req));
+    for mode in [
+        PermissionMode::Plan,
+        PermissionMode::AcceptEdits,
+        PermissionMode::Auto,
+        PermissionMode::FullAccess,
+    ] {
+        req.permission_mode = Some(mode);
+        assert_eq!(
+            validate_writing(&req).unwrap_err().details().reason(),
+            Some("not_allowed")
+        );
+    }
+    req.permission_mode = Some(PermissionMode::Default);
+    req.skills = vec![tauri_plugin_aether::SkillRef {
+        id: "not-selected".into(),
+        revision: 1,
+    }];
+    assert_eq!(
+        validate_writing(&req).unwrap_err().details().reason(),
+        Some("writing_not_allowed")
+    );
+}
+
+#[test]
 fn writing_rejects_every_reply_graph_action() {
     let (_dir, _host, note, model) = fixture("http://127.0.0.1:9");
     let mut req = request(&note, &model);
@@ -174,7 +213,7 @@ impl ToolExecutor for NoTools {
     fn authorize(
         &self,
         _: &aether_chat::ToolCall,
-        _: aether_chat::Approval,
+        _: &aether_chat::AuthorizeContext<'_>,
     ) -> aether_chat::Approval {
         aether_chat::Approval::Deny
     }
@@ -302,6 +341,8 @@ fn dropped_context_reaches_loopback_without_note_body_and_preserves_history() {
                 .run(
                     aether_chat::RunInput {
                         run_id: turn.turn_id.clone(),
+                        purpose: req.purpose.clone(),
+                        permission_mode: req.permission_mode.unwrap_or_default(),
                         connection,
                         system,
                         history,

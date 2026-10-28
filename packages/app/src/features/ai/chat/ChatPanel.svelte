@@ -1,13 +1,19 @@
 <script lang="ts">
   import { ChatPanel } from '@ouraihub/aether-ui/chat'
   import { providersRevision, REASONING_EFFORTS } from '@ouraihub/aether-ui/providers'
-  import type { ModelRef, ReasoningEffort } from '@ouraihub/aether-ui/ports'
-  import { getBackend, getPrefs } from '@app/root/context'
+  import type { ModelRef, PermissionMode, ReasoningEffort } from '@ouraihub/aether-ui/ports'
+  import { getBackend, getI18n, getPrefs } from '@app/root/context'
   import type { WorkspacePanelProps } from '@app/root/types'
 
   let { note, insert, saveNote, openSettings, onClose }: WorkspacePanelProps = $props()
-  const aiHost = getBackend().aiHost
+  const backend = getBackend()
+  const aiHost = backend.aiHost
+  const permissionModes: PermissionMode[] = backend.kind === 'desktop'
+    ? ['default', 'plan', 'accept_edits', 'auto', 'full_access']
+    : ['default']
+  let permissionMode = $state<PermissionMode>('default')
   const prefs = getPrefs()
+  const i18n = getI18n()
   const EFFORT_KEY = 'ai.chat.reasoningEffort'
   const saveEffort = (effort: ReasoningEffort) =>
     void (effort === 'default' ? prefs.remove(EFFORT_KEY) : prefs.save(EFFORT_KEY, effort)).catch(() => {})
@@ -50,6 +56,8 @@
           {scope}
           {context}
           {conversationId}
+          {permissionModes}
+          bind:permissionMode
           onInsert={insert}
           onSaveNote={saveNote}
           {...aiHost.exportMarkdown ? { onExportMarkdown: aiHost.exportMarkdown } : {}}
@@ -62,6 +70,9 @@
           {...reasoningEffort ? { reasoningEffort } : {}}
           onReasoningEffortChange={saveEffort}
         />
+        {#if backend.kind === 'desktop' && aiHost.kit.skills}
+          <p class="mt-2 shrink-0 text-[12px] text-[var(--warning)]">{i18n.t('ai.skills_runner_warning')}</p>
+        {/if}
       </div>
     {/await}
   {/key}

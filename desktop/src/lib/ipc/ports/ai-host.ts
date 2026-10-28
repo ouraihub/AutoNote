@@ -6,7 +6,7 @@ const DATA_URL = /^data:(image\/[\w.+-]+);base64,(.*)$/s
 
 export function aiHostPort(transport: Pick<IpcTransport, 'invoke'>): AiHostPort {
   return {
-    kit: createTauriPorts({ providers: true, chat: true, chatHistory: true, search: true }),
+    kit: createTauriPorts({ providers: true, chat: true, chatHistory: true, search: true, skills: true, mcpClient: true }),
     roles: (options) => transport.invoke('ai_roles_get', undefined, options),
     setRole: (role, binding, options) => transport.invoke('ai_roles_set', { role, binding }, options),
     exportMarkdown: async (markdown) => {
