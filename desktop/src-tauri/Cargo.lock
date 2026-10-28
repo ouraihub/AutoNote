@@ -409,7 +409,7 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
 name = "autonote"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "aether-chat",
  "aether-mcp-client",
@@ -445,7 +445,7 @@ dependencies = [
 
 [[package]]
 name = "autonote-shell"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "aether-providers",
  "note-core",
@@ -2788,7 +2788,7 @@ dependencies = [
 
 [[package]]
 name = "note-core"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "base64 0.22.1",
  "cap-fs-ext",
@@ -2807,7 +2807,7 @@ dependencies = [
 
 [[package]]
 name = "note-mcp"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "aether-mcp-server",
  "note-core",
@@ -2819,7 +2819,7 @@ dependencies = [
 
 [[package]]
 name = "note-sync"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "async-trait",
  "cookie",
