@@ -8,7 +8,7 @@ import { requireAuth } from '../middleware/auth'
 import { deleteConversation, editTurn, forkConversation, listConversations, loadConversation, removeTurn, renameConversation, selectTurn, toWire } from '../ai/history'
 import { HTTP_STATUS, KitFailure, acquireSlot, checkLength, parseBody } from '../ai/kit'
 import { EndpointKeySaveSchema, ModelFilterSchema, ProbeTargetSchema, ProviderSaveSchema, listProviders, modelOptions, probe, removeKey as removeEndpointKey, removeProvider, revealKey, saveKey as saveEndpointKey, saveProvider, setProviderEnabled } from '../ai/providers'
-import { RunRequestSchema, executeRun, prepareRun, getRunSnapshot, saveRunSnapshot } from '../ai/runs'
+import { RunRequestSchema, executeRun, prepareRun, getRunSnapshot, saveRunSnapshot, requestRunCancel } from '../ai/runs'
 import { forgetImages, readImage } from '../ai/images'
 import { check as checkSearch, fetchPage, getSettings as searchSettings, reveal as revealSearch, saveProvider as saveSearchProvider, search as searchWeb, setDefault as setSearchDefault, savePreferences, saveKey, removeKey } from '../ai/search'
 import { z } from 'zod'
@@ -18,7 +18,9 @@ const TurnSchema = z.strictObject({ turnId: z.string().trim().min(1).max(128) })
 const EditSchema = z.strictObject({ text: z.string(), expectedText: z.string() })
 
 export const aiKitRoutes = new Hono<AppBindings>()
-const activeRuns = new Map<string, { signal: AbortSignal; cancel: () => void; completion: Promise<void> }>()
+const activeRuns = new Map<string, { signal: AbortSignal; completion: Promise<void> }>()
+const CANCEL_POLL_MS = 250
+const CANCEL_WAIT_MS = 10_000
 
 aiKitRoutes.onError((error, c) =>
   error instanceof CoreFailure
@@ -158,12 +160,15 @@ aiKitRoutes.get('/runs/:id', async (c) => {
 
 aiKitRoutes.post('/runs/:id/cancel', async (c) => {
   const userId = c.get('userId'), runId = c.req.param('id')
-  const active = activeRuns.get(JSON.stringify([userId, runId]))
-  if (active) {
-    active.cancel()
-    await active.completion
+  await getRunSnapshot(c.env, userId, runId)
+  await requestRunCancel(c.env, userId, runId)
+  for (let waited = 0; ; waited += CANCEL_POLL_MS) {
+    const snapshot = await getRunSnapshot(c.env, userId, runId)
+    if (snapshot.status !== 'running' || waited >= CANCEL_WAIT_MS) return c.json(snapshot)
+    const { promise, resolve } = Promise.withResolvers<void>()
+    setTimeout(resolve, CANCEL_POLL_MS)
+    await promise
   }
-  return c.json(await getRunSnapshot(c.env, userId, runId))
 })
 
 aiKitRoutes.post('/runs', async (c) => {
@@ -200,14 +205,17 @@ aiKitRoutes.post('/runs', async (c) => {
     }
   }
   send({ kind: 'accepted', runId: prepared.runId, conversationId: prepared.turn?.conversationId ?? null, turnId: prepared.turn?.turnId ?? null })
+  const poll = setInterval(() => {
+    void getRunSnapshot(c.env, userId, prepared.runId).then((snapshot) => { if (snapshot.cancelRequested) abort() }, () => {})
+  }, CANCEL_POLL_MS)
   const task = executeRun(c.env, userId, prepared, cancel.signal, (event) => {
     send(event)
     if (event.kind === 'end' && open) {
       open = false
       controller.close()
     }
-  }).finally(() => { activeRuns.delete(JSON.stringify([userId, prepared.runId])); c.req.raw.signal.removeEventListener('abort', abort); release() })
-  activeRuns.set(JSON.stringify([userId, prepared.runId]), { signal: cancel.signal, cancel: abort, completion: task })
+  }).finally(() => { clearInterval(poll); activeRuns.delete(JSON.stringify([userId, prepared.runId])); c.req.raw.signal.removeEventListener('abort', abort); release() })
+  activeRuns.set(JSON.stringify([userId, prepared.runId]), { signal: cancel.signal, completion: task })
   try {
     c.executionCtx.waitUntil(task)
   } catch {

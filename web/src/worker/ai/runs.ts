@@ -358,6 +358,11 @@ export async function getRunSnapshot(env: Env, userId: string, runId: string): P
   return JSON.parse(value) as RunSnapshot
 }
 
+export async function requestRunCancel(env: Env, userId: string, runId: string): Promise<void> {
+  checkLength('runId', runId, 128)
+  await env.DB.prepare(`UPDATE app_meta SET value = json_set(value, '$.cancelRequested', json('true')) WHERE key = ?1 AND json_extract(value, '$.status') = 'running'`).bind(`ai-run:${userId}:${runId}`).run()
+}
+
 
 /** Execute AutoNote's explicitly requested image tool; Aether owns events and authorization. */
 async function runTool(env: Env, userId: string, run: PreparedRun, call: ToolCall, painted: { count: number }, signal: AbortSignal): Promise<ToolExecution> {

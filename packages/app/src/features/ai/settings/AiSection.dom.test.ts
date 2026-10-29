@@ -139,7 +139,12 @@ test('saving a provider refreshes both role selectors and deleting it clears sta
   await fireEvent.click(screen.getByRole('button', { name: 'OK' }))
   await waitFor(() => {
     const refreshed = screen.getAllByRole('button', { name: 'Select a model' })
-    expect(refreshed.slice(0, 2).every((button) => !(button as HTMLButtonElement).disabled)).toBe(true)
+    expect(refreshed.every((button) => !(button as HTMLButtonElement).disabled)).toBe(true)
+    expect(refreshed.map((button) => button.textContent?.trim())).toEqual([
+      'saved-model | Saved model',
+      EN_US_MESSAGES['ai.role_follow_chat'],
+      EN_US_MESSAGES['ai.role_none'],
+    ])
   })
   await fireEvent.click(await screen.findByRole('button', { name: 'Provider settings' }))
   await fireEvent.click(await screen.findByRole('button', { name: 'Delete provider' }))

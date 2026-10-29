@@ -30,8 +30,9 @@ export interface Harness {
   objects: Map<string, Uint8Array>
 }
 
-export async function createHarness(): Promise<Harness> {
-  const objects = new Map<string, Uint8Array>()
+/** `shared` + `routes`: another Worker isolate (own module state) over the same D1/R2 bindings. */
+export async function createHarness(shared?: { env: Env; objects: Map<string, Uint8Array> }, routes: typeof aiKitRoutes = aiKitRoutes): Promise<Harness> {
+  const objects = shared?.objects ?? new Map<string, Uint8Array>()
   const FILES = {
     put: async (key: string, value: Uint8Array) => { objects.set(key, new Uint8Array(value)) },
     get: async (key: string) => {
@@ -40,8 +41,8 @@ export async function createHarness(): Promise<Harness> {
     },
     delete: async (key: string) => { objects.delete(key) },
   }
-  const env = { DB: createD1(), CREDENTIAL_VAULT: vault, FILES } as unknown as Env
-  await initializeDatabase(env)
+  const env = shared?.env ?? ({ DB: createD1(), CREDENTIAL_VAULT: vault, FILES } as unknown as Env)
+  if (!shared) await initializeDatabase(env)
   const app = new Hono<AppBindings>()
   app.use('*', async (c, next) => {
     const userId = c.req.header('x-test-user') ?? 'user-a'
@@ -49,7 +50,7 @@ export async function createHarness(): Promise<Harness> {
     c.set('user', { id: userId, username: userId, login: userId, name: userId, avatarUrl: '', role: 'owner', createdAt: 0, settingsRaw: '{}' })
     await next()
   })
-  app.route('/api/ai/kit', aiKitRoutes)
+  app.route('/api/ai/kit', routes)
   const pending: Promise<unknown>[] = []
   const ctx = { waitUntil: (task: Promise<unknown>) => pending.push(task), passThroughOnException: () => {}, props: {} }
   const call = (user: string, method: string, path: string, body?: unknown, signal?: AbortSignal) =>

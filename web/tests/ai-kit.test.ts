@@ -1682,7 +1682,7 @@ describe('run and history routes', () => {
     })
   })
 
-  it('explicit cancel stops a run whose stream is still open and returns the cancelled snapshot', async () => {
+  it('explicit cancel from another worker isolate stops a run whose stream is still open', async () => {
     const h = await createHarness()
     const { endpointId } = await saveProvider(h)
     let upstreamAborted = false
@@ -1712,12 +1712,15 @@ describe('run and history routes', () => {
     let seen = ''
     while (!seen.includes('partial')) seen += new TextDecoder().decode((await reader.read()).value)
     const runId = /"runId":"([^"]+)"/.exec(seen)![1]!
-    const other = await h.call('user-b', 'POST', `/runs/${runId}/cancel`)
+    // A fresh module instance is a separate isolate: its in-memory run registry cannot see this run.
+    vi.resetModules()
+    const isolate = (await import('../src/worker/routes/ai-kit')).aiKitRoutes
+    const other = await createHarness(h, isolate)
+    expect((await other.call('user-b', 'POST', `/runs/${runId}/cancel`)).status).toBe(404)
     expect(upstreamAborted).toBe(false)
-    expect(other.status).toBe(404)
-    const cancel = await h.call('user-a', 'POST', `/runs/${runId}/cancel`)
+    const cancel = await other.call('user-a', 'POST', `/runs/${runId}/cancel`)
     expect(upstreamAborted).toBe(true)
-    expect(await cancel.json()).toMatchObject({ runId, status: 'cancelled' })
+    expect(await cancel.json()).toMatchObject({ runId, status: 'cancelled', cancelRequested: true })
     await reader.cancel()
     await h.settle()
   })

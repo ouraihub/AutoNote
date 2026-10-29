@@ -8,7 +8,9 @@ symlink: false
 
 minimumReleaseAge: 0
 # Aether Git subpackages use workspace:* internally; pin every replacement to the same commit.
-# pnpm blocks all exotic subdependencies by default (not a per-package allowlist).
+# pnpm has no per-package exotic allowlist (root direct dependencies do not exempt Aether's inner
+# workspace:* edges), so the block is off and `pnpm run deps:check` enforces the narrow policy instead:
+# every non-registry lockfile resolution must be an ouraihub GitHub tarball pinned to a full SHA.
 # Keep the lockfile and use frozen installs in CI/production.
 blockExoticSubdeps: false
 overrides:
