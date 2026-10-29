@@ -300,22 +300,25 @@ describe('generate_image edits (docs/37)', () => {
     expect(calls('/images/generations')).toHaveLength(1)
   })
 
-  it('feeds unknown, expired, unsupported and too_many image_ids back to the model', async () => {
+  // Aether core rejects ids outside the per-run schema (unknown, too many, no edit support) before the host runs;
+  // only an id that is offered but whose stored image has expired reaches the host's own check.
+  it('feeds schema-invalid and expired image_ids back to the model without painting', async () => {
     const reason = async ({ h, model }: { h: Harness; model: Record<string, string> }, ids: unknown, body: Record<string, unknown> = { images: attached }) => {
       fetchMock.mockReset()
       editUpstream({ prompt: 'x', image_ids: ids })
       const result = await run(h, { model, generateImage: true, ...body })
-      expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/images/'))).toEqual([])
-      expect(result.events.find((event) => event.kind === 'tool_result')).toMatchObject({ outcome: 'error' })
+      expect(calls('/images/')).toEqual([])
       expect(result.events.at(-1)).toMatchObject({ kind: 'end', status: 'completed' })
-      return { conversationId: String(result.events[0]!.conversationId) }
+      return { summary: toolSummary(result.events), conversationId: String(result.events[0]!.conversationId) }
     }
+    const schema = 'error invalid_arguments: arguments do not match the tool schema'
     const ok = await editSetup()
     const unknown = await reason(ok, ['image-2'])
-    await reason(ok, ['image-1', 'image-1', 'image-1', 'image-1', 'image-1'])
+    expect(unknown.summary).toBe(schema)
+    expect((await reason(ok, ['image-1', 'image-1', 'image-1', 'image-1', 'image-1'])).summary).toBe(schema)
     ok.h.objects.clear()
-    await reason(ok, ['image-1'], { conversationId: unknown.conversationId, input: 'again' })
-    await reason(await editSetup({ edit: false }), ['image-1'])
+    expect((await reason(ok, ['image-1'], { conversationId: unknown.conversationId, input: 'again' })).summary).toBe('error bad_request: invalid image_ids: expired')
+    expect((await reason(await editSetup({ edit: false }), ['image-1'])).summary).toBe(schema)
   })
 
   it('numbers the last attached image as image-1', async () => {

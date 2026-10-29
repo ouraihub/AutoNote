@@ -314,10 +314,15 @@ export function createHttpKitPorts(transport: Transport, logger: Logger): KitPor
     chat: {
       start: (request, onEvent, options) => run(transport, request, onEvent, options?.signal, active, logger),
       cancel: async (runId) => {
-        const controller = active.get(runId)
-        if (controller) controller.abort()
-        else if ((await getSnapshot(transport, runId)).status === 'running')
-          throw kitError('conflict', 'Run is not attached to this client')
+        // The server aborts the run and waits for its terminal snapshot before we drop the stream,
+        // so the stream's fallback snapshot read sees the final state instead of `running`.
+        const snapshot = await call<unknown>(transport, {
+          method: 'POST',
+          path: `${BASE}/runs/${encodeURIComponent(runId)}/cancel`,
+        })
+        if (!validateRunSnapshot(snapshot)) throw kitError('upstream', 'Invalid run snapshot')
+        active.get(runId)?.abort()
+        if (snapshot.status === 'running') throw kitError('conflict', 'Run is not attached to this server')
       },
       getSnapshot: (runId) => getSnapshot(transport, runId),
       approve: () => Promise.reject(kitError('unsupported', 'Tool approval is not available on the web')),

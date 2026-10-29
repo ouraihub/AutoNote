@@ -1682,6 +1682,46 @@ describe('run and history routes', () => {
     })
   })
 
+  it('explicit cancel stops a run whose stream is still open and returns the cancelled snapshot', async () => {
+    const h = await createHarness()
+    const { endpointId } = await saveProvider(h)
+    let upstreamAborted = false
+    fetchMock.mockImplementation(async (_url, init) => {
+      const signal = init?.signal
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'))
+            signal?.addEventListener('abort', () => {
+              upstreamAborted = true
+              controller.error(new Error('aborted'))
+            })
+          },
+        }),
+      )
+    })
+    const response = await h.call('user-a', 'POST', '/runs', {
+      purpose: 'chat',
+      model: { endpointId, modelId: 'm1' },
+      skills: [],
+      input: 'Hi',
+      regenerate: false,
+      language: 'en-US',
+    })
+    const reader = response.body!.getReader()
+    let seen = ''
+    while (!seen.includes('partial')) seen += new TextDecoder().decode((await reader.read()).value)
+    const runId = /"runId":"([^"]+)"/.exec(seen)![1]!
+    const other = await h.call('user-b', 'POST', `/runs/${runId}/cancel`)
+    expect(upstreamAborted).toBe(false)
+    expect(other.status).toBe(404)
+    const cancel = await h.call('user-a', 'POST', `/runs/${runId}/cancel`)
+    expect(upstreamAborted).toBe(true)
+    expect(await cancel.json()).toMatchObject({ runId, status: 'cancelled' })
+    await reader.cancel()
+    await h.settle()
+  })
+
   it('fails before model request when explicit search fails', async () => {
     const h = await createHarness()
     const { endpointId } = await saveProvider(h)

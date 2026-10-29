@@ -251,19 +251,27 @@ test('disconnection with a running snapshot reports unknown transport failure, n
   expect(requests.filter((request) => request.method === 'GET')).toHaveLength(1)
 })
 
-test('explicit cancel aborts the attached stream and recovers its server terminal state', async () => {
+test('explicit cancel asks the server, then drops the stream with the server terminal state', async () => {
   const { chat, requests } = ports((input) =>
-    input.method === 'GET'
+    input.method === 'POST' && input.url.endsWith('/cancel')
       ? Response.json({ runId: 'r1', conversationId: 'c1', turnId: 't1', status: 'cancelled', cancelRequested: true })
-      : stream([accepted], false),
+      : input.method === 'GET'
+        ? Response.json({ runId: 'r1', conversationId: 'c1', turnId: 't1', status: 'cancelled', cancelRequested: true })
+        : stream([accepted], false),
   )
   const { events, onEvent, ended } = collect()
   await chat.start(request, onEvent)
   await chat.cancel('r1')
   await ended
   expect(events).toEqual([{ kind: 'end', status: 'cancelled' }])
-  expect(new URL(requests[1]!.url).pathname).toBe('/api/ai/kit/runs/r1')
-  await expect(chat.getSnapshot('r1')).resolves.toMatchObject({ status: 'cancelled', cancelRequested: true })
+  expect([requests[1]!.method, new URL(requests[1]!.url).pathname]).toEqual(['POST', '/api/ai/kit/runs/r1/cancel'])
+})
+
+test('cancel of a run still running on another server instance is a conflict', async () => {
+  const { chat } = ports(() =>
+    Response.json({ runId: 'r1', conversationId: 'c1', turnId: 't1', status: 'running', cancelRequested: false }),
+  )
+  await expect(chat.cancel('r1')).rejects.toMatchObject({ code: 'conflict' })
 })
 
 test('unavailable snapshot reports unknown without replaying the accepted request', async () => {

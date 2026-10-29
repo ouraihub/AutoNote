@@ -18,7 +18,7 @@ const TurnSchema = z.strictObject({ turnId: z.string().trim().min(1).max(128) })
 const EditSchema = z.strictObject({ text: z.string(), expectedText: z.string() })
 
 export const aiKitRoutes = new Hono<AppBindings>()
-const activeRuns = new Map<string, { signal: AbortSignal; completion: Promise<void> }>()
+const activeRuns = new Map<string, { signal: AbortSignal; cancel: () => void; completion: Promise<void> }>()
 
 aiKitRoutes.onError((error, c) =>
   error instanceof CoreFailure
@@ -156,6 +156,16 @@ aiKitRoutes.get('/runs/:id', async (c) => {
   return c.json(await getRunSnapshot(c.env, userId, runId))
 })
 
+aiKitRoutes.post('/runs/:id/cancel', async (c) => {
+  const userId = c.get('userId'), runId = c.req.param('id')
+  const active = activeRuns.get(JSON.stringify([userId, runId]))
+  if (active) {
+    active.cancel()
+    await active.completion
+  }
+  return c.json(await getRunSnapshot(c.env, userId, runId))
+})
+
 aiKitRoutes.post('/runs', async (c) => {
   const req = parseBody(RunRequestSchema, await readJson(c, JSON_BODY_LIMITS.run))
   const userId = c.get('userId')
@@ -197,7 +207,7 @@ aiKitRoutes.post('/runs', async (c) => {
       controller.close()
     }
   }).finally(() => { activeRuns.delete(JSON.stringify([userId, prepared.runId])); c.req.raw.signal.removeEventListener('abort', abort); release() })
-  activeRuns.set(JSON.stringify([userId, prepared.runId]), { signal: cancel.signal, completion: task })
+  activeRuns.set(JSON.stringify([userId, prepared.runId]), { signal: cancel.signal, cancel: abort, completion: task })
   try {
     c.executionCtx.waitUntil(task)
   } catch {
