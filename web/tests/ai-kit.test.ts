@@ -496,6 +496,7 @@ describe('provider routes', () => {
         { id: 'gpt-4o', group: 'gpt' },
       ],
     })
+    expect(fetchMock.mock.calls[0]![1]?.redirect).toBe('manual')
     const probeHeaders = new Headers(fetchMock.mock.calls[0]![1]?.headers)
     expect(probeHeaders.get('x-api-key')).toBe(KEY)
     expect(probeHeaders.get('anthropic-version')).toBe('2023-06-01')

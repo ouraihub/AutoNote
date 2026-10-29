@@ -14,9 +14,9 @@
 
 * 根目录、Web、桌面与 GitHub Actions 统一使用最新 Node LTS `26.13.0`（Lithium）和 pnpm 正式版 `12.16.1`；Node 由 `.node-version` 固定并供 CI 读取，`devEngines.runtime` 让 pnpm 自动下载并用于项目脚本，pnpm 由 `packageManager` 固定。
 * 桌面 Tauri API／CLI 更新到正式版 `2.12.4`，匹配现有 Rust 锁文件的 Tauri 2.12，修复打包版本门禁失败。
-* 移除仅验证共享 Tauri 端口转发与默认开关的桌面 wiring 测试，不再用依赖内部 mock 调用记录充当行为验证。
+* 桌面 AI 端口改用行为回归验证会话错误、权限拒绝、技能源取消和本地图像边界；Web 探测保留手动重定向安全断言。
 
-* Aether Rust 固定到 `53b80630bdd58f22ca94d119e93586f84fbceec7`，前端／Web 的 Aether npmjs 包固定 `0.1.0`；移除 Git 子包 overrides、全局 exotic 放行、peer 放行、自制依赖检查与已并入上游的补丁。桌面拆分运行／会话／MCP runtime，Web 复用 core 执行并保留产品存储与授权；验收见设计文档 24 §15。
+* Aether 前后端统一固定 Git 提交 `53b80630bdd58f22ca94d119e93586f84fbceec7`，恢复 Git 子包解析与来源检查；原补丁已并入上游。桌面拆分运行／会话／MCP runtime，Web 复用 core 执行并保留产品存储与授权；验收见设计文档 24 §15。
 
 ## [0.2.8](https://github.com/ouraihub/AutoNote/compare/desktop-v0.2.7...desktop-v0.2.8) (2026-10-28)
 
