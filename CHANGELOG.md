@@ -18,6 +18,22 @@
 
 * Aether 前后端统一固定 Git 提交 `53b80630bdd58f22ca94d119e93586f84fbceec7`，恢复 Git 子包解析与来源检查；原补丁已并入上游。桌面拆分运行／会话／MCP runtime，Web 复用 core 执行并保留产品存储与授权；验收见设计文档 24 §15。
 
+## [0.2.9](https://github.com/ouraihub/AutoNote/compare/desktop-v0.2.8...desktop-v0.2.9) (2026-10-29)
+
+
+### 新功能
+
+* **ai:** 技能可通过 Agent 创建、在线搜索或扫描本机导入 ([5cb8904](https://github.com/ouraihub/AutoNote/commit/5cb8904facabef255405e5fe2600102dba6a2af6))
+* **ai:** 迁移到 Aether 主干并支持多种方式添加技能 ([687fcdc](https://github.com/ouraihub/AutoNote/commit/687fcdc7fd74b526652fb229734d5b33aad64545))
+
+
+### 问题修复
+
+* **ai:** Web 取消可跨 Worker 实例生效 ([9191e72](https://github.com/ouraihub/AutoNote/commit/9191e727b555d5952ded72edbbaa8aa02adc2676))
+* **ai:** Web 取消运行先由服务端中止并返回终态 ([d7b1b18](https://github.com/ouraihub/AutoNote/commit/d7b1b186aae089bbd98eb3ea57cf575560d4d937))
+* **ai:** 保留运行中快照并改用 Aether npm 包 ([6158a15](https://github.com/ouraihub/AutoNote/commit/6158a15cdeeedf0ce5ef17361aa00d79afc050b6))
+* **integration:** 恢复统一 Git 依赖与安全回归 ([8d7e768](https://github.com/ouraihub/AutoNote/commit/8d7e76803dbff61e7b84234a169eb4a0daf24120))
+
 ## [0.2.8](https://github.com/ouraihub/AutoNote/compare/desktop-v0.2.7...desktop-v0.2.8) (2026-10-28)
 
 
