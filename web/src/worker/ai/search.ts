@@ -1,8 +1,15 @@
+import { validateQuery } from '@ouraihub/aether-core/search'
+import { execute } from '@ouraihub/aether-core/search/execution'
+import type { ResolvedSearchConfig } from '@ouraihub/aether-core/search'
+import { searchRequest, fetchRequest, parseSearchResponse } from '@ouraihub/aether-core/search/vendor'
+import { blocked, parsePage } from './search-policy'
+import type { SearchPage, SearchHit } from '@ouraihub/aether-contracts'
+import { outbound } from './outbound'
 import type { Env } from '../env'
 import { decryptAiKey, encryptAiKey } from '../lib/crypto'
 import { requireCurrentPassword } from '../lib/reauth'
 import { newId } from '../lib/id'
-import { addressAllowed, badRequest, internal, needsConfig, parseTarget, readUpTo, upstreamFailure } from './kit'
+import { addressAllowed, badRequest, needsConfig, parseTarget, upstreamFailure } from './kit'
 import { KitFailure } from './kit'
 
 export type SearchCap = 'search' | 'fetch'
@@ -28,15 +35,10 @@ const SEARCH_ORDER = ['zhipu', 'tavily', 'searxng', 'exa', 'exa-mcp', 'bocha', '
 const FETCH_ORDER = ['querit', 'fetch', 'jina', 'firecrawl']
 const DEFAULTS: Record<SearchCap, string> = { search: 'exa-mcp', fetch: 'jina' }
 const MAX_RESULTS = 50
-const MAX_QUERY = 4096
 const MAX_URL = 8192
-const MAX_BODY = 2 * 1024 * 1024
-const MAX_ERROR = 8 * 1024
-const TIMEOUT = 15_000
 
 interface Row { provider: string; baseUrl: string | null; basicAuthUsername: string | null }
 interface KeyRow { id: string; provider: string; keyCiphertext: string; position: number }
-interface Runtime { spec: ProviderSpec; capability: SearchCap; baseUrl: string; key: string | null; basicAuthUsername: string | null; maxResults: number }
 export interface SearchPreferences { maxResults: number; compression: 'none' | 'cutoff'; cutoffLimit: number; blacklist: string[]; modelToolsPreferred: boolean }
 const DEFAULT_PREFERENCES: SearchPreferences = { maxResults: 5, compression: 'none', cutoffLimit: 2000, blacklist: [], modelToolsPreferred: false }
 const rotations = new WeakMap<D1Database, Map<string, number>>()
@@ -85,40 +87,27 @@ async function defaultProvider(env: Env, userId: string, cap: SearchCap): Promis
   const row = await env.DB.prepare(`SELECT provider FROM ai_search_defaults WHERE user_id = ?1 AND capability = ?2`).bind(userId, cap).first<{ provider: string }>()
   return row?.provider ?? DEFAULTS[cap]
 }
-async function execute<T>(env: Env, userId: string, cap: SearchCap, id: string, signal: AbortSignal | undefined, action: (run: Runtime, executionSignal: AbortSignal) => Promise<T>): Promise<T> {
-  const { spec, config } = providerFor(cap, id)
+async function resolve(env: Env, userId: string, cap: SearchCap, id: string): Promise<ResolvedSearchConfig> {
+  const { config } = providerFor(cap, id)
   const row = rowMap(await rows(env, userId, cap)).get(id)
   const baseUrl = row?.baseUrl || config.defaultBaseUrl || ''
   const keys = await keyRows(env, userId, cap, id)
   if (config.keyMode === 'required' && !keys.length) throw needsConfig(`${id} api key`)
   if (!baseUrl && id !== 'fetch') throw needsConfig(`${id} base URL`)
   if (baseUrl) await assertPublicTarget(env.DB, baseUrl)
-  const preferences = await getPreferences(env, userId)
   let counters = rotations.get(env.DB)
   if (!counters) { counters = new Map(); rotations.set(env.DB, counters) }
   const scope = JSON.stringify([userId, cap, id])
   const start = (counters.get(scope) ?? 0) % Math.max(1, keys.length)
   counters.set(scope, (start + 1) % Math.max(1, keys.length))
-  const deadline = Date.now() + (cap === 'fetch' ? 20_000 : id === 'exa-mcp' ? 25_000 : TIMEOUT)
-  const controller = new AbortController()
-  const abort = () => controller.abort()
-  signal?.addEventListener('abort', abort, { once: true })
-  if (signal?.aborted) controller.abort()
-  const timer = setTimeout(abort, Math.max(0, deadline - Date.now()))
-  try {
-    for (let attempt = 0; attempt < Math.max(1, keys.length); attempt++) {
-      if (controller.signal.aborted) throw new KitFailure(signal?.aborted ? 'cancelled' : 'timeout', 'search execution aborted')
-      const keyRow = keys[(start + attempt) % keys.length]
-      const key = keyRow ? await decryptAiKey(env, keyRow.id, keyRow.keyCiphertext) : null
-      if (keyRow && !key) throw needsConfig(`${id} api key`)
-      try { return await action({ spec, capability: cap, baseUrl, key, basicAuthUsername: row?.basicAuthUsername || null, maxResults: preferences.maxResults }, controller.signal) }
-      catch (error) {
-        if (controller.signal.aborted) throw new KitFailure(signal?.aborted ? 'cancelled' : 'timeout', 'search execution aborted')
-        if (!(error instanceof KitFailure) || ![401, 403, 429].includes(Number(error.details.status)) || attempt + 1 >= keys.length) throw error
-      }
-    }
-    throw new KitFailure('upstream', 'search execution failed')
-  } finally { clearTimeout(timer); signal?.removeEventListener('abort', abort) }
+  const apiKeys: string[] = []
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[(start + i) % keys.length]!
+    const value = await decryptAiKey(env, key.id, key.keyCiphertext)
+    if (!value) throw needsConfig(`${id} api key`)
+    apiKeys.push(value)
+  }
+  return { provider: id, baseUrl, apiKeys, ...(row?.basicAuthUsername ? { basicAuthUsername: row.basicAuthUsername } : {}), preferences: { ...await getPreferences(env, userId), blacklist: [] } }
 }
 
 async function assertPublicTarget(db: D1Database, raw: string): Promise<URL> {
@@ -167,29 +156,21 @@ export async function savePreferences(env: Env, userId: string, input: SearchPre
   await env.DB.prepare('INSERT INTO ai_search_preferences (user_id, preferences) VALUES (?1, ?2) ON CONFLICT(user_id) DO UPDATE SET preferences = excluded.preferences').bind(userId, JSON.stringify(preferences)).run()
   return preferences
 }
-function glob(pattern: string, value: string): boolean {
-  let p = 0; let v = 0; let star = -1; let retry = 0
-  while (v < value.length) {
-    if (pattern[p] === '?' || pattern[p] === value[v]) { p++; v++ }
-    else if (pattern[p] === '*') { star = p++; retry = v }
-    else if (star >= 0) { p = star + 1; v = ++retry }
-    else return false
-  }
-  while (pattern[p] === '*') p++
-  return p === pattern.length
-}
-function blocked(raw: string, rules: string[]): boolean {
-  let url: URL
-  try { url = new URL(raw) } catch { return true }
-  if (!['http:', 'https:'].includes(url.protocol)) return true
-  return rules.some((rule) => {
-    if (rule.includes('://')) return glob(rule, url.href)
-    const host = url.hostname.toLowerCase().replace(/\.$/, '')
-    return rule.includes('*') || rule.includes('?') ? glob(rule, host) : host === rule || host.endsWith('.' + rule)
+
+async function queryProvider(env: Env, userId: string, provider: string, query: string, signal?: AbortSignal): Promise<SearchHit[]> {
+  const config = await resolve(env, userId, 'search', provider)
+  const preferences = await getPreferences(env, userId)
+  return execute('search', config, outbound(env), signal, async (key, execution) => {
+    const request = searchRequest(config, query, key)
+    const response = await execution.request(request.url, request.init)
+    const hits = parseSearchResponse(provider, await execution.body(response))
+    const seen = new Set<string>()
+    return hits.filter((hit) => {
+      if (blocked(hit.url, preferences.blacklist) || seen.has(hit.url)) return false
+      seen.add(hit.url)
+      return true
+    }).slice(0, preferences.maxResults).map((hit) => preferences.compression === 'cutoff' ? { ...hit, snippet: Array.from(hit.snippet).slice(0, preferences.cutoffLimit).join('') } : hit)
   })
-}
-function processHits(hits: SearchHit[], preferences: SearchPreferences): SearchHit[] {
-  return hits.filter((hit) => !blocked(hit.url, preferences.blacklist)).slice(0, preferences.maxResults).map((hit) => preferences.compression === 'cutoff' ? { ...hit, snippet: truncate(hit.snippet, preferences.cutoffLimit) } : hit)
 }
 export async function saveProvider(env: Env, userId: string, input: { capability?: unknown; provider?: unknown; baseUrl?: unknown; basicAuthUsername?: unknown }): Promise<SearchSettingsDto> {
   fields(input, ['capability', 'provider', 'baseUrl', 'basicAuthUsername'])
@@ -261,8 +242,7 @@ export async function check(env: Env, userId: string, capInput: unknown, provide
   const cap = capability(capInput)
   const id = trimmed(providerInput, 'provider', 64)
   if (cap === 'search') {
-    const result = await execute(env, userId, cap, id, signal, (run, executionSignal) => doSearch(run, 'AutoNote', executionSignal))
-    const hits = processHits(result.hits, await getPreferences(env, userId))
+    const hits = await queryProvider(env, userId, id, 'AutoNote', signal)
     if (!hits.length) throw upstreamFailure(200, '', [id])
     return { count: hits.length }
   }
@@ -270,19 +250,33 @@ export async function check(env: Env, userId: string, capInput: unknown, provide
   return { count: 1 }
 }
 export async function search(env: Env, userId: string, queryInput: string, signal?: AbortSignal): Promise<{ query: string; provider: string; hits: SearchHit[] }> {
-  const query = trimmed(queryInput, 'query', MAX_QUERY)
-  if (!query) throw new KitFailure('bad_request', 'query is empty')
-  const provider = await defaultProvider(env, userId, 'search')
-  const result = await execute(env, userId, 'search', provider, signal, (run, executionSignal) => doSearch(run, query, executionSignal))
-  return { query, provider, hits: processHits(result.hits, await getPreferences(env, userId)) }
+  const provider = await defaultProvider(env, userId, 'search'), query = validateQuery(queryInput)
+  return { query, provider, hits: await queryProvider(env, userId, provider, query, signal) }
 }
 async function fetchWithProvider(env: Env, userId: string, provider: string, url: string, signal?: AbortSignal): Promise<SearchPage> {
   await assertPublicTarget(env.DB, url)
+  const config = await resolve(env, userId, 'fetch', provider)
   const preferences = await getPreferences(env, userId)
   if (blocked(url, preferences.blacklist)) throw badRequest('url', 'blacklisted')
-  const page = await execute(env, userId, 'fetch', provider, signal, (run, executionSignal) => doFetch(run, url, executionSignal, env.DB, preferences.blacklist))
-  if (blocked(page.url, preferences.blacklist)) throw badRequest('url', 'blacklisted')
-  return { ...page, content: preferences.compression === 'cutoff' ? truncate(page.content, preferences.cutoffLimit) : page.content }
+  return execute('fetch', config, outbound(env), signal, async (key, execution) => {
+    let request = fetchRequest(config, url, key)
+    for (let redirects = 0; ; redirects++) {
+      const response = await execution.request(request.url, request.init)
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get('location')
+        await response.body?.cancel().catch(() => {})
+        if (provider !== 'fetch' || !location || redirects >= 5) throw upstreamFailure(response.status, '', [])
+        const target = new URL(location, request.url).href
+        await assertPublicTarget(env.DB, target)
+        if (blocked(target, preferences.blacklist)) throw badRequest('url', 'blacklisted')
+        request = { url: target, init: { headers: { accept: 'text/html, text/plain' } } }
+        continue
+      }
+      const page = parsePage(provider, await execution.body(response), url)
+      if (blocked(page.url, preferences.blacklist)) throw badRequest('url', 'blacklisted')
+      return { ...page, content: preferences.compression === 'cutoff' ? Array.from(page.content).slice(0, preferences.cutoffLimit).join('') : page.content }
+    }
+  })
 }
 export async function fetchPage(env: Env, userId: string, urlInput: string, signal?: AbortSignal): Promise<SearchPage> {
   const url = trimmed(urlInput, 'url', MAX_URL)
@@ -290,137 +284,3 @@ export async function fetchPage(env: Env, userId: string, urlInput: string, sign
   return fetchWithProvider(env, userId, await defaultProvider(env, userId, 'fetch'), url, signal)
 }
 
-export interface SearchHit { title: string; url: string; snippet: string }
-export interface SearchPage { title: string; url: string; content: string }
-
-async function request(url: string, init: RequestInit, signal?: AbortSignal, timeout = TIMEOUT, known: string[] = [], follow?: (url: string) => Promise<boolean>): Promise<string> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeout)
-  const abort = () => controller.abort()
-  signal?.addEventListener('abort', abort, { once: true })
-  if (signal?.aborted) controller.abort()
-  try {
-    let current = url
-    let response: Response
-    for (let redirects = 0; ; redirects++) {
-      response = await fetch(current, { ...init, redirect: 'manual', signal: controller.signal })
-      if (response.status < 300 || response.status >= 400) break
-      const location = response.headers.get('Location')
-      if (!location || !follow || redirects >= 5) throw upstreamFailure(response.status, '', ['redirect'])
-      const next = new URL(location, current).toString()
-      if (!(await follow(next))) throw badRequest('url', 'blocked_address')
-      current = next
-    }
-    const { bytes, overflow } = await readUpTo(response.body, MAX_BODY)
-    const body = new TextDecoder().decode(bytes)
-    if (overflow) throw new KitFailure('upstream', 'upstream response too large', { limit: MAX_BODY })
-    if (!response.ok) throw upstreamFailure(response.status, body.slice(0, MAX_ERROR), known)
-    return body
-  } catch (error) {
-    if (error instanceof KitFailure) throw error
-    if (controller.signal.aborted) throw signal?.aborted ? new KitFailure('cancelled', 'cancelled') : new KitFailure('timeout', 'upstream timeout')
-    throw internal(error)
-  } finally {
-    clearTimeout(timer)
-    signal?.removeEventListener('abort', abort)
-  }
-}
-function authHeaders(run: Runtime, kind: 'bearer' | 'api' = 'bearer'): Record<string, string> {
-  if (!run.key) return {}
-  return kind === 'api' ? { 'x-api-key': run.key } : { authorization: `Bearer ${run.key}` }
-}
-function basic(run: Runtime): Record<string, string> {
-  if (!run.basicAuthUsername) return {}
-  return { authorization: `Basic ${btoa(`${run.basicAuthUsername}:${run.key ?? ''}`)}` }
-}
-function jsonHeaders(run: Runtime, kind: 'bearer' | 'api' = 'bearer'): Record<string, string> { return { accept: 'application/json', 'content-type': 'application/json', ...authHeaders(run, kind) } }
-function rawText(value: unknown, ...keys: string[]): string {
-  if (!value || typeof value !== 'object') return ''
-  for (const key of keys) {
-    const found = (value as Record<string, unknown>)[key]
-    if (typeof found === 'string' && found.trim()) return found.trim()
-    if (Array.isArray(found)) {
-      const joined = found.filter((part): part is string => typeof part === 'string').join(' ').trim()
-      if (joined) return joined
-    }
-  }
-  return ''
-}
-function at(value: unknown, path: string): unknown { return path.split('/').filter(Boolean).reduce((current: unknown, key) => current && typeof current === 'object' ? (current as Record<string, unknown>)[key] : undefined, value) }
-function truncate(value: string, limit: number): string { return Array.from(value).slice(0, limit).join('') }
-function parseJson(body: string, provider: string): Record<string, unknown> { try { const value: unknown = JSON.parse(body); if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(); return value as Record<string, unknown> } catch { throw new KitFailure('upstream', `${provider} returned invalid JSON`) } }
-function providerError(run: Runtime, payload: Record<string, unknown>): void {
-  const failed = run.spec.id === 'bocha' && typeof payload.code === 'number' && payload.code !== 200 || run.spec.id === 'querit' && typeof payload.error_code === 'number' && payload.error_code !== 200 || run.spec.id === 'firecrawl' && payload.success === false
-  if (failed) throw new KitFailure('upstream', `${run.spec.name} returned an error`)
-}
-function collect(items: unknown[], limit: number): SearchHit[] {
-  const seen = new Set<string>(); const result: SearchHit[] = []
-  for (const item of items) {
-    if (result.length >= limit) break
-    if (!item || typeof item !== 'object') continue
-    const url = rawText(item, 'url', 'link'); if (!/^https?:\/\//i.test(url) || seen.has(url)) continue
-    seen.add(url); result.push({ title: rawText(item, 'title', 'name') || url, url, snippet: rawText(item, 'content', 'text', 'snippet', 'description', 'excerpts', 'summary', 'markdown') })
-  }
-  return result
-}
-async function doSearch(run: Runtime, query: string, signal?: AbortSignal): Promise<{ hits: SearchHit[] }> {
-  const base = run.baseUrl.replace(/\/+$/, ''); const count = run.maxResults
-  let url = base; let init: RequestInit = {}
-  switch (run.spec.id) {
-    case 'zhipu': init = { method: 'POST', headers: jsonHeaders(run), body: JSON.stringify({ search_query: query, search_engine: 'search_std', search_intent: false }) }; break
-    case 'tavily': url += '/search'; init = { method: 'POST', headers: jsonHeaders(run), body: JSON.stringify({ query, max_results: count }) }; break
-    case 'searxng': url += '/search?q=' + encodeURIComponent(query) + '&format=json&language=auto'; init = { headers: { accept: 'application/json', ...basic(run) } }; break
-    case 'exa': url += '/search'; init = { method: 'POST', headers: jsonHeaders(run, 'api'), body: JSON.stringify({ query, numResults: count, contents: { text: true } }) }; break
-    case 'exa-mcp': init = { method: 'POST', headers: { ...jsonHeaders(run, 'api'), accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'web_search_exa', arguments: { query, type: 'auto', numResults: count, livecrawl: 'fallback' } } }) }; break
-    case 'bocha': url += '/v1/web-search'; init = { method: 'POST', headers: jsonHeaders(run), body: JSON.stringify({ query, count, exclude: '', summary: true }) }; break
-    case 'querit': url += '/v1/search'; init = { method: 'POST', headers: jsonHeaders(run), body: JSON.stringify({ query, count }) }; break
-    case 'brave': url += '/res/v1/web/search?q=' + encodeURIComponent(query) + '&count=' + Math.min(20, count); init = { headers: { accept: 'application/json', 'x-subscription-token': run.key ?? '' } }; break
-    case 'parallel': url += '/v1/search'; init = { method: 'POST', headers: jsonHeaders(run, 'api'), body: JSON.stringify({ objective: query, search_queries: [query], advanced_settings: { max_results: count } }) }; break
-    case 'jina': url += '/' + encodeURIComponent(query); init = { headers: { accept: 'application/json', ...authHeaders(run) } }; break
-    case 'firecrawl': url += '/v2/search'; init = { method: 'POST', headers: jsonHeaders(run), body: JSON.stringify({ query, limit: count, scrapeOptions: { formats: ['markdown'] } }) }; break
-    default: throw new KitFailure('unsupported', `unsupported provider ${run.spec.id}`)
-  }
-  const body = await request(url, init, signal, run.spec.id === 'exa-mcp' ? 25_000 : TIMEOUT, [run.key ?? '', run.basicAuthUsername ?? ''])
-  if (run.spec.id === 'exa-mcp') return { hits: parseMcp(body, Number.POSITIVE_INFINITY) }
-  return { hits: parseSearchResponse(run.spec.id, run.spec.name, body, Number.POSITIVE_INFINITY) }
-}
-
-export function parseSearchResponse(provider: string, name: string, body: string, limit: number): SearchHit[] {
-  const payload = parseJson(body, name); providerError({ spec: { id: provider, name } as ProviderSpec } as Runtime, payload)
-  const paths: Record<string, string[]> = { zhipu: ['/search_result'], bocha: ['/data/webPages/value'], querit: ['/results/result'], brave: ['/web/results'], parallel: ['/results'], jina: ['/data', '/results'], firecrawl: ['/data/web'], tavily: ['/results'], exa: ['/results'], searxng: ['/results'] }
-  const rawList = (paths[provider] ?? ['/results']).map((path) => at(payload, path)).find((value) => Array.isArray(value))
-  if (!Array.isArray(rawList)) throw new KitFailure('upstream', `${name} returned an invalid result shape`)
-  return collect(rawList, limit)
-}
-export function parseMcp(body: string, limit: number): SearchHit[] {
-  const values = body.split('\n').filter((line) => line.startsWith('data: ')).map((line) => line.slice(6).trim()).filter(Boolean).map((line) => { try { return JSON.parse(line) as unknown } catch { return null } }).filter(Boolean)
-  const raw = values.map((value) => at(value, '/result/content')).flatMap((items) => Array.isArray(items) ? items.map((item) => rawText(item, 'text')) : []).join('\n\n') || body
-  return collect(raw.split(/\r?\n(?=Title:)/).map((chunk) => { const title = chunk.match(/^Title:\s*(.*)$/m)?.[1] ?? ''; const url = chunk.match(/^URL:\s*(.*)$/m)?.[1] ?? ''; const snippet = chunk.match(/^(?:Text|Highlights):[^\S\r\n]*([\s\S]*)$/m)?.[1]?.trim() ?? ''; return { title, url, snippet } }), limit)
-}
-async function doFetch(run: Runtime, target: string, signal?: AbortSignal, db?: D1Database, blacklist: string[] = []): Promise<SearchPage> {
-  parseTarget(target)
-  const base = run.baseUrl.replace(/\/+$/, ''); let url = base; let init: RequestInit = {}
-  switch (run.spec.id) {
-    case 'querit': url += '/v1/contents'; init = { method: 'POST', headers: jsonHeaders(run), body: JSON.stringify({ urls: [target], format: 'markdown', extrasMeta: true }) }; break
-    case 'jina': url += '/' + target; init = { headers: { accept: 'application/json', 'x-retain-images': 'none', ...authHeaders(run) } }; break
-    case 'firecrawl': url += '/v2/scrape'; init = { method: 'POST', headers: jsonHeaders(run), body: JSON.stringify({ url: target, formats: ['markdown'] }) }; break
-    case 'fetch': url = target; init = { headers: { accept: 'text/html, text/plain', 'user-agent': 'Mozilla/5.0 AutoNote' } }; break
-    default: throw new KitFailure('unsupported', `unsupported provider ${run.spec.id}`)
-  }
-  const follow = run.spec.id === 'fetch' && db ? async (next: string) => { await assertPublicTarget(db, next); if (blocked(next, blacklist)) throw badRequest('url', 'blacklisted'); return true } : undefined
-  const body = await request(url, init, signal, 20_000, [run.key ?? '', run.basicAuthUsername ?? ''], follow)
-  if (run.spec.id === 'fetch') return parseHtml(body, target)
-  const payload = parseJson(body, run.spec.name); providerError(run, payload)
-  let title = ''; let resultUrl = target; let content = ''
-  if (run.spec.id === 'querit') { const page = at(payload, '/results/0'); title = rawText(at(page, '/extrasMeta'), 'title'); resultUrl = rawText(page, 'url') || target; content = rawText(page, 'content') }
-  else if (run.spec.id === 'firecrawl') { const data = at(payload, '/data'); const meta = at(data, '/metadata'); title = rawText(meta, 'title'); resultUrl = rawText(meta, 'sourceURL') || target; content = rawText(data, 'markdown') }
-  else { const data = payload.data && typeof payload.data === 'object' ? payload.data : payload; title = rawText(data, 'title'); resultUrl = rawText(data, 'url') || target; content = rawText(data, 'content', 'text') }
-  if (!content) throw new KitFailure('upstream', `${run.spec.name} returned no page content`)
-  return { title: title || resultUrl, url: resultUrl, content }
-}
-function parseHtml(html: string, url: string): SearchPage {
-  const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() || url
-  const content = html.replace(/<!--[\s\S]*?-->|<script\b[^>]*>[\s\S]*?<\/script>|<style\b[^>]*>[\s\S]*?<\/style>|<noscript\b[^>]*>[\s\S]*?<\/noscript>|<head\b[^>]*>[\s\S]*?<\/head>/gi, ' ').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
-  if (!content) throw new KitFailure('upstream', 'page has no content')
-  return { title, url, content }
-}

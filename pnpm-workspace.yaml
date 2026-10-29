@@ -7,8 +7,19 @@ nodeLinker: hoisted
 symlink: false
 
 minimumReleaseAge: 0
+# Aether Git subpackages use workspace:* internally; pin every replacement to the same commit.
+# pnpm blocks all exotic subdependencies by default (not a per-package allowlist).
+# Keep the lockfile and use frozen installs in CI/production.
+blockExoticSubdeps: false
 overrides:
   runed: 0.35.1
+  '@ouraihub/aether-contracts': github:ouraihub/Aether#53b80630bdd58f22ca94d119e93586f84fbceec7&path:packages/contracts
+  '@ouraihub/aether-core': github:ouraihub/Aether#53b80630bdd58f22ca94d119e93586f84fbceec7&path:packages/core
+
+# presets' semver peer cannot recognize pnpm's fixed Git subpath version.
+peerDependencyRules:
+  allowAny:
+    - '@ouraihub/aether-ui'
 
 allowBuilds:
   esbuild: true

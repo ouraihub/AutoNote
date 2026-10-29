@@ -100,10 +100,10 @@ Aether main                  通用框架
 Aether 在 AutoNote 中初期使用固定 Git commit：
 
 ```toml
-aether-chat = { git = "https://github.com/ouraihub/Aether.git", rev = "<固定提交>" }
+aether-runtime = { git = "https://github.com/ouraihub/Aether.git", rev = "e866e5095910bb013be604098676b2ba5d3e914f" }
 ```
 
-AutoNote 始终保留 Aether 的固定 Git/package 提交引用。本次 skills 与权限模式接入不使用本地 `path`、包目录替换或依赖补丁；Aether 合并后，由父集成人统一更新 Cargo 与三个 `package.json` 的 SHA 及对应锁文件，前后端必须指向同一正式提交。
+AutoNote 始终保留 Aether 的固定 Git/package 提交引用，不使用本地 `path`、复制框架源码或包目录替换。当前 Cargo、共享应用／桌面／Web 的 UI、presets、contracts、core 统一固定 `e866e5095910bb013be604098676b2ba5d3e914f`，锁文件随之更新。Git 子包内部的 `workspace:*` 由宿主 `pnpm-workspace.yaml` 的同 SHA overrides 解析；不改变 Aether 仓库。
 
 ### 3.2 提交规则
 
@@ -942,3 +942,19 @@ R6-1 的推荐版文档核对属于 Aether 自身发布工作，不阻塞 AutoNo
 - 脚本以用户权限执行，工作目录、规则扫描与环境过滤均不是操作系统沙箱；不能保证其不访问工作区外文件或网络。此限制在设置、聊天和批准输入中明确显示。
 - Linux 退出回归修正：`kill -0` 会把已经终止、等待 init 回收的 `Z` 进程误报为存活。测试改用 `ps stat` 区分，并有界等待信号生效；新增真实活进程必须拒绝、杀死但未回收必须接受的边界。生产进程组清理不变。WSL2 直接引用原 `skill_process.rs` 的临时小 crate 验证全部 7 项进程测试通过；另用 subreaper 保留孤儿僵尸，实测 `Z` 状态且全部 7 项通过。WSL 缺 GTK/WebKitGTK，未编译完整 Tauri 应用，不能冒充 Linux 打包／窗口通过。
 - `skill_run` 宿主终裁首先保留 `ctx.proposed == Deny`，在任何权限模式下都不得改为 Ask／Auto，也不登记可执行调用。新增 Default／Plan／AcceptEdits／Auto／FullAccess 五模式拒绝回归：修复前 Default 实测错误返回 Ask；修复后拒绝并且执行入口返回 `not_allowed`。
+
+## 15. 契约优先职责拆分接入（2026-10-28）
+
+- 本地分支 `integrate/aether-contract-first`，基于原 `feat/desktop-skills-mcp-runtime`；仅本地实现，未提交／推送／发布。Aether 固定正式提交 `e866e5095910bb013be604098676b2ba5d3e914f`，不修改框架。
+- Rust 组合根共享 `Arc` provider、skill、search 存储，显式装配 `RunService`、`ConversationService` 和 `McpRuntime`，再注入插件 Builder。运行与会话不再由旧插件 ChatConfig 隐式组合；插件生命周期处理取消与有序退出。技能宿主保留按 run 固定 revision／材料、权限终裁、审批及进程清理。写作经运行服务的临时 reservation，不保存会话历史；懒加载历史维护不在第二实例判定之前打开数据库。
+- 前端运行改为 `kit.chat.start/cancel/getSnapshot/approve`，历史独立 `kit.conversations`；桌面启用 `conversations` 选项，日志动作经独立 `kit.desktop.openLogsDirectory` 能力，原宿主日志 UI／脱敏批量入库不变。写作、聊天及 HTTP 适配行为测试同步新合同，不保留旧 `run/history/chatHistory` shim。
+- Web 复用 `aether-core` 的运行引擎、provider 探测／能力推断和 search 执行，保留 AutoNote 身份、D1 provider／history、当前密码复核、笔记上下文、密钥策略及出站安全策略。未引入 `aether-worker` 的 DocumentStore／ConversationService／DO 运行协调器：现有宿主没有这些部署绑定，强行引入会扩大存储迁移与产品范围；不新增未交付 Web 技能、MCP Client 或审批续跑。
+- Web search 使用 core 请求构建／执行／结果解析原语，宿主保留 `*://` 黑名单、32 条规则配置上限、排序与截断策略。core 整体页面解析固定 24k 字符，与已交付 `compression:none` 不兼容，因此仅此页面内容解析保留宿主实现；不缩短原 2MiB 限制内的完整阅读，新增超过 24k 的回归。运行改用共享引擎后，畸形 UTF-8／超限 SSE、重复工具 ID、不合法工具参数会明确拒绝；逐轮 round／usage／context 事件与轮数耗尽文案由框架生成。共享 provider 探测拒绝空 model ID、限制错误响应 8k 并脱敏凭据；密钥用完切换、线路原生搜索配置、角色与上下文预算仍由宿主保留。这些行为差异尚待父集成人执行测试确认。
+- Web 保留 `/api/ai/kit/runs` SSE，新增同用户隔离的只含安全运行状态的 `GET /api/ai/kit/runs/:id`。取消终止本客户端附着流，服务端沿现有 abort/finally 路径回收并写终态；断流只查询一次权威快照，已有终态优先。仍未知时仅前端报告 `network{reason:outcome_unknown}` 清除 busy，提示重新打开会话，不伪造服务端成功／取消、不自动重放、不承诺副作用回滚。
+- 实际依赖安装：默认 Git overrides 及 root direct＋`$` 引用均触发 `ERR_PNPM_EXOTIC_SUBDEP`；因此宿主显式 `blockExoticSubdeps:false` 并锁定所有 Aether 内部包同 SHA。此配置是全局 Git 分发限制放行，不是单包 allowlist；CI／生产必须 frozen install。`pnpm install --no-frozen-lockfile` 退出 0；首次成功安装原文警告为 `[WARN] Issues with peer dependencies found. Run "pnpm peers check" to list them.`。父集成人检查确认仅 presets 的 `aether-ui ^0.1.0` peer 不识别固定 Git 子路径版本，已限定 `peerDependencyRules.allowAny` 仅允许 `@ouraihub/aether-ui`，不放宽 Svelte。`cargo generate-lockfile` 成功；实施者未执行 build／lint／tests／formatter。
+- Worker 类型检查发现共享源码的浏览器／Cloudflare 声明差异：宿主 ES 库升级 ES2024（workerd 支持 `Promise.withResolvers`），不改变 strict 设置；请求通过局部 `RequestInit & {credentials:'omit'}` 保留原凭据隔离语义，MCP／SSE decoder 显式 `ignoreBOM:false`（等价默认值）。这些修正最初以 `patches/aether-core-workers.patch` 应用，现已并入 Aether main（`53b8063`），补丁及 `patchedDependencies` 注册已移除。
+- 已执行：`pnpm run ci` 全部通过，包含 Web 类型／测试／构建、桌面类型／测试、Rust workspace、原生密钥读回与篡改拒绝、严格 Clippy／fmt 和真实 Windows NSIS／portable 构建；`pnpm install --frozen-lockfile` 可重现。额外共享 UI 测试发现旧 provider fake 返回的 endpoint slug 不保留保存输入，被新版身份一致性检查正确拒绝；修 fake 保持输入身份，不修改生产代码或放松校验后，`pnpm --filter @autonote/app test` 全部46文件／239项通过，额外 app typecheck 零错误零警告。
+- 已执行隔离真实 smoke：新构建 Windows debug exe 复制到临时目录，以 exe 旁空白 data 初始化；UI 新建 provider、保存受控回环上游、探测并选择 integration-model、绑定聊天角色，实际 HTTP 收到聊天请求并在原生界面显示“集成已连接。”。会话列表能读取该对话；持续流点击停止显示“已停止”且上游连接断开；再次持续流时关窗，进程退出0，上游断开，日志依次记录 runtime.shutdown.complete active=0 preparing=0 left=0、mcp_client.shutdown.complete、plugin.shutdown.finished。真实 NSIS 与 portable 候选包构建成功；portable exe 另复制到隔离目录启动，等待“设置”控件可见后正常退出0。临时数据与模型服务已清理；未打开用户笔记库，未执行 NSIS 安装／卸载。
+- Web 实测使用 AUTONOTE_EPHEMERAL_DEV=1 的独立 D1，正常创建 owner 并进入产品。浏览器打开最新模型／搜索组件，服务商配置保存和回环 probe 拒绝可见；搜索读取私网目标显示 Invalid request，真实同源 HTTP 返回400 bad_request／blocked_address，无客户端标识返回403，未知运行快照返回404；无浏览器脚本错误，截图已检查。未跑 Web 真实付费上游、完整跨用户运行快照对照、技能脚本／MCP Client 原生交互或写作预览；这些仅由自动回归覆盖的部分不冒充本轮 UI 验收。未运行 macOS／Linux 原生窗口。
+- 另有已定位的共享引擎行为修复：core 将带合法终态的纯文本 length/max-token 截断误认成不完整工具调用并重试。版本固定的 pnpm source patch 只在存在 decoded tool calls 时启用该重试标记；非法工具参数后置截断判断不变。三协议已有 fixture 验证文本与唯一终态并检查请求不重放；不是把失败期望改成成功来绕过。此补丁独立于 Worker 类型兼容修正，上游合入等价修复并升级 SHA 后移除。
+

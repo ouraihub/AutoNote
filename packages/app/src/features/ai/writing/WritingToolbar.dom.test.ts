@@ -2,20 +2,20 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/sv
 import { afterEach, expect, test, vi } from 'vitest'
 import type { Backend } from '@app/backend'
 import type { I18nState } from '@app/i18n/runtime.svelte'
-import type { ChatPort } from '@ouraihub/aether-ui/ports'
+import type { RunClient } from '@ouraihub/aether-ui/ports'
 import { EN_US_MESSAGES } from '@shared/locales/en-US'
 import WritingToolbarHarness from './WritingToolbarHarness.svelte'
 
 afterEach(cleanup)
 
 test('writing always requests Default with no skills or MCP tools enabled by the request', async () => {
-  const run = vi.fn<ChatPort['run']>(async (_request, onEvent) => {
+  const run = vi.fn<RunClient['start']>(async (_request, onEvent) => {
     queueMicrotask(() => onEvent({ kind: 'end', status: 'completed' }))
     return { runId: 'writing-run', conversationId: null, turnId: null }
   })
   const backend = {
     kind: 'desktop',
-    aiHost: { kit: { chat: { run }, skills: {}, mcpClient: {} }, roles: async () => [] },
+    aiHost: { kit: { chat: { start: run }, skills: {}, mcpClient: {} }, roles: async () => [] },
   } as unknown as Backend
   const i18n = { locale: 'en-US', t: (key: keyof typeof EN_US_MESSAGES) => EN_US_MESSAGES[key] } as I18nState
   render(WritingToolbarHarness, { backend, i18n })

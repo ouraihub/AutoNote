@@ -8,12 +8,12 @@ use std::sync::{Arc, Mutex};
 
 use crate::skill_process;
 use aether_chat::risk::{ScriptLanguage, script_risk};
-use serde::Deserialize;
-use serde_json::json;
-use tauri_plugin_aether::{
+use aether_runtime::{
     Approval, AuthorizeContext, CancellationToken, HostTool, PermissionMode, RunRequest, ToolCall,
     ToolEffect, ToolError, ToolOutput, ToolSource, ToolSpec,
 };
+use serde::Deserialize;
+use serde_json::json;
 
 const DEFAULT_TIMEOUT: u64 = 120;
 const MAX_TIMEOUT: u64 = 1800;
@@ -29,7 +29,7 @@ fn risk_language(language: skill_process::ScriptLanguage) -> ScriptLanguage {
 }
 
 pub(super) struct SkillRunner {
-    store: aether_skills::Store,
+    store: Arc<aether_skills::Store>,
     root: PathBuf,
     runs: Mutex<HashMap<String, Selection>>,
 }
@@ -77,7 +77,7 @@ fn failure(code: &str, message: impl ToString, unknown: bool) -> ToolError {
 }
 
 impl SkillRunner {
-    pub(super) fn new(store: aether_skills::Store, root: PathBuf) -> Self {
+    pub(super) fn new(store: Arc<aether_skills::Store>, root: PathBuf) -> Self {
         Self {
             store,
             root,

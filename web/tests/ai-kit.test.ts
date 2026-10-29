@@ -5,10 +5,10 @@ import type { Conversation } from '@ouraihub/aether-ui/ports'
 import { initializeDatabase } from '../src/worker/db/schema'
 import { beginAction, loadConversation } from '../src/worker/ai/history'
 import { executeRun, prepareRun, RunRequestSchema } from '../src/worker/ai/runs'
-import { inferModel } from '../src/worker/ai/infer'
+import { inferModel } from '@ouraihub/aether-core/providers'
 import { upstreamFailure } from '../src/worker/ai/kit'
 import { resolveModel, withKeys } from '../src/worker/ai/providers'
-import { SseParser } from '../src/worker/ai/protocol'
+import { SseParser } from '@ouraihub/aether-core/sse'
 import { hashPassword } from '../src/worker/lib/password'
 import { encryptAiKey } from '../src/worker/lib/crypto'
 import { addKey, chatModel, createHarness, fixture, frames, streamOf, type Harness } from './support/ai-kit-harness'
@@ -162,6 +162,32 @@ describe('runs replay upstream fixtures', () => {
       })
     }
   }
+  for (const protocol of PROTOCOLS) {
+    it(`${protocol}/missing terminal fails without replaying the partial stream`, async () => {
+      const h = await createHarness()
+      const { endpointId } = await saveProvider(h, 'user-a', protocol)
+      const partial =
+        protocol === 'anthropic-messages'
+          ? { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Partial' } }
+          : protocol === 'openai-responses'
+            ? { type: 'response.output_text.delta', delta: 'Partial' }
+            : { choices: [{ delta: { content: 'Partial' } }] }
+      fetchMock.mockImplementation(async () => new Response(`data: ${JSON.stringify(partial)}\n\n`))
+      const { events } = await run(h, { model: { endpointId, modelId: 'm1' } })
+      expect(
+        events
+          .filter((event) => event.kind === 'text_delta')
+          .map((event) => event.text)
+          .join(''),
+      ).toBe('Partial')
+      expect(events.at(-1)).toMatchObject({
+        kind: 'end',
+        status: 'failed',
+        error: { code: 'network', details: { reason: 'incomplete_stream' } },
+      })
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+  }
 })
 
 type ProviderDto = {
@@ -172,7 +198,15 @@ type ProviderDto = {
     id: string
     slug: string
     keyStrategy?: string
-    keys: { id: string; label: string; enabled: boolean; masked: string | null; readable: boolean; exhaustedUntil?: number | null; exhaustedReason?: string | null }[]
+    keys: {
+      id: string
+      label: string
+      enabled: boolean
+      masked: string | null
+      readable: boolean
+      exhaustedUntil?: number | null
+      exhaustedReason?: string | null
+    }[]
     probeUrl: string
     models: unknown[]
   }[]
@@ -202,33 +236,84 @@ describe('provider routes', () => {
     expect(JSON.stringify(body)).not.toContain(KEY)
     const firstId = body[0]!.endpoints[0]!.keys[0]!.id
     // Provider saves never touch keys.
-    const endpoint = { id: endpointId, slug: 'main', baseUrl: 'https://api.example.com', protocol: 'openai-chat', models: [chatModel('m1')] }
-    ;({ body } = await h.json<ProviderDto[]>('user-a', 'PUT', '/providers', { id: providerId, name: 'Acme', endpoints: [endpoint] }))
+    const endpoint = {
+      id: endpointId,
+      slug: 'main',
+      baseUrl: 'https://api.example.com',
+      protocol: 'openai-chat',
+      models: [chatModel('m1')],
+    }
+    ;({ body } = await h.json<ProviderDto[]>('user-a', 'PUT', '/providers', {
+      id: providerId,
+      name: 'Acme',
+      endpoints: [endpoint],
+    }))
     expect(body[0]!.endpoints[0]!.keys).toHaveLength(1)
-    expect((await h.json('user-a', 'PUT', '/providers', { id: providerId, name: 'Acme', endpoints: [{ ...endpoint, apiKey: 'x' }] })).status).toBe(400)
+    expect(
+      (
+        await h.json('user-a', 'PUT', '/providers', {
+          id: providerId,
+          name: 'Acme',
+          endpoints: [{ ...endpoint, apiKey: 'x' }],
+        })
+      ).status,
+    ).toBe(400)
 
-    ;({ body } = await h.json<ProviderDto[]>('user-a', 'PUT', '/endpoint-keys', { endpointId, key: '  sk-other-0123456789 ', label: ' backup ' }))
-    expect(body[0]!.endpoints[0]!.keys).toMatchObject([{ id: firstId }, { label: 'backup', enabled: true, masked: 'sk-o***********6789' }])
+    ;({ body } = await h.json<ProviderDto[]>('user-a', 'PUT', '/endpoint-keys', {
+      endpointId,
+      key: '  sk-other-0123456789 ',
+      label: ' backup ',
+    }))
+    expect(body[0]!.endpoints[0]!.keys).toMatchObject([
+      { id: firstId },
+      { label: 'backup', enabled: true, masked: 'sk-o***********6789' },
+    ])
     const secondId = body[0]!.endpoints[0]!.keys[1]!.id
-    ;({ body } = await h.json<ProviderDto[]>('user-a', 'PUT', '/endpoint-keys', { endpointId, id: secondId, label: 'spare' }))
+    ;({ body } = await h.json<ProviderDto[]>('user-a', 'PUT', '/endpoint-keys', {
+      endpointId,
+      id: secondId,
+      label: 'spare',
+    }))
     expect(body[0]!.endpoints[0]!.keys[1]).toMatchObject({ label: 'spare', masked: 'sk-o***********6789' })
-    ;({ body } = await h.json<ProviderDto[]>('user-a', 'PUT', '/endpoint-keys', { endpointId, id: firstId, enabled: false }))
+    ;({ body } = await h.json<ProviderDto[]>('user-a', 'PUT', '/endpoint-keys', {
+      endpointId,
+      id: firstId,
+      enabled: false,
+    }))
     expect(body[0]!.endpoints[0]!.keys[0]).toMatchObject({ enabled: false, masked: 'sk-t****************mnop' })
 
-    const error = async (input: unknown) => (await h.json<{ error: { code: string; details: unknown } }>('user-a', 'PUT', '/endpoint-keys', input)).body.error
-    expect(await error({ endpointId, key: KEY })).toMatchObject({ code: 'bad_request', details: { field: 'apiKey', reason: 'duplicate' } })
-    expect(await error({ endpointId, id: secondId, key: ` ${KEY}` })).toMatchObject({ details: { field: 'apiKey', reason: 'duplicate' } })
+    const error = async (input: unknown) =>
+      (await h.json<{ error: { code: string; details: unknown } }>('user-a', 'PUT', '/endpoint-keys', input)).body.error
+    expect(await error({ endpointId, key: KEY })).toMatchObject({
+      code: 'bad_request',
+      details: { field: 'apiKey', reason: 'duplicate' },
+    })
+    expect(await error({ endpointId, id: secondId, key: ` ${KEY}` })).toMatchObject({
+      details: { field: 'apiKey', reason: 'duplicate' },
+    })
     expect(await error({ endpointId, key: '   ' })).toMatchObject({ details: { field: 'apiKey', reason: 'empty' } })
     expect(await error({ endpointId })).toMatchObject({ details: { field: 'apiKey', reason: 'empty' } })
-    expect(await error({ endpointId, key: 'x'.repeat(4097) })).toMatchObject({ details: { field: 'apiKey', reason: 'too_long' } })
-    expect(await error({ endpointId, key: 'sk-label', label: 'x'.repeat(41) })).toMatchObject({ details: { field: 'label', reason: 'too_long' } })
-    expect(await error({ endpointId, id: 'missing', label: 'a' })).toMatchObject({ code: 'not_found', details: { entity: 'key' } })
-    expect(await error({ endpointId: 'missing', key: 'sk-x' })).toMatchObject({ code: 'not_found', details: { entity: 'endpoint' } })
+    expect(await error({ endpointId, key: 'x'.repeat(4097) })).toMatchObject({
+      details: { field: 'apiKey', reason: 'too_long' },
+    })
+    expect(await error({ endpointId, key: 'sk-label', label: 'x'.repeat(41) })).toMatchObject({
+      details: { field: 'label', reason: 'too_long' },
+    })
+    expect(await error({ endpointId, id: 'missing', label: 'a' })).toMatchObject({
+      code: 'not_found',
+      details: { entity: 'key' },
+    })
+    expect(await error({ endpointId: 'missing', key: 'sk-x' })).toMatchObject({
+      code: 'not_found',
+      details: { entity: 'endpoint' },
+    })
     // Each key route takes a slot (20 per minute); move the faked clock past the window.
     vi.setSystemTime((clock += 60_000))
     for (let index = 2; index < 16; index++) await addKey(h, 'user-a', endpointId, `sk-many-${index}`)
     vi.setSystemTime((clock += 60_000))
-    expect(await error({ endpointId, key: 'sk-many-16' })).toMatchObject({ details: { field: 'keys', reason: 'too_many' } })
+    expect(await error({ endpointId, key: 'sk-many-16' })).toMatchObject({
+      details: { field: 'keys', reason: 'too_many' },
+    })
     expect((await h.json('user-b', 'PUT', '/endpoint-keys', { endpointId, key: 'sk-b' })).status).toBe(404)
 
     expect((await h.json('user-b', 'DELETE', `/endpoint-keys/${firstId}`, { endpointId })).status).toBe(404)
@@ -246,15 +331,23 @@ describe('provider routes', () => {
     await saveProvider(h)
     const { body } = await h.json<ProviderDto[]>('user-a', 'GET', '/providers')
     const keyId = body[0]!.endpoints[0]!.keys[0]!.id
-    expect((await h.json('user-a', 'POST', `/endpoint-keys/${keyId}/reveal`, { currentPassword: 'wrong' })).status).toBe(401)
+    expect(
+      (await h.json('user-a', 'POST', `/endpoint-keys/${keyId}/reveal`, { currentPassword: 'wrong' })).status,
+    ).toBe(401)
     expect((await h.json('user-a', 'POST', `/endpoint-keys/${keyId}/reveal`, {})).status).toBe(401)
-    expect((await h.json('user-b', 'POST', `/endpoint-keys/${keyId}/reveal`, { currentPassword: 'correct-password' })).status).toBe(404)
-    expect(await h.json('user-a', 'POST', `/endpoint-keys/${keyId}/reveal`, { currentPassword: 'correct-password' })).toEqual({ status: 200, body: { key: KEY } })
+    expect(
+      (await h.json('user-b', 'POST', `/endpoint-keys/${keyId}/reveal`, { currentPassword: 'correct-password' }))
+        .status,
+    ).toBe(404)
+    expect(
+      await h.json('user-a', 'POST', `/endpoint-keys/${keyId}/reveal`, { currentPassword: 'correct-password' }),
+    ).toEqual({ status: 200, body: { key: KEY } })
   })
   it('deletes keys with their provider and with dropped endpoints', async () => {
     const h = await createHarness()
     const { providerId } = await saveProvider(h)
-    const count = async () => (await h.env.DB.prepare('SELECT COUNT(*) AS n FROM ai_endpoint_keys').first<{ n: number }>())!.n
+    const count = async () =>
+      (await h.env.DB.prepare('SELECT COUNT(*) AS n FROM ai_endpoint_keys').first<{ n: number }>())!.n
     expect(await count()).toBe(1)
     await h.json('user-a', 'PUT', '/providers', { id: providerId, name: 'Acme', endpoints: [] })
     expect(await count()).toBe(0)
@@ -382,10 +475,9 @@ describe('provider routes', () => {
         { id: 'gpt-4o', group: 'gpt' },
       ],
     })
-    expect(fetchMock.mock.calls[0]![1]).toMatchObject({
-      redirect: 'manual',
-      headers: { 'x-api-key': KEY, 'anthropic-version': '2023-06-01' },
-    })
+    const probeHeaders = new Headers(fetchMock.mock.calls[0]![1]?.headers)
+    expect(probeHeaders.get('x-api-key')).toBe(KEY)
+    expect(probeHeaders.get('anthropic-version')).toBe('2023-06-01')
     const missing = await h.json('user-a', 'POST', '/probe', {
       kind: 'draft',
       baseUrl: 'https://api.example.com',
@@ -416,16 +508,30 @@ describe('provider routes', () => {
     const { endpointId } = await saveProvider(h)
     const reply = (messages: number, listed = [{ id: 'claude-sonnet-5-5' }, { id: 'gpt-6-sol' }]) =>
       fetchMock.mockImplementation(async (url) =>
-        String(url).endsWith('/messages') ? new Response('{"error":{}}', { status: messages }) : Response.json({ data: listed }))
+        String(url).endsWith('/messages')
+          ? new Response('{"error":{}}', { status: messages })
+          : Response.json({ data: listed }),
+      )
     const check = (protocol: string) =>
-      h.json<{ error: unknown; suggestedProtocol: string | null }>('user-a', 'POST', '/probe', { kind: 'draft', baseUrl: 'https://api.example.com', protocol, endpointId })
+      h.json<{ error: unknown; suggestedProtocol: string | null }>('user-a', 'POST', '/probe', {
+        kind: 'draft',
+        baseUrl: 'https://api.example.com',
+        protocol,
+        endpointId,
+      })
     for (const status of [400, 422]) {
       reply(status)
       fetchMock.mockClear()
       expect((await check('openai-chat')).body).toMatchObject({ error: null, suggestedProtocol: 'anthropic-messages' })
       const [url, init] = fetchMock.mock.calls[1]!
       expect(String(url)).toBe('https://api.example.com/v1/messages')
-      expect(init).toMatchObject({ method: 'POST', redirect: 'manual', headers: { 'x-api-key': KEY, 'anthropic-version': '2023-06-01' } })
+      expect(init).toMatchObject({
+        method: 'POST',
+        redirect: 'manual',
+      })
+      const headers = new Headers(init?.headers)
+      expect(headers.get('x-api-key')).toBe(KEY)
+      expect(headers.get('anthropic-version')).toBe('2023-06-01')
       expect(JSON.parse(String(init!.body))).toEqual({ model: 'claude-sonnet-5-5', max_tokens: 1, messages: [] })
     }
     for (const status of [404, 401, 500]) {
@@ -444,18 +550,36 @@ describe('provider routes', () => {
     const h = await createHarness()
     const { endpointId } = await saveProvider(h)
     const second = await addKey(h, 'user-a', endpointId, 'sk-second-0123456789')
-    const sent = (index: number) => (fetchMock.mock.calls[index]![1]!.headers as Record<string, string>).authorization
-    fetchMock.mockImplementation(async (_url, init) =>
-      (init!.headers as Record<string, string>).authorization === `Bearer ${KEY}` ? new Response('no', { status: 429 }) : Response.json({ data: [{ id: 'gpt-4o' }] }),
-    )
+    const sent = (index: number) => new Headers(fetchMock.mock.calls[index]![1]!.headers).get('authorization')
+    fetchMock.mockImplementation(async (_url, init) => {
+      const authorization = new Headers(init!.headers).get('authorization')
+      return authorization === `Bearer ${KEY}`
+        ? new Response('no', { status: 429 })
+        : Response.json({ data: [{ id: 'gpt-4o' }] })
+    })
     const ok = await h.json('user-a', 'POST', '/probe', { kind: 'saved', endpointId })
     expect(ok.body).toMatchObject({ error: null, models: [{ id: 'gpt-4o' }] })
-    expect(fetchMock.mock.calls.map((_, index) => sent(index))).toEqual([`Bearer ${KEY}`, 'Bearer sk-second-0123456789'])
+    expect(fetchMock.mock.calls.map((_, index) => sent(index))).toEqual([
+      `Bearer ${KEY}`,
+      'Bearer sk-second-0123456789',
+    ])
     fetchMock.mockClear()
-    const only = await h.json('user-a', 'POST', '/probe', { kind: 'draft', baseUrl: 'https://api.example.com', protocol: 'openai-chat', endpointId, keyId: second })
+    const only = await h.json('user-a', 'POST', '/probe', {
+      kind: 'draft',
+      baseUrl: 'https://api.example.com',
+      protocol: 'openai-chat',
+      endpointId,
+      keyId: second,
+    })
     expect(only.body).toMatchObject({ error: null })
     expect(fetchMock.mock.calls.map((_, index) => sent(index))).toEqual(['Bearer sk-second-0123456789'])
-    const unknown = await h.json('user-a', 'POST', '/probe', { kind: 'draft', baseUrl: 'https://api.example.com', protocol: 'openai-chat', endpointId, keyId: 'nope' })
+    const unknown = await h.json('user-a', 'POST', '/probe', {
+      kind: 'draft',
+      baseUrl: 'https://api.example.com',
+      protocol: 'openai-chat',
+      endpointId,
+      keyId: 'nope',
+    })
     expect(unknown).toMatchObject({ status: 404, body: { error: { details: { entity: 'key' } } } })
   })
 })
@@ -470,20 +594,58 @@ const textStream = (text: string) =>
   )
 
 describe('request configuration (docs/36)', () => {
-  type Saved = { id: string; endpoints: { id: string; imageBaseUrl: string | null; imageEditBaseUrl: string | null; headers: Record<string, string> }[] }[]
+  type Saved = {
+    id: string
+    endpoints: {
+      id: string
+      imageBaseUrl: string | null
+      imageEditBaseUrl: string | null
+      headers: Record<string, string>
+    }[]
+  }[]
   const put = (h: Harness, providerId: string, endpointId: string, extra: Record<string, unknown>) =>
     h.json<Saved>('user-a', 'PUT', '/providers', {
       id: providerId,
       name: 'Acme',
-      endpoints: [{ id: endpointId, slug: 'main', baseUrl: 'https://api.example.com', protocol: 'openai-chat', models: [chatModel('m1')], ...extra }],
+      endpoints: [
+        {
+          id: endpointId,
+          slug: 'main',
+          baseUrl: 'https://api.example.com',
+          protocol: 'openai-chat',
+          models: [chatModel('m1')],
+          ...extra,
+        },
+      ],
     })
 
   it('saves, lists and keeps image base URL and headers when omitted', async () => {
     const h = await createHarness()
     const { providerId, endpointId } = await saveProvider(h)
-    expect((await h.json<Saved>('user-a', 'GET', '/providers')).body[0]!.endpoints[0]).toMatchObject({ imageBaseUrl: null, imageEditBaseUrl: null, headers: {} })
-    const saved = await put(h, providerId, endpointId, { imageBaseUrl: ' https://img.example.com ', imageEditBaseUrl: ' https://edit.example.com ', headers: { ' X-Team ': 'blue', 'x-trace': '' } })
-    expect(saved).toMatchObject({ status: 200, body: [{ endpoints: [{ imageBaseUrl: 'https://img.example.com', imageEditBaseUrl: 'https://edit.example.com', headers: { 'X-Team': 'blue', 'x-trace': '' } }] }] })
+    expect((await h.json<Saved>('user-a', 'GET', '/providers')).body[0]!.endpoints[0]).toMatchObject({
+      imageBaseUrl: null,
+      imageEditBaseUrl: null,
+      headers: {},
+    })
+    const saved = await put(h, providerId, endpointId, {
+      imageBaseUrl: ' https://img.example.com ',
+      imageEditBaseUrl: ' https://edit.example.com ',
+      headers: { ' X-Team ': 'blue', 'x-trace': '' },
+    })
+    expect(saved).toMatchObject({
+      status: 200,
+      body: [
+        {
+          endpoints: [
+            {
+              imageBaseUrl: 'https://img.example.com',
+              imageEditBaseUrl: 'https://edit.example.com',
+              headers: { 'X-Team': 'blue', 'x-trace': '' },
+            },
+          ],
+        },
+      ],
+    })
     await put(h, providerId, endpointId, {})
     expect((await h.json<Saved>('user-a', 'GET', '/providers')).body[0]!.endpoints[0]).toMatchObject({
       imageBaseUrl: 'https://img.example.com',
@@ -497,19 +659,48 @@ describe('request configuration (docs/36)', () => {
   it('rejects invalid image base URLs and headers with Aether reasons', async () => {
     const h = await createHarness()
     const { providerId, endpointId } = await saveProvider(h)
-    const reason = async (extra: Record<string, unknown>) => (await put(h, providerId, endpointId, extra)) as unknown as { status: number; body: { error: { details: unknown } } }
+    const reason = async (extra: Record<string, unknown>) =>
+      (await put(h, providerId, endpointId, extra)) as unknown as {
+        status: number
+        body: { error: { details: unknown } }
+      }
     const bad = (field: string, why: string) => ({ status: 400, body: { error: { details: { field, reason: why } } } })
     expect(await reason({ imageBaseUrl: 'ftp://img' })).toMatchObject(bad('imageBaseUrl', 'invalid_url'))
-    expect(await reason({ imageBaseUrl: `https://${'a'.repeat(2048)}` })).toMatchObject(bad('imageBaseUrl', 'invalid_url'))
+    expect(await reason({ imageBaseUrl: `https://${'a'.repeat(2048)}` })).toMatchObject(
+      bad('imageBaseUrl', 'invalid_url'),
+    )
     expect(await reason({ imageEditBaseUrl: 'ftp://img' })).toMatchObject(bad('imageEditBaseUrl', 'invalid_url'))
-    expect(await reason({ imageEditBaseUrl: `https://${'a'.repeat(2048)}` })).toMatchObject(bad('imageEditBaseUrl', 'invalid_url'))
+    expect(await reason({ imageEditBaseUrl: `https://${'a'.repeat(2048)}` })).toMatchObject(
+      bad('imageEditBaseUrl', 'invalid_url'),
+    )
     const many = Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`x-h${i}`, 'v']))
     expect(await reason({ headers: many })).toMatchObject(bad('headers', 'too_many'))
-    for (const headers of [{ 'bad name': 'v' }, { '': 'v' }, { 'x-a': 'v', 'X-A': 'w' }, { 'x-a': 'a\nb' }, { 'x-a': 'v'.repeat(2049) }])
+    for (const headers of [
+      { 'bad name': 'v' },
+      { '': 'v' },
+      { 'x-a': 'v', 'X-A': 'w' },
+      { 'x-a': 'a\nb' },
+      { 'x-a': 'v'.repeat(2049) },
+    ])
       expect(await reason({ headers }), JSON.stringify(headers).slice(0, 40)).toMatchObject(bad('headers', 'invalid'))
-    for (const name of ['Authorization', 'x-api-key', 'Anthropic-Version', 'host', 'Content-Type', 'content-length', 'accept', 'connection', 'transfer-encoding', 'Cookie'])
+    for (const name of [
+      'Authorization',
+      'x-api-key',
+      'Anthropic-Version',
+      'host',
+      'Content-Type',
+      'content-length',
+      'accept',
+      'connection',
+      'transfer-encoding',
+      'Cookie',
+    ])
       expect(await reason({ headers: { [name]: 'v' } }), name).toMatchObject(bad('headers', 'reserved'))
-    expect((await h.json<Saved>('user-a', 'GET', '/providers')).body[0]!.endpoints[0]).toMatchObject({ imageBaseUrl: null, imageEditBaseUrl: null, headers: {} })
+    expect((await h.json<Saved>('user-a', 'GET', '/providers')).body[0]!.endpoints[0]).toMatchObject({
+      imageBaseUrl: null,
+      imageEditBaseUrl: null,
+      headers: {},
+    })
   })
 
   it('sends custom headers on chat rounds and probes without overriding system headers', async () => {
@@ -520,15 +711,31 @@ describe('request configuration (docs/36)', () => {
     const { events } = await run(h, { model: { endpointId, modelId: 'm1' } })
     expect(events.at(-1)).toEqual({ kind: 'end', status: 'completed' })
     const chat = new Headers(fetchMock.mock.calls[0]![1]?.headers)
-    expect([chat.get('x-team'), chat.get('authorization'), chat.get('content-type')]).toEqual(['blue', `Bearer ${KEY}`, 'application/json'])
+    expect([chat.get('x-team'), chat.get('authorization'), chat.get('content-type')]).toEqual([
+      'blue',
+      `Bearer ${KEY}`,
+      'application/json',
+    ])
     fetchMock.mockReset()
     fetchMock.mockImplementation(async () => Response.json({ data: [{ id: 'gpt-4o' }] }))
     await h.json('user-a', 'POST', '/probe', { kind: 'saved', endpointId })
-    await h.json('user-a', 'POST', '/probe', { kind: 'draft', baseUrl: 'https://api.example.com', protocol: 'openai-chat', endpointId })
-    await h.json('user-a', 'POST', '/probe', { kind: 'draft', baseUrl: 'https://api.example.com', protocol: 'openai-chat' })
+    await h.json('user-a', 'POST', '/probe', {
+      kind: 'draft',
+      baseUrl: 'https://api.example.com',
+      protocol: 'openai-chat',
+      endpointId,
+    })
+    await h.json('user-a', 'POST', '/probe', {
+      kind: 'draft',
+      baseUrl: 'https://api.example.com',
+      protocol: 'openai-chat',
+    })
     expect(fetchMock).toHaveBeenCalledTimes(2)
-    for (const [, init] of fetchMock.mock.calls)
-      expect(init?.headers).toEqual({ 'X-Team': 'blue', authorization: `Bearer ${KEY}` })
+    for (const [, init] of fetchMock.mock.calls) {
+      const headers = new Headers(init?.headers)
+      expect(headers.get('x-team')).toBe('blue')
+      expect(headers.get('authorization')).toBe(`Bearer ${KEY}`)
+    }
   })
 })
 
@@ -934,7 +1141,10 @@ describe('run and history routes', () => {
     const bId = String((await run(h, { model, conversationId, input: 'Q2' })).events[0]!.turnId)
     const cId = String((await run(h, { model, conversationId, input: 'Q3' })).events[0]!.turnId)
     const reparented = (await h.json<Conversation>('user-a', 'DELETE', `${base}/turns/${bId}`)).body
-    expect(reparented.turns.map((turn) => [turn.id, turn.parentId])).toEqual([[aId, null], [cId, aId]])
+    expect(reparented.turns.map((turn) => [turn.id, turn.parentId])).toEqual([
+      [aId, null],
+      [cId, aId],
+    ])
     expect(reparented.summary.selectedTurnId).toBe(cId)
     const retryId = String((await run(h, { model, conversationId, retryTurnId: cId, input: '' })).events[0]!.turnId)
     const candidate = (await h.json<Conversation>('user-a', 'DELETE', `${base}/turns/${cId}`)).body
@@ -1086,9 +1296,14 @@ describe('run and history routes', () => {
     const old = h.env.DB
     h.env.DB = { prepare: old.prepare.bind(old), batch: old.batch.bind(old), exec: old.exec.bind(old) } as D1Database
     await initializeDatabase(h.env)
-    const columns = (await h.env.DB.prepare('PRAGMA table_info(ai_endpoints)').all<{ name: string }>()).results.map((row) => row.name)
+    const columns = (await h.env.DB.prepare('PRAGMA table_info(ai_endpoints)').all<{ name: string }>()).results.map(
+      (row) => row.name,
+    )
     expect(columns).not.toContain('key_ciphertext')
-    expect(await h.json('user-a', 'GET', '/providers')).toMatchObject({ status: 200, body: [{ endpoints: [{ id: endpointId, keys: [], models: [{ id: 'm1' }] }] }] })
+    expect(await h.json('user-a', 'GET', '/providers')).toMatchObject({
+      status: 200,
+      body: [{ endpoints: [{ id: endpointId, keys: [], models: [{ id: 'm1' }] }] }],
+    })
     await addKey(h, 'user-a', endpointId, KEY)
   })
 
@@ -1101,11 +1316,15 @@ describe('run and history routes', () => {
     const old = h.env.DB
     h.env.DB = { prepare: old.prepare.bind(old), batch: old.batch.bind(old), exec: old.exec.bind(old) } as D1Database
     await initializeDatabase(h.env)
-    const columns = (await h.env.DB.prepare('PRAGMA table_info(ai_endpoints)').all<{ name: string }>()).results.map((row) => row.name)
+    const columns = (await h.env.DB.prepare('PRAGMA table_info(ai_endpoints)').all<{ name: string }>()).results.map(
+      (row) => row.name,
+    )
     expect(columns).toEqual(expect.arrayContaining(['image_base_url', 'headers']))
     expect(await h.json('user-a', 'GET', '/providers')).toMatchObject({
       status: 200,
-      body: [{ endpoints: [{ id: endpointId, imageBaseUrl: null, headers: {}, keys: [{ masked: expect.any(String) }] }] }],
+      body: [
+        { endpoints: [{ id: endpointId, imageBaseUrl: null, headers: {}, keys: [{ masked: expect.any(String) }] }] },
+      ],
     })
   })
 
@@ -1118,9 +1337,14 @@ describe('run and history routes', () => {
     const old = h.env.DB
     h.env.DB = { prepare: old.prepare.bind(old), batch: old.batch.bind(old), exec: old.exec.bind(old) } as D1Database
     await initializeDatabase(h.env)
-    const columns = (await h.env.DB.prepare('PRAGMA table_info(ai_endpoints)').all<{ name: string }>()).results.map((row) => row.name)
+    const columns = (await h.env.DB.prepare('PRAGMA table_info(ai_endpoints)').all<{ name: string }>()).results.map(
+      (row) => row.name,
+    )
     expect(columns).toContain('image_edit_base_url')
-    expect(await h.json('user-a', 'GET', '/providers')).toMatchObject({ status: 200, body: [{ endpoints: [{ id: endpointId, imageEditBaseUrl: null }] }] })
+    expect(await h.json('user-a', 'GET', '/providers')).toMatchObject({
+      status: 200,
+      body: [{ endpoints: [{ id: endpointId, imageEditBaseUrl: null }] }],
+    })
   })
 
   it('upgrades a v28 endpoint to v29 keeping rotation and its keys usable', async () => {
@@ -1134,7 +1358,17 @@ describe('run and history routes', () => {
     await initializeDatabase(h.env)
     expect(await h.json('user-a', 'GET', '/providers')).toMatchObject({
       status: 200,
-      body: [{ endpoints: [{ id: endpointId, keyStrategy: 'round_robin', keys: [{ readable: true, exhaustedUntil: null, exhaustedReason: null }] }] }],
+      body: [
+        {
+          endpoints: [
+            {
+              id: endpointId,
+              keyStrategy: 'round_robin',
+              keys: [{ readable: true, exhaustedUntil: null, exhaustedReason: null }],
+            },
+          ],
+        },
+      ],
     })
   })
 
@@ -1142,7 +1376,12 @@ describe('run and history routes', () => {
     const h = await createHarness()
     const { providerId } = await saveProvider(h)
     const put = (extra: Record<string, unknown>) =>
-      h.json<{ notes: string }[]>('user-a', 'PUT', '/providers', { id: providerId, name: 'Acme', endpoints: [], ...extra })
+      h.json<{ notes: string }[]>('user-a', 'PUT', '/providers', {
+        id: providerId,
+        name: 'Acme',
+        endpoints: [],
+        ...extra,
+      })
     expect((await put({ notes: '## 价格\n- 便宜' })).body[0]?.notes).toBe('## 价格\n- 便宜')
     expect((await put({})).body[0]?.notes).toBe('## 价格\n- 便宜')
     expect(await put({ notes: 'x'.repeat(10_001) })).toMatchObject({ status: 400 })
@@ -1153,14 +1392,21 @@ describe('run and history routes', () => {
     const h = await createHarness()
     type Listed = { id: string; name: string; presetId: string | null; enabled: boolean }[]
     const seed = (user: string, name: string, presetId: string) =>
-      h.json<Listed>(user, 'PUT', '/providers', { name, presetId, enabled: false, endpoints: [{ slug: 'ep-1', baseUrl: 'https://api.qnaigc.com', protocol: 'openai-chat', models: [] }] })
+      h.json<Listed>(user, 'PUT', '/providers', {
+        name,
+        presetId,
+        enabled: false,
+        endpoints: [{ slug: 'ep-1', baseUrl: 'https://api.qnaigc.com', protocol: 'openai-chat', models: [] }],
+      })
     const first = await seed('user-a', '七牛云', 'qiniu')
     expect(first.body).toMatchObject([{ name: '七牛云', presetId: 'qiniu', enabled: false }])
     expect((await seed('user-a', '七牛云', 'qiniu')).body).toHaveLength(1)
     expect(await h.json('user-a', 'DELETE', `/providers/${first.body[0]!.id}`)).toMatchObject({ status: 409 })
     expect((await h.json<Listed>('user-a', 'GET', '/providers')).body).toHaveLength(1)
     expect((await seed('user-b', '七牛云', 'qiniu')).body).toMatchObject([{ presetId: 'qiniu' }])
-    const own = (await h.json<Listed>('user-a', 'PUT', '/providers', { name: 'Fenno', endpoints: [] })).body.find((p) => p.name === 'Fenno')!
+    const own = (await h.json<Listed>('user-a', 'PUT', '/providers', { name: 'Fenno', endpoints: [] })).body.find(
+      (p) => p.name === 'Fenno',
+    )!
     const adopted = (await seed('user-a', 'fenno', 'fenno')).body
     expect(adopted).toHaveLength(2)
     expect(adopted.find((p) => p.id === own.id)).toMatchObject({ name: 'Fenno', presetId: 'fenno' })
@@ -1561,7 +1807,9 @@ describe('run and history routes', () => {
 
     fetchMock.mockReset()
     fetchMock.mockImplementation(async (_url, init) =>
-      (init!.headers as Record<string, string>).authorization === `Bearer ${KEY}` ? new Response(`bad ${KEY}`, { status: 401 }) : textStream('fallback'),
+      (init!.headers as Record<string, string>).authorization === `Bearer ${KEY}`
+        ? new Response(`bad ${KEY}`, { status: 401 })
+        : textStream('fallback'),
     )
     const fallback = await run(h, model)
     expect(sent()).toEqual([`Bearer ${KEY}`, `Bearer ${SECOND}`])
@@ -1571,7 +1819,11 @@ describe('run and history routes', () => {
     fetchMock.mockImplementation(async () => new Response(`denied ${KEY} ${SECOND}`, { status: 401 }))
     const denied = await run(h, model)
     expect(fetchMock).toHaveBeenCalledTimes(2)
-    expect(denied.events.at(-1)).toMatchObject({ kind: 'end', status: 'failed', error: { code: 'unauthorized', details: { status: 401 } } })
+    expect(denied.events.at(-1)).toMatchObject({
+      kind: 'end',
+      status: 'failed',
+      error: { code: 'unauthorized', details: { status: 401 } },
+    })
     expect(denied.text).not.toContain(KEY)
     expect(denied.text).not.toContain(SECOND)
 
@@ -1582,7 +1834,11 @@ describe('run and history routes', () => {
 
     await h.json('user-a', 'PUT', '/endpoint-keys', { endpointId, id: secondId, enabled: false })
     const { body } = await h.json<ProviderDto[]>('user-a', 'GET', '/providers')
-    await h.json('user-a', 'PUT', '/endpoint-keys', { endpointId, id: body[0]!.endpoints[0]!.keys[0]!.id, enabled: false })
+    await h.json('user-a', 'PUT', '/endpoint-keys', {
+      endpointId,
+      id: body[0]!.endpoints[0]!.keys[0]!.id,
+      enabled: false,
+    })
     fetchMock.mockReset()
     const missing = await run(h, model)
     expect(missing.text).toContain('missing_key')
@@ -1594,8 +1850,18 @@ describe('run and history routes', () => {
     const { providerId, endpointId } = await saveProvider(h)
     const SECOND = 'sk-second-0123456789'
     const secondId = await addKey(h, 'user-a', endpointId, SECOND)
-    const endpoint = { id: endpointId, slug: 'main', baseUrl: 'https://api.example.com', protocol: 'openai-chat', models: [chatModel('m1')] }
-    await h.json('user-a', 'PUT', '/providers', { id: providerId, name: 'Acme', endpoints: [{ ...endpoint, keyStrategy: 'fill_first' }] })
+    const endpoint = {
+      id: endpointId,
+      slug: 'main',
+      baseUrl: 'https://api.example.com',
+      protocol: 'openai-chat',
+      models: [chatModel('m1')],
+    }
+    await h.json('user-a', 'PUT', '/providers', {
+      id: providerId,
+      name: 'Acme',
+      endpoints: [{ ...endpoint, keyStrategy: 'fill_first' }],
+    })
     const model = { model: { endpointId, modelId: 'm1' } }
     const sent = () => fetchMock.mock.calls.map(([, init]) => (init!.headers as Record<string, string>).authorization)
     const keys = async () => (await h.json<ProviderDto[]>('user-a', 'GET', '/providers')).body[0]!.endpoints[0]!
@@ -1616,10 +1882,20 @@ describe('run and history routes', () => {
     // Plain 429: switch, cool down for Retry-After, then the first key is used again.
     fetchMock.mockReset()
     // "rate limit exceeded" / "quota exceeded per minute" are plain rate limits: a cooldown, never the 24-hour pause.
-    fetchMock.mockImplementation(reply(new Response('{"error":{"message":"Rate limit exceeded: quota exceeded per minute"}}', { status: 429, headers: { 'retry-after': '30' } })))
+    fetchMock.mockImplementation(
+      reply(
+        new Response('{"error":{"message":"Rate limit exceeded: quota exceeded per minute"}}', {
+          status: 429,
+          headers: { 'retry-after': '30' },
+        }),
+      ),
+    )
     expect((await run(h, model)).events.at(-1)).toMatchObject({ status: 'completed' })
     expect(sent()).toEqual([`Bearer ${KEY}`, `Bearer ${SECOND}`])
-    expect((await keys()).keys[0]).toMatchObject({ exhaustedUntil: clock + 30_000, exhaustedReason: expect.stringMatching(/^HTTP 429 /) })
+    expect((await keys()).keys[0]).toMatchObject({
+      exhaustedUntil: clock + 30_000,
+      exhaustedReason: expect.stringMatching(/^HTTP 429 /),
+    })
     vi.setSystemTime((clock += 31_000))
     fetchMock.mockReset()
     fetchMock.mockImplementation(async () => textStream('ok'))
@@ -1641,7 +1917,12 @@ describe('run and history routes', () => {
 
     // Once streaming started, a later error is the caller's: no switch, no mark.
     fetchMock.mockReset()
-    fetchMock.mockImplementation(async () => new Response(streamOf(new TextEncoder().encode('data: {"error":{"message":"quota exceeded"}}\n\n')), { headers: { 'content-type': 'text/event-stream' } }))
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(streamOf(new TextEncoder().encode('data: {"error":{"message":"quota exceeded"}}\n\n')), {
+          headers: { 'content-type': 'text/event-stream' },
+        }),
+    )
     expect((await run(h, model)).events.at(-1)).toMatchObject({ status: 'failed' })
     expect(sent()).toEqual([`Bearer ${SECOND}`])
     expect((await keys()).keys[1]).toMatchObject({ exhaustedUntil: null })
@@ -1666,7 +1947,11 @@ describe('run and history routes', () => {
     expect(sent()).toEqual([`Bearer ${SECOND}`])
 
     // Switching back to rotation ignores and hides the marks.
-    await h.json('user-a', 'PUT', '/providers', { id: providerId, name: 'Acme', endpoints: [{ ...endpoint, keyStrategy: 'round_robin' }] })
+    await h.json('user-a', 'PUT', '/providers', {
+      id: providerId,
+      name: 'Acme',
+      endpoints: [{ ...endpoint, keyStrategy: 'round_robin' }],
+    })
     expect((await keys()).keys[0]).toMatchObject({ exhaustedUntil: null, exhaustedReason: null })
     fetchMock.mockReset()
     fetchMock.mockImplementation(async () => textStream('ok'))
@@ -1680,16 +1965,36 @@ describe('run and history routes', () => {
     const { providerId, endpointId } = await saveProvider(h)
     const duplicateId = await addKey(h, 'user-a', endpointId, 'sk-distinct-backup')
     await h.env.DB.prepare('UPDATE ai_endpoint_keys SET key_ciphertext = ?1 WHERE id = ?2')
-      .bind(await encryptAiKey(h.env, duplicateId, KEY), duplicateId).run()
+      .bind(await encryptAiKey(h.env, duplicateId, KEY), duplicateId)
+      .run()
     await h.json('user-a', 'PUT', '/providers', {
-      id: providerId, name: 'Acme',
-      endpoints: [{ id: endpointId, slug: 'main', baseUrl: 'https://api.example.com', protocol: 'openai-chat', models: [chatModel('m1')], keyStrategy: 'fill_first' }],
+      id: providerId,
+      name: 'Acme',
+      endpoints: [
+        {
+          id: endpointId,
+          slug: 'main',
+          baseUrl: 'https://api.example.com',
+          protocol: 'openai-chat',
+          models: [chatModel('m1')],
+          keyStrategy: 'fill_first',
+        },
+      ],
     })
     const connection = await resolveModel(h.env, 'user-a', { endpointId, modelId: 'm1' })
-    await expect(withKeys(connection, async () => { throw upstreamFailure(402, 'insufficient balance', [KEY]) })).rejects.toMatchObject({ code: 'rate_limited', resumeAt: clock + 86_400_000 })
-    const rows = await h.env.DB.prepare('SELECT exhausted_until AS until FROM ai_endpoint_keys WHERE endpoint_id = ?1').bind(endpointId).all<{ until: number | null }>()
-    expect(rows.results.map(row => row.until)).toEqual([clock + 86_400_000, clock + 86_400_000])
-    await expect(resolveModel(h.env, 'user-a', { endpointId, modelId: 'm1' })).rejects.toMatchObject({ code: 'rate_limited', details: { reason: 'keys_exhausted' } })
+    await expect(
+      withKeys(connection, async () => {
+        throw upstreamFailure(402, 'insufficient balance', [KEY])
+      }),
+    ).rejects.toMatchObject({ code: 'rate_limited', resumeAt: clock + 86_400_000 })
+    const rows = await h.env.DB.prepare('SELECT exhausted_until AS until FROM ai_endpoint_keys WHERE endpoint_id = ?1')
+      .bind(endpointId)
+      .all<{ until: number | null }>()
+    expect(rows.results.map((row) => row.until)).toEqual([clock + 86_400_000, clock + 86_400_000])
+    await expect(resolveModel(h.env, 'user-a', { endpointId, modelId: 'm1' })).rejects.toMatchObject({
+      code: 'rate_limited',
+      details: { reason: 'keys_exhausted' },
+    })
   })
 
   it('fill-first keeps a set-aside key out of later rounds of the same request and never falls back to no key', async () => {
@@ -1700,7 +2005,16 @@ describe('run and history routes', () => {
     await h.json('user-a', 'PUT', '/providers', {
       id: providerId,
       name: 'Acme',
-      endpoints: [{ id: endpointId, slug: 'main', baseUrl: 'https://api.example.com', protocol: 'openai-chat', models: [chatModel('m1')], keyStrategy: 'fill_first' }],
+      endpoints: [
+        {
+          id: endpointId,
+          slug: 'main',
+          baseUrl: 'https://api.example.com',
+          protocol: 'openai-chat',
+          models: [chatModel('m1')],
+          keyStrategy: 'fill_first',
+        },
+      ],
     })
     // One Connection serves every tool round of a run; drive withKeys twice on it like two rounds.
     const connection = await resolveModel(h.env, 'user-a', { endpointId, modelId: 'm1' })
@@ -1727,15 +2041,52 @@ describe('run and history routes', () => {
     await h.json('user-a', 'PUT', '/providers', {
       id: providerId,
       name: 'Acme',
-      endpoints: [{ id: endpointId, slug: 'main', baseUrl: 'https://api.example.com', protocol: 'openai-chat', models: [chatModel('m1')], keyStrategy: 'fill_first' }],
+      endpoints: [
+        {
+          id: endpointId,
+          slug: 'main',
+          baseUrl: 'https://api.example.com',
+          protocol: 'openai-chat',
+          models: [chatModel('m1')],
+          keyStrategy: 'fill_first',
+        },
+      ],
     })
-    const dropped = () => new Response(new ReadableStream({ pull: (controller) => controller.error(new TypeError('socket hang up')) }), { headers: { 'content-type': 'text/event-stream' } })
-    fetchMock.mockImplementation(async (_url, init) => ((init!.headers as Record<string, string>).authorization === `Bearer ${KEY}` ? dropped() : textStream('ok')))
+    const dropped = () =>
+      new Response(new ReadableStream({ pull: (controller) => controller.error(new TypeError('socket hang up')) }), {
+        headers: { 'content-type': 'text/event-stream' },
+      })
+    fetchMock.mockImplementation(async (_url, init) =>
+      (init!.headers as Record<string, string>).authorization === `Bearer ${KEY}` ? dropped() : textStream('ok'),
+    )
     const result = await run(h, { model: { endpointId, modelId: 'm1' } })
     expect(result.events.at(-1)).toMatchObject({ kind: 'end', status: 'completed' })
-    expect(fetchMock.mock.calls.map(([, init]) => (init!.headers as Record<string, string>).authorization)).toEqual([`Bearer ${KEY}`, `Bearer ${SECOND}`])
+    expect(fetchMock.mock.calls.map(([, init]) => (init!.headers as Record<string, string>).authorization)).toEqual([
+      `Bearer ${KEY}`,
+      `Bearer ${SECOND}`,
+    ])
     const { body } = await h.json<ProviderDto[]>('user-a', 'GET', '/providers')
     expect(body[0]!.endpoints[0]!.keys[0]).toMatchObject({ exhaustedUntil: null })
+  })
+
+  it('persists authoritative owner-scoped snapshots without retaining prompt or credentials', async () => {
+    const h = await createHarness()
+    const { endpointId } = await saveProvider(h)
+    fetchMock.mockImplementation(async () => textStream('Answer'))
+    const result = await run(h, { model: { endpointId, modelId: 'm1' }, input: 'private prompt marker' })
+    const accepted = result.events[0]!
+    const snapshot = await h.json('user-a', 'GET', `/runs/${accepted.runId}`)
+    expect(snapshot.status).toBe(200)
+    expect(snapshot.body).toMatchObject({
+      runId: accepted.runId,
+      conversationId: accepted.conversationId,
+      turnId: accepted.turnId,
+      status: 'completed',
+      cancelRequested: false,
+    })
+    expect(JSON.stringify(snapshot.body)).not.toContain('private prompt marker')
+    expect(JSON.stringify(snapshot.body)).not.toContain(KEY)
+    expect((await h.json('user-b', 'GET', `/runs/${accepted.runId}`)).status).toBe(404)
   })
 
   it('runs writing with note context through the writing role fallback and stores nothing', async () => {

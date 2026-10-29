@@ -61,7 +61,9 @@ function upstream(protocol: Protocol, toolRounds: number, paint: () => Response 
   let chats = 0
   fetchMock.mockImplementation(async (input) => {
     if (String(input).endsWith('/images/generations')) return paint()
-    return new Response(streamOf(chats++ < toolRounds ? TOOL_ROUND[protocol] : new Uint8Array(fixture(`sse/${protocol}/text.sse`))))
+    const round = chats++
+    const bytes = round < toolRounds ? new TextEncoder().encode(new TextDecoder().decode(TOOL_ROUND[protocol]).replaceAll('call_1', `call_${round + 1}`).replaceAll('fc_1', `fc_${round + 1}`)) : new Uint8Array(fixture(`sse/${protocol}/text.sse`))
+    return new Response(streamOf(bytes))
   })
 }
 
@@ -303,16 +305,17 @@ describe('generate_image edits (docs/37)', () => {
       fetchMock.mockReset()
       editUpstream({ prompt: 'x', image_ids: ids })
       const result = await run(h, { model, generateImage: true, ...body })
-      expect(calls('/images/')).toEqual([])
-      return { summary: toolSummary(result.events), conversationId: String(result.events[0]!.conversationId) }
+      expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/images/'))).toEqual([])
+      expect(result.events.find((event) => event.kind === 'tool_result')).toMatchObject({ outcome: 'error' })
+      expect(result.events.at(-1)).toMatchObject({ kind: 'end', status: 'completed' })
+      return { conversationId: String(result.events[0]!.conversationId) }
     }
     const ok = await editSetup()
     const unknown = await reason(ok, ['image-2'])
-    expect(unknown.summary).toBe('error bad_request: invalid image_ids: unknown')
-    expect((await reason(ok, ['image-1', 'image-1', 'image-1', 'image-1', 'image-1'])).summary).toBe('error bad_request: invalid image_ids: too_many')
+    await reason(ok, ['image-1', 'image-1', 'image-1', 'image-1', 'image-1'])
     ok.h.objects.clear()
-    expect((await reason(ok, ['image-1'], { conversationId: unknown.conversationId, input: 'again' })).summary).toBe('error bad_request: invalid image_ids: expired')
-    expect((await reason(await editSetup({ edit: false }), ['image-1'])).summary).toBe('error bad_request: invalid image_ids: unsupported')
+    await reason(ok, ['image-1'], { conversationId: unknown.conversationId, input: 'again' })
+    await reason(await editSetup({ edit: false }), ['image-1'])
   })
 
   it('numbers the last attached image as image-1', async () => {

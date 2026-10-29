@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest'
+import { expect, test, vi } from 'vitest'
 import type { Conversation, RunEvent, RunRequest } from '@ouraihub/aether-ui/ports'
 import { MemoryTabBus } from '../tab-bus'
 import { HttpTransport } from '../transport'
@@ -27,9 +27,10 @@ function ports(handler: (request: Request) => Response | Promise<Response>) {
     timers: { setTimeout: () => 0, clearTimeout() {}, setInterval: () => 0, clearInterval() {} },
     logger: { debug() {}, info() {}, warn() {}, error() {} },
   })
-  const kit = createHttpKitPorts(transport)
-  if (!kit.providers || !kit.chat?.history) throw new Error('missing ports')
-  return { providers: kit.providers, chat: kit.chat, history: kit.chat.history, requests }
+  const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+  const kit = createHttpKitPorts(transport, logger)
+  if (!kit.providers || !kit.chat || !kit.conversations) throw new Error('missing ports')
+  return { providers: kit.providers, chat: kit.chat, history: kit.conversations, requests, logger }
 }
 
 function stream(chunks: readonly (string | Uint8Array)[], close = true): Response {
@@ -98,7 +99,7 @@ test('run resolves on accepted, then delivers events in order with one end', asy
     stream([bytes.slice(0, split), bytes.slice(split), 'data: {"kind":"text_delta","text":"late"}\n\n', end]),
   )
   const { events, onEvent, ended } = collect()
-  await expect(chat.run(request, onEvent)).resolves.toEqual({ runId: 'r1', conversationId: 'c1', turnId: 't1' })
+  await expect(chat.start(request, onEvent)).resolves.toEqual({ runId: 'r1', conversationId: 'c1', turnId: 't1' })
   await ended
   expect(events).toEqual([
     { kind: 'text_delta', text: '汉字' },
@@ -110,10 +111,14 @@ test('run resolves on accepted, then delivers events in order with one end', asy
 })
 
 test('abort after acceptance emits one cancelled end and nothing later', async () => {
-  const { chat } = ports(() => stream([accepted, 'data: {"kind":"round_start","round":1}\n\n'], false))
+  const { chat } = ports((input) =>
+    input.method === 'GET'
+      ? Response.json({ runId: 'r1', conversationId: 'c1', turnId: 't1', status: 'cancelled', cancelRequested: true })
+      : stream([accepted, 'data: {"kind":"round_start","round":1}\n\n'], false),
+  )
   const controller = new AbortController()
   const { events, onEvent, started, ended } = collect()
-  await chat.run(request, onEvent, { signal: controller.signal })
+  await chat.start(request, onEvent, { signal: controller.signal })
   await started
   controller.abort()
   await ended
@@ -123,23 +128,27 @@ test('abort after acceptance emits one cancelled end and nothing later', async (
   ])
 })
 
-test('truncated stream after acceptance emits one failed network end', async () => {
-  const { chat } = ports(() => stream([accepted, 'data: {"kind":"text_delta","text":"a"}\n\n']))
+test('truncated stream recovers only an authoritative terminal snapshot', async () => {
+  const { chat } = ports((input) =>
+    input.method === 'GET'
+      ? Response.json({ runId: 'r1', conversationId: 'c1', turnId: 't1', status: 'completed', cancelRequested: false })
+      : stream([accepted, 'data: {"kind":"text_delta","text":"a"}\n\n']),
+  )
   const { events, onEvent, ended } = collect()
-  await chat.run(request, onEvent)
+  await chat.start(request, onEvent)
   await ended
   expect(events).toEqual([
     { kind: 'text_delta', text: 'a' },
-    { kind: 'end', status: 'failed', error: { code: 'network', message: 'Run stream ended without end' } },
+    { kind: 'end', status: 'completed' },
   ])
 })
 
 test('failures before acceptance reject and emit nothing', async () => {
   const { events, onEvent } = collect()
   const refused = ports(() => Response.json({ error: { code: 'needs_config', message: 'no model' } }, { status: 400 }))
-  await expect(refused.chat.run(request, onEvent)).rejects.toMatchObject({ code: 'needs_config' })
+  await expect(refused.chat.start(request, onEvent)).rejects.toMatchObject({ code: 'needs_config' })
   const empty = ports(() => stream([]))
-  await expect(empty.chat.run(request, onEvent)).rejects.toMatchObject({ code: 'network' })
+  await expect(empty.chat.start(request, onEvent)).rejects.toMatchObject({ code: 'network' })
   expect(events).toEqual([])
 })
 
@@ -187,11 +196,11 @@ test('history actions forward exact IDs, methods and edit CAS body', async () =>
 test('run forwards retry, model, selected ancestry and translation fields unchanged', async () => {
   const { chat, requests } = ports(() => stream([accepted, 'data: {"kind":"end","status":"completed"}\n\n']))
   const retry = { ...request, conversationId: 'c1', retryTurnId: 't1', model: { endpointId: 'e2', modelId: 'm2' } }
-  await chat.run(retry, () => {})
+  await chat.start(retry, () => {})
   const translation = { ...request, conversationId: 'c1', translateTurnId: 't1', targetLanguage: 'French' }
-  await chat.run(translation, () => {})
+  await chat.start(translation, () => {})
   const continuation = { ...request, conversationId: 'c1', replyToId: 't1' }
-  await chat.run(continuation, () => {})
+  await chat.start(continuation, () => {})
   await expect(requests[0]!.json()).resolves.toEqual(retry)
   await expect(requests[1]!.json()).resolves.toEqual(translation)
   await expect(requests[2]!.json()).resolves.toEqual(continuation)
@@ -210,9 +219,71 @@ test('HTTP ports preserve permission mode and surface unsupported-mode rejection
       { status: 400 },
     ),
   )
-  await expect(chat.run({ ...request, permissionMode: 'full_access' }, () => {})).rejects.toMatchObject({
+  await expect(chat.start({ ...request, permissionMode: 'full_access' }, () => {})).rejects.toMatchObject({
     code: 'bad_request',
     details: { field: 'permission_mode', reason: 'not_allowed' },
   })
   await expect(requests[0]!.json()).resolves.toMatchObject({ permissionMode: 'full_access' })
+})
+
+test('disconnection with a running snapshot reports unknown transport failure, never completion or cancellation', async () => {
+  const { chat, logger, requests } = ports((input) =>
+    input.method === 'GET'
+      ? Response.json({ runId: 'r1', conversationId: 'c1', turnId: 't1', status: 'running', cancelRequested: false })
+      : stream([accepted]),
+  )
+  const { events, onEvent, ended } = collect()
+  await chat.start(request, onEvent)
+  await vi.waitFor(() => expect(logger.warn).toHaveBeenCalledWith('ai.run.stream.disconnected', { runId: 'r1' }))
+  await ended
+  expect(events).toEqual([
+    {
+      kind: 'end',
+      status: 'failed',
+      error: {
+        code: 'network',
+        message: 'Run outcome unknown; reopen the conversation',
+        details: { reason: 'outcome_unknown' },
+      },
+    },
+  ])
+  expect(requests.filter((request) => request.method === 'POST')).toHaveLength(1)
+  expect(requests.filter((request) => request.method === 'GET')).toHaveLength(1)
+})
+
+test('explicit cancel aborts the attached stream and recovers its server terminal state', async () => {
+  const { chat, requests } = ports((input) =>
+    input.method === 'GET'
+      ? Response.json({ runId: 'r1', conversationId: 'c1', turnId: 't1', status: 'cancelled', cancelRequested: true })
+      : stream([accepted], false),
+  )
+  const { events, onEvent, ended } = collect()
+  await chat.start(request, onEvent)
+  await chat.cancel('r1')
+  await ended
+  expect(events).toEqual([{ kind: 'end', status: 'cancelled' }])
+  expect(new URL(requests[1]!.url).pathname).toBe('/api/ai/kit/runs/r1')
+  await expect(chat.getSnapshot('r1')).resolves.toMatchObject({ status: 'cancelled', cancelRequested: true })
+})
+
+test('unavailable snapshot reports unknown without replaying the accepted request', async () => {
+  const { chat, requests } = ports((input) =>
+    input.method === 'GET'
+      ? Response.json({ error: { code: 'not_found', message: 'Missing run' } }, { status: 404 })
+      : stream([accepted]),
+  )
+  const { events, onEvent, ended } = collect()
+  await chat.start(request, onEvent)
+  await ended
+  expect(events).toEqual([
+    expect.objectContaining({
+      kind: 'end',
+      status: 'failed',
+      error: expect.objectContaining({
+        code: 'network',
+        details: { reason: 'outcome_unknown' },
+      }),
+    }),
+  ])
+  expect(requests.map((request) => request.method)).toEqual(['POST', 'GET'])
 })

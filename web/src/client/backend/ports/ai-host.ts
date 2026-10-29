@@ -1,10 +1,11 @@
 import { BackendError, type AiHostPort } from '@app/backend'
+import type { Logger } from '@app/log/logger'
 import type { HttpTransport } from '../transport'
 import { createHttpKitPorts } from './kit'
 
-export function createHttpAiHostPort(transport: Pick<HttpTransport, 'json' | 'raw'>): AiHostPort {
+export function createHttpAiHostPort(transport: Pick<HttpTransport, 'json' | 'raw'>, logger: Logger): AiHostPort {
   return {
-    kit: createHttpKitPorts(transport),
+    kit: createHttpKitPorts(transport, logger),
     roles: (options) => transport.json({ path: '/api/ai/roles', signal: options?.signal }),
     setRole: (role, binding, options) =>
       transport.json({ method: 'PUT', path: '/api/ai/roles', body: { role, binding }, signal: options?.signal }),

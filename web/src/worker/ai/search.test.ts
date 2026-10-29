@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { parseMcp, parseSearchResponse } from './search'
+import { parseMcp, parseSearchResponse } from '@ouraihub/aether-core/search/vendor'
+import { defaultPreferences, processHits } from '@ouraihub/aether-core/search'
 
 const hit = (title: string, url: string, field: string, value: unknown) => JSON.stringify({ [field]: [{ title, url, ...(typeof value === 'object' ? value : { content: value }) }] })
 
@@ -17,22 +18,22 @@ describe('web search response parsing', () => {
       ['jina', JSON.stringify({ data: [{ title: 'J', url: 'https://example.com/j', content: 'j' }] })],
       ['firecrawl', JSON.stringify({ data: { web: [{ title: 'F', url: 'https://example.com/f', markdown: 'f' }] } })],
     ]
-    for (const [provider, body] of fixtures) expect(parseSearchResponse(provider, provider, body, 5)[0]?.url).toMatch(/^https:\/\/example\.com\//)
+    for (const [provider, body] of fixtures) expect(processHits(parseSearchResponse(provider, body), defaultPreferences())[0]?.url).toMatch(/^https:\/\/example\.com\//)
   })
 
   it('normalizes nested fields, skips invalid links, and rejects malformed shapes', () => {
-    expect(parseSearchResponse('bocha', 'Bocha', JSON.stringify({ data: { webPages: { value: [{ name: '标题', url: 'https://example.com/a', summary: '摘要' }, { name: 'bad', url: 'javascript:bad' }] } } }), 5)).toEqual([{ title: '标题', url: 'https://example.com/a', snippet: '摘要' }])
-    expect(parseSearchResponse('brave', 'Brave', JSON.stringify({ web: { results: [{ title: 'B', url: 'https://example.com/b', description: 'D' }] } }), 5)).toEqual([{ title: 'B', url: 'https://example.com/b', snippet: 'D' }])
-    expect(parseSearchResponse('parallel', 'Parallel', JSON.stringify({ results: [{ title: 'P', url: 'https://example.com/p', excerpts: ['one', 'two'] }] }), 5)).toEqual([{ title: 'P', url: 'https://example.com/p', snippet: 'one two' }])
-    expect(() => parseSearchResponse('tavily', 'Tavily', '{"unexpected":true}', 5)).toThrow(/invalid result shape/)
+    expect(processHits(parseSearchResponse('bocha', JSON.stringify({ data: { webPages: { value: [{ name: '标题', url: 'https://example.com/a', summary: '摘要' }, { name: 'bad', url: 'javascript:bad' }] } } })), defaultPreferences())).toEqual([{ title: '标题', url: 'https://example.com/a', snippet: '摘要' }])
+    expect(parseSearchResponse('brave', JSON.stringify({ web: { results: [{ title: 'B', url: 'https://example.com/b', description: 'D' }] } }))).toEqual([{ title: 'B', url: 'https://example.com/b', snippet: 'D' }])
+    expect(parseSearchResponse('parallel', JSON.stringify({ results: [{ title: 'P', url: 'https://example.com/p', excerpts: ['one', 'two'] }] }))).toEqual([{ title: 'P', url: 'https://example.com/p', snippet: 'one\ntwo' }])
+    expect(() => parseSearchResponse('tavily', '{"unexpected":true}')).toThrow(/invalid result shape/)
   })
 
   it('parses multiline Exa MCP SSE', () => {
-    expect(parseMcp('data: {"result":{"content":[{"text":"Title: T\\nURL: https://example.com/t\\nText: body"}]}}\n\n', 5)).toEqual([{ title: 'T', url: 'https://example.com/t', snippet: 'body' }])
+    expect(parseMcp('data: {"result":{"content":[{"text":"Title: T\\nURL: https://example.com/t\\nText: body"}]}}\n\n')).toEqual([{ title: 'T', url: 'https://example.com/t', snippet: 'body' }])
   })
   it('preserves Exa MCP highlights and paragraph breaks between results', () => {
     const body = `data: ${JSON.stringify({ result: { content: [{ text: 'Title: First\nURL: https://example.com/first\nHighlights:\nIntro\n\n# Body\nDetails\n\nTitle: Second\nURL: https://example.com/second\nText: Last' }] } })}\n\n`
-    expect(parseMcp(body, 5)).toEqual([
+    expect(parseMcp(body)).toEqual([
       { title: 'First', url: 'https://example.com/first', snippet: 'Intro\n\n# Body\nDetails' },
       { title: 'Second', url: 'https://example.com/second', snippet: 'Last' },
     ])
@@ -40,11 +41,11 @@ describe('web search response parsing', () => {
   it('preserves response-budgeted snippets and skips malformed entries without dropping later results', () => {
     const snippet = '😀'.repeat(1200)
     const body = JSON.stringify({ results: [null, { title: 'First', url: 'https://example.com/first', content: snippet }, { title: 'duplicate', url: 'https://example.com/first', content: 'ignored' }, { title: 'Second', url: 'https://example.com/second', content: 'second' }] })
-    expect(parseSearchResponse('tavily', 'Tavily', body, 5)).toEqual([
+    expect(processHits(parseSearchResponse('tavily', body), defaultPreferences())).toEqual([
       { title: 'First', url: 'https://example.com/first', snippet },
       { title: 'Second', url: 'https://example.com/second', snippet: 'second' },
     ])
     const mcp = `data: ${JSON.stringify({ result: { content: [{ text: `Title: First\nURL: https://example.com/first\nText: ${snippet}` }] } })}\n\n`
-    expect(parseMcp(mcp, 5)[0]?.snippet).toBe(snippet)
+    expect(parseMcp(mcp)[0]?.snippet).toBe(snippet)
   })
 })

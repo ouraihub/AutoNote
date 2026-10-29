@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
-import type { RunEvent } from '@ouraihub/aether-ui/ports'
+import { KitFailure as CoreFailure } from '@ouraihub/aether-core/error'
 import type { AppBindings } from '../env'
 import { ApiError, errorResponse } from '../lib/errors'
 import { JSON_BODY_LIMITS, readJson } from '../lib/request'
@@ -8,7 +8,7 @@ import { requireAuth } from '../middleware/auth'
 import { deleteConversation, editTurn, forkConversation, listConversations, loadConversation, removeTurn, renameConversation, selectTurn, toWire } from '../ai/history'
 import { HTTP_STATUS, KitFailure, acquireSlot, checkLength, parseBody } from '../ai/kit'
 import { EndpointKeySaveSchema, ModelFilterSchema, ProbeTargetSchema, ProviderSaveSchema, listProviders, modelOptions, probe, removeKey as removeEndpointKey, removeProvider, revealKey, saveKey as saveEndpointKey, saveProvider, setProviderEnabled } from '../ai/providers'
-import { RunRequestSchema, executeRun, prepareRun } from '../ai/runs'
+import { RunRequestSchema, executeRun, prepareRun, getRunSnapshot, saveRunSnapshot } from '../ai/runs'
 import { forgetImages, readImage } from '../ai/images'
 import { check as checkSearch, fetchPage, getSettings as searchSettings, reveal as revealSearch, saveProvider as saveSearchProvider, search as searchWeb, setDefault as setSearchDefault, savePreferences, saveKey, removeKey } from '../ai/search'
 import { z } from 'zod'
@@ -18,9 +18,10 @@ const TurnSchema = z.strictObject({ turnId: z.string().trim().min(1).max(128) })
 const EditSchema = z.strictObject({ text: z.string(), expectedText: z.string() })
 
 export const aiKitRoutes = new Hono<AppBindings>()
+const activeRuns = new Map<string, { signal: AbortSignal; completion: Promise<void> }>()
 
 aiKitRoutes.onError((error, c) =>
-  error instanceof KitFailure
+  error instanceof CoreFailure
     ? c.json({ error: error.toJSON() }, HTTP_STATUS[error.code] as ContentfulStatusCode)
     : errorResponse(c, error),
 )
@@ -148,16 +149,25 @@ aiKitRoutes.post('/probe', async (c) => {
   }
 })
 
+aiKitRoutes.get('/runs/:id', async (c) => {
+  const userId = c.get('userId'), runId = c.req.param('id')
+  const active = activeRuns.get(JSON.stringify([userId, runId]))
+  if (active?.signal.aborted) await active.completion
+  return c.json(await getRunSnapshot(c.env, userId, runId))
+})
+
 aiKitRoutes.post('/runs', async (c) => {
   const req = parseBody(RunRequestSchema, await readJson(c, JSON_BODY_LIMITS.run))
   const userId = c.get('userId')
   const release = acquireSlot(userId)
-  const prepared = await prepareRun(c.env, userId, req).catch((error: unknown) => {
+  const prepared = await prepareRun(c.env, userId, req).then(async (run) => { await saveRunSnapshot(c.env, userId, run); return run }).catch((error: unknown) => {
     release()
     throw error
   })
   const cancel = new AbortController()
-  c.req.raw.signal.addEventListener('abort', () => cancel.abort(), { once: true })
+  const abort = (): void => cancel.abort()
+  c.req.raw.signal.addEventListener('abort', abort, { once: true })
+  if (c.req.raw.signal.aborted) abort()
   const encoder = new TextEncoder()
   let open = true
   let controller: ReadableStreamDefaultController<Uint8Array>
@@ -180,13 +190,14 @@ aiKitRoutes.post('/runs', async (c) => {
     }
   }
   send({ kind: 'accepted', runId: prepared.runId, conversationId: prepared.turn?.conversationId ?? null, turnId: prepared.turn?.turnId ?? null })
-  const task = executeRun(c.env, userId, prepared, cancel.signal, (event: RunEvent) => {
+  const task = executeRun(c.env, userId, prepared, cancel.signal, (event) => {
     send(event)
     if (event.kind === 'end' && open) {
       open = false
       controller.close()
     }
-  }).finally(release)
+  }).finally(() => { activeRuns.delete(JSON.stringify([userId, prepared.runId])); c.req.raw.signal.removeEventListener('abort', abort); release() })
+  activeRuns.set(JSON.stringify([userId, prepared.runId]), { signal: cancel.signal, completion: task })
   try {
     c.executionCtx.waitUntil(task)
   } catch {

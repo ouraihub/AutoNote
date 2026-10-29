@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### 内部调整
+
+* Aether 前后端固定到 `53b80630bdd58f22ca94d119e93586f84fbceec7`（Aether main，含 #16/#17/#19），桌面拆分运行／会话／MCP runtime，Web 复用 core 执行并保留产品存储与授权；原 `aether-core-workers.patch` 已并入上游并移除；Windows 构建与实际对话／取消／退出验收见设计文档 24 §15。
+
 ## [0.2.6](https://github.com/ouraihub/AutoNote/compare/desktop-v0.2.5...desktop-v0.2.6) (2026-10-25)
 
 

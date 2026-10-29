@@ -1,7 +1,8 @@
 import type { Conversation, ConversationSummary, Cost, EndStatus, TurnStatus, ContextUsage, ReasoningEffort } from '@ouraihub/aether-ui/ports'
 import { newId } from '../lib/id'
 import { badRequest, charCount, conflict, notFound } from './kit'
-import type { StoredMessage, Usage } from './protocol'
+import type { Message as StoredMessage } from '@ouraihub/aether-core/types'
+import type { TokenUsage as Usage } from '@ouraihub/aether-contracts'
 import type { ImageRow } from './images'
 import { copyImages, imageRefs } from './images'
 
@@ -172,7 +173,7 @@ export function translationInput(source: StoredTurn, language: string): string {
   return `Translate the following reply into ${language}. Return only the translation, preserving Markdown formatting.\n\n${text}`
 }
 
-export function trimHistory(turns: readonly StoredTurn[], maxTokens: number): StoredMessage[] {
+export function trimHistory(turns: readonly StoredTurn[], maxTokens: number): (StoredMessage & { turnId?: string })[] {
   const kept: StoredTurn[] = []
   let chars = 0
   for (const turn of [...turns].reverse()) {

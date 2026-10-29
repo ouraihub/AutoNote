@@ -64,7 +64,7 @@ flowchart TB
 - 角色（`chat`、`writing`）、写作工具栏、笔记上下文选择：AutoNote 产品逻辑（24 §2.2）。
 - 主题：一段 CSS 把 shadcn 变量（`--background`、`--primary` 等）映射到 AutoNote 的 token，不改 `aether-ui`。
 - i18n：`createI18n(locale, overrides)` 覆盖 AutoNote 文案。
-- 写作：不用 `ChatPanel`，直接调 `chat.run({ purpose: 'writing', ... })` 处理 `text_delta`（24 §6）。
+- 写作：不用 `ChatPanel`，直接调 `kit.chat.start({ purpose: 'writing', ... })` 处理 `text_delta`（24 §6）；会话操作走独立 `kit.conversations`。
 
 ## 5. 分阶段
 
@@ -72,7 +72,7 @@ flowchart TB
 | --- | --- | --- |
 | 0 | `ChatPanel` 增加 `context` 参数；`KitPorts.logs` 改为可选（已完成，§8） | Aether |
 | 1 | 整理 Aether DTO 的 JSON 样例和 `RunEvent` 事件序列，作为 Worker 对照测试数据；Worker 实现 providers、chat run（不含工具）、history；新增 `HttpKitPorts`；D1 只追加迁移 | Aether + AutoNote Web |
-| 2 | `packages/app` 改用 `aether-ui` 组件，两端一次切换；写作工具栏改调 `chat.run`；删除 `AiPort` 合同和桌面适配层 `commands/ai.rs`；桌面 Aether 依赖从 `997d983` 升到含 §8 改动的版本 | AutoNote 两端 |
+| 2 | `packages/app` 改用 `aether-ui` 组件，两端一次切换；写作工具栏调 `chat.start`；删除 `AiPort` 合同和桌面适配层旧命令；前后端固定同一正式 Aether SHA | AutoNote 两端 |
 | 3 | 工具调用：桌面复用 `note-mcp` 34 个工具（`KitHost::tools/call_tool`）；Web 复用 `worker/mcp/operations.ts`；Web 审批按 §6 | AutoNote 两端 |
 | 4 | MCP 客户端：桌面打开 `mcp-client` feature、创建 Store、加 capability；Web 在 Worker 实现 Streamable HTTP 客户端，安全要求见 §7 | AutoNote 两端 |
 
@@ -115,7 +115,7 @@ Worker 每个请求相互独立。审批是另一个 HTTP 请求，可能落到�
 - Cloudflare 的方案同样是「中止 + 持久化 + 恢复」，Durable Object 在其中是**存储位置**，不是让运行在内存里等待；它的待批状态能扛过请求结束和 DO 休眠。AutoNote 用 D1 存这份状态即可，不需要为此引入每次运行一个 DO。
 - 什么时候才值得用 DO：多设备同时观看同一次运行，或断线后服务端仍要继续跑。AutoNote 两者都不需要。
 - Web 用户常在手机上使用、经常锁屏，项目又频繁部署，无状态续跑更稳。
-- 桌面端不用改，Aether 的 `ChatPort` 合同不用改；变化只在 Worker 和 `HttpKitPorts`。
+- 本节是尚未交付的审批续跑设计，不属于本次契约升级；当前运行端口为 `RunClient`，会话端口为 `ConversationClient`，不新增 Web 审批或 MCP 客户端产品能力。
 
 ### 6.4 流程与规则
 
@@ -252,7 +252,7 @@ sequenceDiagram
 - `AppRoot` 在有 `aiHost` 时调用 `provideKitContext`：i18n 跟随 AutoNote 语言，notify/confirm 走 AutoNote 通知，logger 用 AutoNote 日志。
 - 设置：aether `ProvidersSettings` + AutoNote 角色区（aether `ModelSelect`）+ 显示密钥区（Web 先输当前密码）。
 - 对话：aether `ChatPanel`，`scope` 为 `note:<id>`（无笔记时 `autonote`），`context` 为 `{kind:'autonote-note', id, label}`；按 scope 记住上次会话（AutoNote prefs `ai.chat.last:<scope>`）。
-- 写作：保留 AutoNote 工具栏，改调 `kit.chat.run({ purpose: 'writing', ... })`，输入 JSON 与桌面 `validate_writing` 一致；不写会话历史。
+- 写作：保留 AutoNote 工具栏，当前调 `kit.chat.start({ purpose: 'writing', ... })`，输入 JSON 与桌面 `validate_writing` 一致；不写会话历史。
 - 样式：AutoNote `ui.css` 引入 `@ouraihub/aether-ui/tokens.css` 并 `@source` aether 源码，不引入 `styles.css`；颜色沿用 AutoNote 的 `@theme inline` 映射，暗色变体匹配 `data-theme`。
 - Vite：`optimizeDeps.exclude: ['@ouraihub/aether-ui']`（Web、桌面）。aether-ui 以源码发布，Vite 预打包解析不了其中的 `.svelte.ts`。
 
