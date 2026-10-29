@@ -10,6 +10,27 @@
 
 * Aether 前后端固定到 `53b80630bdd58f22ca94d119e93586f84fbceec7`（Aether main，含 #16/#17/#19），桌面拆分运行／会话／MCP runtime，Web 复用 core 执行并保留产品存储与授权；原 `aether-core-workers.patch` 已并入上游并移除；Windows 构建与实际对话／取消／退出验收见设计文档 24 §15。
 
+## [0.2.8](https://github.com/ouraihub/AutoNote/compare/desktop-v0.2.7...desktop-v0.2.8) (2026-10-28)
+
+
+### 新功能
+
+* **desktop:** 接入技能脚本、MCP 客户端及权限模式 ([86602bf](https://github.com/ouraihub/AutoNote/commit/86602bf429a32bdfb74f20ebd5c9f4609f8bf632))
+* **desktop:** 接入技能脚本与 MCP 客户端及权限模式 ([e62c638](https://github.com/ouraihub/AutoNote/commit/e62c638e076edc97c57130043e11e3ac39e741f7))
+
+
+### 问题修复
+
+* **desktop:** 技能脚本不得放宽既有权限拒绝 ([a29b7e8](https://github.com/ouraihub/AutoNote/commit/a29b7e8dd338e89c6bb32c1ab9885a7f775863fe))
+
+## [0.2.7](https://github.com/ouraihub/AutoNote/compare/desktop-v0.2.6...desktop-v0.2.7) (2026-10-26)
+
+
+### 新功能
+
+* **relay:** GitHub 临时密钥 6 小时有效，并发超限提示重试 ([653619a](https://github.com/ouraihub/AutoNote/commit/653619a6a0be3076073c3239ac9bb164deb85eaf))
+* **relay:** GitHub 临时密钥有效 6 小时，并发超限时提示稍后重试 ([02d9829](https://github.com/ouraihub/AutoNote/commit/02d9829edd0fbd63531cbe238cd0e0268a0212c8))
+
 ## [0.2.6](https://github.com/ouraihub/AutoNote/compare/desktop-v0.2.5...desktop-v0.2.6) (2026-10-25)
 
 
