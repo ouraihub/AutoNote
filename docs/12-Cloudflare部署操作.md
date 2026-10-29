@@ -16,7 +16,7 @@ Web 版部署为一个 Cloudflare Worker（`autonote`），同时托管前端静
 | `ouraihub.com` 在该账号下 | 自定义域名 | 必需 | 必需 |
 | Account ID | 指定部署到哪个账号 | 用 `wrangler login` 时不需要 | Secret `CLOUDFLARE_ACCOUNT_ID` |
 | API Token | 部署权限 | 用 `wrangler login` 时不需要 | Secret `CLOUDFLARE_API_TOKEN` |
-| 本机环境 | 运行构建 | Node 24、pnpm、仓库代码 | 不需要 |
+| 本机环境 | 运行构建 | Node LTS 26.13.0、pnpm 12.16.1、仓库代码 | 不需要 |
 
 Worker 本身不需要任何 secret：数据库表由 Worker 启动时自建（`web/src/worker/db/schema.ts`），凭据加密密钥存在 `CREDENTIAL_VAULT` Durable Object 里。
 
@@ -69,7 +69,7 @@ Cloudflare 控制台 → 左侧 **Workers 和 Pages** → 右侧栏 **账户 ID*
 
 ### 3.1 准备（你自己做，一次即可）
 
-1. 本机安装 Node 24 和 pnpm（版本按根 `package.json` 的 `packageManager`），克隆仓库。
+1. 本机安装 Node LTS（精确版本见根 `.node-version`）和 pnpm（精确版本见根 `package.json` 的 `packageManager`），克隆仓库；`pnpm install` 会按 `devEngines.runtime` 下载项目固定 Node，桌面与 Web 脚本使用相同运行时。
 2. 在**你自己的终端**登录 Cloudflare，二选一：
 
    ```bash

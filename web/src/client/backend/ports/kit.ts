@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import type { Logger } from '@app/log/logger'
+import { validateRunEvent, validateRunSnapshot } from '@ouraihub/aether-contracts'
 import { BackendError } from '@app/backend/errors'
 import { KitClientError } from '@ouraihub/aether-ui/ports'
 import type {
@@ -12,6 +14,7 @@ import type {
   Provider,
   RunAccepted,
   RunEvent,
+  RunSnapshot,
   SearchSettingsDto,
   SearchResult,
   SearchPage,
@@ -44,7 +47,6 @@ const KitCode = z.enum(KIT_CODES)
 const ErrorBody = z.object({
   error: z.object({ code: KitCode, message: z.string(), details: z.record(z.string(), z.unknown()).optional() }),
 })
-const Frame = z.looseObject({ kind: z.string() })
 const Accepted = z.object({
   kind: z.literal('accepted'),
   runId: z.string(),
@@ -108,52 +110,87 @@ async function run(
   request: unknown,
   onEvent: (event: RunEvent) => void,
   signal: AbortSignal | undefined,
+  active: Map<string, AbortController>,
+  logger: Logger,
 ): Promise<RunAccepted> {
   if (signal?.aborted) throw kitError('cancelled', 'Request cancelled')
-  const response = await send(transport, { method: 'POST', path: `${BASE}/runs`, body: request, signal })
+  const controller = new AbortController()
+  const lifetime = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
+  const response = await send(transport, { method: 'POST', path: `${BASE}/runs`, body: request, signal: lifetime })
   if (!response.body) throw kitError('internal', 'Expected event stream')
-  const frames = readSseData(response.body, signal)[Symbol.asyncIterator]()
-  let first: IteratorResult<string, void>
-  try {
-    first = await frames.next()
-  } catch {
-    throw signal?.aborted ? kitError('cancelled', 'Request cancelled') : kitError('network', 'Run stream failed')
-  }
-  if (signal?.aborted) throw kitError('cancelled', 'Request cancelled')
-  if (first.done) throw kitError('network', 'Run stream ended before acceptance')
+  const frames = readSseData(response.body, lifetime)[Symbol.asyncIterator]()
   let accepted: z.infer<typeof Accepted>
   try {
+    const first = await frames.next()
+    if (first.done) throw kitError('network', 'Run stream ended before acceptance')
     accepted = Accepted.parse(JSON.parse(first.value))
-  } catch {
+  } catch (error) {
     await frames.return?.()
-    throw kitError('internal', 'Invalid event stream')
+    throw lifetime.aborted ? kitError('cancelled', 'Request cancelled') : toKitError(error)
   }
-  const pump = async (): Promise<RunEvent | undefined> => {
+  const { runId, conversationId, turnId } = accepted
+  active.set(runId, controller)
+  void (async () => {
+    let ended = false
     try {
-      for (let next = await frames.next(); !next.done && !signal?.aborted; next = await frames.next()) {
-        const event = Frame.parse(JSON.parse(next.value)) as RunEvent
-        if (event.kind === 'end') return event
+      for await (const frame of { [Symbol.asyncIterator]: () => frames }) {
+        const event: unknown = JSON.parse(frame)
+        if (!validateRunEvent(event)) throw kitError('upstream', 'Invalid run event')
         onEvent(event)
+        if (event.kind === 'end') {
+          ended = true
+          break
+        }
       }
-      return undefined
+      if (!ended) throw kitError('network', 'Run stream disconnected')
+    } catch {
+      // A disconnected transport is not an authoritative run outcome.
+      try {
+        const snapshot = await getSnapshot(transport, runId)
+        if (snapshot.status !== 'running') {
+          ended = true
+          onEvent({
+            kind: 'end',
+            status: snapshot.status,
+            ...(snapshot.error ? { error: snapshot.error } : {}),
+            ...(snapshot.exhausted === undefined ? {} : { exhausted: snapshot.exhausted }),
+          })
+        }
+      } catch (error) {
+        logger.warn('ai.run.snapshot.failed', { runId, code: toKitError(error).code })
+      }
+      if (!ended) {
+        logger.warn('ai.run.stream.disconnected', { runId })
+        onEvent({
+          kind: 'end',
+          status: 'failed',
+          error: {
+            code: 'network',
+            message: 'Run outcome unknown; reopen the conversation',
+            details: { reason: 'outcome_unknown' },
+          },
+        })
+      }
     } finally {
-      await frames.return?.()
+      active.delete(runId)
+      try {
+        await frames.return?.()
+      } catch (error) {
+        logger.warn('ai.run.stream.cleanup.failed', { runId, code: toKitError(error).code })
+      }
     }
-  }
-  void pump()
-    .catch(() => undefined)
-    .then((end) =>
-      onEvent(
-        end ??
-          (signal?.aborted
-            ? { kind: 'end', status: 'cancelled' }
-            : { kind: 'end', status: 'failed', error: { code: 'network', message: 'Run stream ended without end' } }),
-      ),
-    )
-  return { runId: accepted.runId, conversationId: accepted.conversationId, turnId: accepted.turnId }
+  })()
+  return { runId, conversationId, turnId }
 }
 
-export function createHttpKitPorts(transport: Transport): KitPorts {
+async function getSnapshot(transport: Transport, runId: string): Promise<RunSnapshot> {
+  const value = await call<unknown>(transport, { path: `${BASE}/runs/${encodeURIComponent(runId)}` })
+  if (!validateRunSnapshot(value)) throw kitError('upstream', 'Invalid run snapshot')
+  return value
+}
+
+export function createHttpKitPorts(transport: Transport, logger: Logger): KitPorts {
+  const active = new Map<string, AbortController>()
   return {
     search: {
       revealNeedsPassword: true,
@@ -275,44 +312,56 @@ export function createHttpKitPorts(transport: Transport): KitPorts {
             }),
     },
     chat: {
-      run: (request, onEvent, options) => run(transport, request, onEvent, options?.signal),
-      approve: () => Promise.reject(kitError('unsupported', 'Tool approval is not available on the web')),
-      history: {
-        list: (scope) => call<ConversationSummary[]>(transport, { path: `${BASE}/conversations`, query: { scope } }),
-        get: (id) => call<Conversation>(transport, { path: `${BASE}/conversations/${encodeURIComponent(id)}` }),
-        remove: async (id) => {
-          await call<unknown>(transport, { method: 'DELETE', path: `${BASE}/conversations/${encodeURIComponent(id)}` })
-        },
-        rename: (id, title) =>
-          call<ConversationSummary>(transport, {
-            method: 'PATCH',
-            path: `${BASE}/conversations/${encodeURIComponent(id)}`,
-            body: { title },
-          }),
-        editTurn: (id, turnId, text, expectedText) =>
-          call<Conversation>(transport, {
-            method: 'PATCH',
-            path: `${BASE}/conversations/${encodeURIComponent(id)}/turns/${encodeURIComponent(turnId)}`,
-            body: { text, expectedText },
-          }),
-        removeTurn: (id, turnId) =>
-          call<Conversation>(transport, {
-            method: 'DELETE',
-            path: `${BASE}/conversations/${encodeURIComponent(id)}/turns/${encodeURIComponent(turnId)}`,
-          }),
-        fork: (id, turnId) =>
-          call<Conversation>(transport, {
-            method: 'POST',
-            path: `${BASE}/conversations/${encodeURIComponent(id)}/fork`,
-            body: { turnId },
-          }),
-        selectTurn: (id, turnId) =>
-          call<Conversation>(transport, {
-            method: 'PUT',
-            path: `${BASE}/conversations/${encodeURIComponent(id)}/selection`,
-            body: { turnId },
-          }),
+      start: (request, onEvent, options) => run(transport, request, onEvent, options?.signal, active, logger),
+      cancel: async (runId) => {
+        // The server aborts the run and waits for its terminal snapshot before we drop the stream,
+        // so the stream's fallback snapshot read sees the final state instead of `running`.
+        const snapshot = await call<unknown>(transport, {
+          method: 'POST',
+          path: `${BASE}/runs/${encodeURIComponent(runId)}/cancel`,
+        })
+        if (!validateRunSnapshot(snapshot)) throw kitError('upstream', 'Invalid run snapshot')
+        active.get(runId)?.abort()
+        if (snapshot.status === 'running') throw kitError('conflict', 'Run is not attached to this server')
       },
+      getSnapshot: (runId) => getSnapshot(transport, runId),
+      approve: () => Promise.reject(kitError('unsupported', 'Tool approval is not available on the web')),
+    },
+    conversations: {
+      list: (scope) => call<ConversationSummary[]>(transport, { path: `${BASE}/conversations`, query: { scope } }),
+      get: (id) => call<Conversation>(transport, { path: `${BASE}/conversations/${encodeURIComponent(id)}` }),
+      remove: async (id) => {
+        await call<unknown>(transport, { method: 'DELETE', path: `${BASE}/conversations/${encodeURIComponent(id)}` })
+      },
+      rename: (id, title) =>
+        call<ConversationSummary>(transport, {
+          method: 'PATCH',
+          path: `${BASE}/conversations/${encodeURIComponent(id)}`,
+          body: { title },
+        }),
+      editTurn: (id, turnId, text, expectedText) =>
+        call<Conversation>(transport, {
+          method: 'PATCH',
+          path: `${BASE}/conversations/${encodeURIComponent(id)}/turns/${encodeURIComponent(turnId)}`,
+          body: { text, expectedText },
+        }),
+      removeTurn: (id, turnId) =>
+        call<Conversation>(transport, {
+          method: 'DELETE',
+          path: `${BASE}/conversations/${encodeURIComponent(id)}/turns/${encodeURIComponent(turnId)}`,
+        }),
+      fork: (id, turnId) =>
+        call<Conversation>(transport, {
+          method: 'POST',
+          path: `${BASE}/conversations/${encodeURIComponent(id)}/fork`,
+          body: { turnId },
+        }),
+      selectTurn: (id, turnId) =>
+        call<Conversation>(transport, {
+          method: 'PUT',
+          path: `${BASE}/conversations/${encodeURIComponent(id)}/selection`,
+          body: { turnId },
+        }),
     },
   }
 }

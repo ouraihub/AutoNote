@@ -3,7 +3,7 @@ import type { Protocol } from '@ouraihub/aether-ui/ports'
 import { addKey, chatModel, createHarness, fixture, frames } from './support/ai-kit-harness'
 import { initializeDatabase } from '../src/worker/db/schema'
 import type { Env } from '../src/worker/env'
-import { inferReasoning } from '../src/worker/ai/infer'
+import { inferReasoning } from '@ouraihub/aether-core/providers'
 
 const upstream = vi.fn<typeof fetch>()
 beforeEach(() => vi.stubGlobal('fetch', upstream))

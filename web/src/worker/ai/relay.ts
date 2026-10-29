@@ -5,10 +5,8 @@ import { getMeta, setMeta } from '../db/metadata'
 import { fromBase64Url, fromUtf8, sha256Hex, toBase64Url, utf8 } from '../lib/encoding'
 import { newId } from '../lib/id'
 import { KitFailure, addressAllowed, apiBase, isLoopback, parseTarget, readUpTo, upstreamFailure } from './kit'
-import { PROTOCOL_PATH, authHeaders } from './protocol'
+import { PROTOCOL_PATH, authHeaders } from '@ouraihub/aether-core/protocol/request'
 import { requestKeys, withKeys } from './providers'
-
-// Relay for coding agents (docs/43 §4–§5): access keys, the pause switch, GitHub repos and forwarding.
 
 const KEY_RE = /^anr_[A-Za-z0-9_-]{43}$/
 const ACTIVE_KEYS_MAX = 20

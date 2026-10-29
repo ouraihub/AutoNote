@@ -234,6 +234,15 @@ describe('search HTTP settings and execution', () => {
     expect(mock).not.toHaveBeenCalled()
   })
 
+  it('preserves complete fetch content beyond 24k with compression none', async () => {
+    const h = await createHarness()
+    const content = '正文😀'.repeat(10000)
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ data: { title: 'full', content } })))
+    const page = await h.json<{ content: string }>('user-a', 'POST', '/search/fetch', { url: 'https://public.test/full' })
+    expect(page.status).toBe(200)
+    expect(page.body.content).toBe(content)
+  })
+
   it('uses the same key retry executor for fetch and blocks blacklisted URLs before networking', async () => {
     const h = await createHarness()
     await h.json('user-a', 'PUT', '/search/default', { capability: 'fetch', provider: 'jina' })

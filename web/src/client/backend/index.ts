@@ -336,7 +336,7 @@ export function createWebBackend(deps: WebBackendDeps): Backend {
     search: new HttpSearchPort({ transport }),
     files: new HttpFilesPort({ transport, ...(deps.resolveFileUrl ? { resolveFileUrl: deps.resolveFileUrl } : {}) }),
     transfer: new HttpTransferPort({ transport, logger: deps.logger, clock: deps.clock }),
-    aiHost: createHttpAiHostPort(transport),
+    aiHost: createHttpAiHostPort(transport, deps.logger),
     share: new HttpSharePort({ transport }),
     backup: new HttpBackupPort({ transport }),
     mcp: new HttpRemoteMcpPort({ transport }),

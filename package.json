@@ -3,16 +3,24 @@
   "private": true,
   "license": "LGPL-3.0-only",
   "type": "module",
-  "packageManager": "pnpm@12.5.1",
+  "packageManager": "pnpm@12.16.1",
   "engines": {
-    "node": ">=24.15.0"
+    "node": "26.13.0"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "26.13.0",
+      "onFail": "download"
+    }
   },
   "scripts": {
     "lint": "pnpm --filter autonote-desktop exec svelte-kit sync && eslint packages/app/src web/src/client desktop/src",
     "format:check": "prettier --check packages/app/src/backend packages/app/src/foundation packages/app/src/i18n packages/app/src/log packages/app/src/platform packages/app/src/root packages/app/src/theme packages/app/src/styles/{tokens,ui}.css packages/app/src/state/{merge,selectors,layout-prefs,prefs-writer,ui,notes,note-writes}*.ts packages/app/src/features/auth/*.svelte packages/app/src/features/auth/*.test.ts web/src/client/App.svelte web/src/client/main.ts web/src/client/backend web/src/client/local desktop/src/routes/+page.svelte desktop/src/lib/ipc/*.ts desktop/src/lib/log/*.svelte desktop/src/lib/log/*.ts desktop/src/lib/prefs/*.ts desktop/src/lib/settings/*.svelte eslint.config.js",
     "app:check": "pnpm run lint && pnpm run format:check && pnpm --filter @autonote/app typecheck",
     "web:dev": "pnpm --filter autonote-web dev",
-    "web:check": "pnpm run app:check && pnpm --filter autonote-web i18n:check && pnpm --filter autonote-web comments:check && pnpm --filter autonote-web typecheck && pnpm --filter @autonote/shared typecheck",
+    "deps:check": "node scripts/check-exotic-deps.mjs && node --test scripts/check-exotic-deps.test.mjs",
+    "web:check": "pnpm run deps:check && pnpm run app:check && pnpm --filter autonote-web i18n:check && pnpm --filter autonote-web comments:check && pnpm --filter autonote-web typecheck && pnpm --filter @autonote/shared typecheck",
     "web:test": "pnpm --filter @autonote/shared test && pnpm --filter autonote-web test:unit",
     "web:build": "pnpm --filter autonote-web build",
     "desktop:dev": "pnpm --filter autonote-desktop dev:app",
@@ -31,6 +39,7 @@
     "globals": "17.4.0",
     "prettier": "3.9.9",
     "prettier-plugin-svelte": "4.1.1",
-    "typescript-eslint": "8.71.0"
+    "typescript-eslint": "8.71.0",
+    "yaml": "2.9.0"
   }
 }

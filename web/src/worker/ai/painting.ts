@@ -1,7 +1,8 @@
 // `generate_image` tool (Aether docs/20, docs/37): spec and an OpenAI-compatible `/images/generations` + `/images/edits` client.
 import { KitFailure, addressAllowed, at, badRequest, cancelled, parseTarget, readUpTo, upstreamFailure } from './kit'
 import { MAX_IMAGE_BYTES, encode } from './images'
-import type { ImagePart, ToolSpec } from './protocol'
+import type { ImagePart } from '@ouraihub/aether-contracts'
+import type { ToolSpec } from '@ouraihub/aether-core/types'
 import { withKeys, type Connection } from './providers'
 
 export const GENERATE_IMAGE = 'generate_image'
@@ -12,6 +13,9 @@ const RESPONSE_BYTES = 8 * 1024 * 1024
 export const GENERATE_IMAGE_SPEC: ToolSpec = {
   name: GENERATE_IMAGE,
   description: 'Generate one image from a detailed English or Chinese prompt. Use only when the user asks for a picture, drawing, illustration or photo.',
+  approval: 'auto',
+  effect: 'other',
+  source: { kind: 'host' },
   parameters: {
     type: 'object',
     properties: {
@@ -31,6 +35,9 @@ export function generateImageSpec(choices: readonly string[]): ToolSpec {
   const { properties, ...rest } = GENERATE_IMAGE_SPEC.parameters as { properties: Record<string, unknown> }
   return {
     name: GENERATE_IMAGE,
+    approval: 'auto',
+    effect: 'other',
+    source: { kind: 'host' },
     description: `${GENERATE_IMAGE_SPEC.description} To edit or use existing images as references, pass their ids in image_ids; omit it to draw from scratch.\nImages you can pass in image_ids (newest first):\n${list}`,
     parameters: { ...rest, properties: { ...properties, image_ids: { type: 'array', items: { type: 'string', enum: ids }, minItems: 1, maxItems: 4 } } },
   }

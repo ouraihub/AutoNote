@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ModelPricing, TokenUsage } from '@ouraihub/aether-ui/ports'
 import type { AppBindings } from '../src/worker/env'
-import { cost } from '../src/worker/ai/runs'
+import { cost } from '@ouraihub/aether-core/pricing'
 import { aiRoutes } from '../src/worker/routes/ai'
 import { addKey, chatModel, createHarness, fixture, frames, streamOf, type Harness } from './support/ai-kit-harness'
 

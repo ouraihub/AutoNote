@@ -93,7 +93,7 @@
     }).catch(() => {})
     const ended = Promise.withResolvers<Extract<RunEvent, { kind: 'end' }>>()
     try {
-      await chat.run(
+      await chat.start(
         {
           purpose: 'writing',
           model: null,

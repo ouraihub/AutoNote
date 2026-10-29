@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte'
 import { afterEach, expect, test, vi } from 'vitest'
 import type { Backend } from '@app/backend'
-import { createFakePorts, KitClientError, type ChatPort } from '@ouraihub/aether-ui/ports'
+import { createFakePorts, KitClientError, type RunClient } from '@ouraihub/aether-ui/ports'
 import ChatPanelHarness from './ChatPanelHarness.svelte'
 import { EN_US_MESSAGES } from '@shared/locales/en-US'
 
@@ -13,11 +13,11 @@ function mount(kind: Backend['kind'], confirm = vi.fn(async () => true), rejecte
     omit: kind === 'desktop' ? ['mcpClient', 'mcpServer'] : ['skills', 'mcpClient', 'mcpServer'],
     providers: { modelOptions: async () => [{ ...model, label: 'Model', name: null, modelType: 'chat', supportsTools: true, reasoning: null, nativeWebSearch: false, canVision: false }] },
   })
-  const original = kit.chat!.run
-  const run = vi.fn<ChatPort['run']>(rejected
+  const original = kit.chat!.start
+  const run = vi.fn<RunClient['start']>(rejected
     ? async () => { throw new KitClientError({ code: 'network', message: 'Offline' }) }
     : original)
-  kit.chat!.run = run
+  kit.chat!.start = run
   const prefs = { load: vi.fn(async () => null), save: vi.fn(async () => {}), remove: vi.fn(async () => {}) }
   const backend = { kind, aiHost: { kit, roles: async () => [{ role: 'chat', binding: { ...model, label: 'Model' }, isFallback: false }] } } as unknown as Backend
   render(ChatPanelHarness, { backend, prefs, notify: { toast: vi.fn(), confirm } })

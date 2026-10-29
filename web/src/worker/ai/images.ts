@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { Env } from '../env'
 import { badRequest, notFound } from './kit'
-import type { ImagePart, ImageRef } from './protocol'
+import type { ImagePart, ImageRef } from '@ouraihub/aether-contracts'
 
 export const IMAGE_TTL_MS = 7 * 24 * 60 * 60 * 1000
 export const MAX_IMAGE_BYTES = 4 * 1024 * 1024

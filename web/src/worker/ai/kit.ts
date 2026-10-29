@@ -1,19 +1,20 @@
+import { KitFailure as CoreFailure } from '@ouraihub/aether-core/error'
 import type { z } from 'zod'
 import type { Details, KitError, KitErrorCode } from '@ouraihub/aether-ui/ports'
 import { newId } from '../lib/id'
 
-export class KitFailure extends Error {
+export class KitFailure extends CoreFailure {
   // Set by `upstreamFailure`; drives fill-first key set-aside, never serialized.
   upstream: { usedUp: boolean; retryAfterMs: number | null; reason: string } | null = null
   // Set by requestKeys when every key of a line is set aside: epoch ms of the earliest recovery.
   resumeAt: number | null = null
 
   constructor(
-    readonly code: KitErrorCode,
+    code: KitErrorCode,
     message: string,
     readonly details: Details = {},
   ) {
-    super(message)
+    super(code, message, details)
     this.name = 'KitFailure'
   }
 

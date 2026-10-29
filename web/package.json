@@ -5,9 +5,16 @@
   "license": "LGPL-3.0-only",
   "type": "module",
   "description": "AutoNote Web: a self-hosted Markdown notebook on Cloudflare Workers with a Svelte 5 client.",
-  "packageManager": "pnpm@12.5.1",
+  "packageManager": "pnpm@12.16.1",
   "engines": {
-    "node": ">=24.15.0"
+    "node": "26.13.0"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "26.13.0",
+      "onFail": "download"
+    }
   },
   "scripts": {
     "dev": "vite",
@@ -36,7 +43,9 @@
     "@autonote/shared": "workspace:*",
     "@cloudflare/workers-oauth-provider": "0.10.2",
     "@modelcontextprotocol/server": "2.0.0",
-    "@ouraihub/aether-ui": "github:ouraihub/Aether#855c55bc2eb23c162323c9bfe29c2d9f8e430b9e&path:packages/ui",
+    "@ouraihub/aether-contracts": "github:ouraihub/Aether#53b80630bdd58f22ca94d119e93586f84fbceec7&path:packages/contracts",
+    "@ouraihub/aether-core": "github:ouraihub/Aether#53b80630bdd58f22ca94d119e93586f84fbceec7&path:packages/core",
+    "@ouraihub/aether-ui": "github:ouraihub/Aether#53b80630bdd58f22ca94d119e93586f84fbceec7&path:packages/ui",
     "agents": "0.20.1",
     "aws4fetch": "1.0.20",
     "client-zip": "2.5.0",

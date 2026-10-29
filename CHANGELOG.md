@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### 新功能
+
+* **ai:** 技能“添加技能”菜单支持通过 Agent 创建（内置 skill-creator 多轮创作，脚本逐次审批运行，预览确认后安装）、在线搜索／GitHub URL、系统搜索和本地导入。
+
+### 问题修复
+
+* **ai:** Web 运行快照只按结束时间保留最近 200 个终态，运行中的快照不会被裁剪，避免历史运行较多时状态查询和取消返回 404。
+
+### 内部调整
+
+* 根目录、Web、桌面与 GitHub Actions 统一使用最新 Node LTS `26.13.0`（Lithium）和 pnpm 正式版 `12.16.1`；Node 由 `.node-version` 固定并供 CI 读取，`devEngines.runtime` 让 pnpm 自动下载并用于项目脚本，pnpm 由 `packageManager` 固定。
+* 桌面 Tauri API／CLI 更新到正式版 `2.12.4`，匹配现有 Rust 锁文件的 Tauri 2.12，修复打包版本门禁失败。
+* 桌面 AI 端口改用行为回归验证会话错误、权限拒绝、技能源取消和本地图像边界；Web 探测保留手动重定向安全断言。
+
+* Aether 前后端统一固定 Git 提交 `53b80630bdd58f22ca94d119e93586f84fbceec7`，恢复 Git 子包解析与来源检查；原补丁已并入上游。桌面拆分运行／会话／MCP runtime，Web 复用 core 执行并保留产品存储与授权；验收见设计文档 24 §15。
+
 ## [0.2.8](https://github.com/ouraihub/AutoNote/compare/desktop-v0.2.7...desktop-v0.2.8) (2026-10-28)
 
 

@@ -23,7 +23,7 @@ fn fixture(source: &str) -> (tempfile::TempDir, SkillRunner, RunRequest, PathBuf
         "input":"run the selected script", "regenerate":false, "language":"en-US"}),
     )
     .unwrap();
-    let runner = SkillRunner::new(store, root.path().to_owned());
+    let runner = SkillRunner::new(Arc::new(store), root.path().to_owned());
     (root, runner, req, package)
 }
 

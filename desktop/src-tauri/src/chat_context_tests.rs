@@ -7,12 +7,11 @@
 )]
 
 use super::*;
-use aether_chat::{Approver, BoxFuture, CancellationToken, ToolExecutor};
+use aether_runtime::KitHost;
 use serde_json::{Value, json};
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::time::Duration;
-use tauri_plugin_aether::KitHost;
 
 const BODY: &str = "CURRENT-NOTE-BODY-NOT-IN-DROPPED-REQUEST";
 
@@ -43,11 +42,20 @@ fn fixture(base_url: &str) -> (tempfile::TempDir, AetherHost, NoteId, ModelRef) 
         endpoint_id: saved[0].endpoints[0].id.clone(),
         model_id: "m1".into(),
     };
+    library
+        .ai_role_settings_save(&note_core::ai::AiRoleSettings {
+            writing: Some(note_core::ai::AiModelRef {
+                endpoint_id: model.endpoint_id.clone(),
+                model_id: model.model_id.clone(),
+            }),
+            ..Default::default()
+        })
+        .unwrap();
     let host = AetherHost {
         library: Arc::new(OnceLock::from(library)),
         providers,
         skills: skill_runner::SkillRunner::new(
-            aether_skills::Store::open(dir.path(), &[]).unwrap(),
+            Arc::new(aether_skills::Store::open(dir.path(), &[]).unwrap()),
             dir.path().to_owned(),
         ),
         chat_store: Arc::new(LazyChatStore {
@@ -59,7 +67,7 @@ fn fixture(base_url: &str) -> (tempfile::TempDir, AetherHost, NoteId, ModelRef) 
     (dir, host, note.summary.id, model)
 }
 
-fn request(note: &NoteId, model: &ModelRef) -> tauri_plugin_aether::RunRequest {
+fn request(note: &NoteId, model: &ModelRef) -> aether_runtime::RunRequest {
     serde_json::from_value(json!({
         "purpose": "chat", "model": model, "skills": [], "context": null,
         "input": "First without payload", "scope": format!("note:{note}"),
@@ -68,7 +76,7 @@ fn request(note: &NoteId, model: &ModelRef) -> tauri_plugin_aether::RunRequest {
     .unwrap()
 }
 
-fn error(req: &tauri_plugin_aether::RunRequest, host: &AetherHost) -> Value {
+fn error(req: &aether_runtime::RunRequest, host: &AetherHost) -> Value {
     serde_json::to_value(host.select_model(req).unwrap_err()).unwrap()
 }
 
@@ -85,10 +93,7 @@ fn note_scope_authorization_survives_null_context() {
     let explicit = request(&note, &missing);
     assert_eq!(error(&explicit, &host)["details"]["reason"], "model");
     assert!(host.context(&req).unwrap().is_none());
-    let turn = host
-        .chat_store
-        .begin_turn(None, req.scope.as_deref(), &req.input)
-        .unwrap();
+    let turn = reserve(&host, &req);
     let conversation_id = turn.conversation_id;
     for conversation in [None, Some(conversation_id.clone())] {
         req.conversation_id = conversation;
@@ -96,7 +101,7 @@ fn note_scope_authorization_survives_null_context() {
             ("autonote-note", foreign_note.as_str()),
             ("wrong-kind", note.as_str()),
         ] {
-            req.context = Some(tauri_plugin_aether::ContextRef {
+            req.context = Some(aether_runtime::ContextRef {
                 kind: kind.into(),
                 id: id.into(),
             });
@@ -147,7 +152,7 @@ fn note_scope_authorization_survives_null_context() {
 
 #[test]
 fn permissions_are_desktop_only_and_writing_never_opens_mcp() {
-    use tauri_plugin_aether::PermissionMode;
+    use aether_runtime::PermissionMode;
     let (_dir, host, note, model) = fixture("http://127.0.0.1:9");
     let mut req = request(&note, &model);
     assert_eq!(host.permission_modes(&req).len(), 5);
@@ -170,7 +175,7 @@ fn permissions_are_desktop_only_and_writing_never_opens_mcp() {
         );
     }
     req.permission_mode = Some(PermissionMode::Default);
-    req.skills = vec![tauri_plugin_aether::SkillRef {
+    req.skills = vec![aether_runtime::SkillRef {
         id: "not-selected".into(),
         revision: 1,
     }];
@@ -208,38 +213,139 @@ fn writing_rejects_every_reply_graph_action() {
     }
 }
 
-struct NoTools;
-impl ToolExecutor for NoTools {
-    fn authorize(
-        &self,
-        _: &aether_chat::ToolCall,
-        _: &aether_chat::AuthorizeContext<'_>,
-    ) -> aether_chat::Approval {
-        aether_chat::Approval::Deny
-    }
-    fn execute<'life0, 'life1, 'life2, 'async_trait>(
-        &'life0 self,
-        _: &'life1 aether_chat::ToolCall,
-        _: &'life2 CancellationToken,
-    ) -> BoxFuture<'async_trait, aether_chat::ToolExecution>
-    where
-        'life0: 'async_trait,
-        'life1: 'async_trait,
-        'life2: 'async_trait,
-        Self: 'async_trait,
-    {
-        Box::pin(async { panic!("no tools are offered") })
-    }
+#[test]
+fn maintenance_and_ephemeral_reservations_do_not_open_history() {
+    use aether_runtime::conversations::{ResolvedAction, resolve_action};
+    let (dir, host, note, model) = fixture("http://127.0.0.1:9");
+    assert_eq!(host.chat_store.purge_images(i64::MAX).unwrap(), 0);
+    assert!(!dir.path().join("chat.db").exists());
+    let (mut action, _) = resolve_action(
+        None,
+        None,
+        Some(format!("note:{note}:writing")),
+        "polish".into(),
+        Vec::new(),
+        false,
+        None,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    let error = host
+        .chat_store
+        .reserve_action(&action, &mut |_| Err(aether_runtime::KitError::cancelled()))
+        .unwrap_err();
+    assert_eq!(serde_json::to_value(error).unwrap()["code"], "cancelled");
+    assert_eq!(host.chat_store.writing.load(Ordering::Relaxed), 0);
+    action.action = ResolvedAction::Reply {
+        parent_id: Some("foreign".into()),
+    };
+    assert!(
+        host.chat_store
+            .reserve_action(&action, &mut |_| {
+                panic!("unsupported writing action must be rejected before validation")
+            })
+            .is_err()
+    );
+    assert!(!dir.path().join("chat.db").exists());
+    let mut req = request(&note, &model);
+    req.purpose = "writing".into();
+    req.scope = Some(format!("note:{note}:writing"));
+    req.context = Some(aether_runtime::ContextRef {
+        kind: "autonote-note".into(),
+        id: note.to_string(),
+    });
+    req.input = json!({"action":"polish", "noteId":note, "selectedText":"x",
+        "beforeText":"", "afterText":"", "cursorOffset":0, "language":"en-US", "title":"Plan"})
+    .to_string();
+    let turn = reserve(&host, &req);
+    let next = reserve(&host, &req);
+    assert!(turn.conversation_id.starts_with("writing:"));
+    assert_ne!(turn.conversation_id, next.conversation_id);
+    assert!(!dir.path().join("chat.db").exists());
 }
-impl Approver for NoTools {
-    fn wait(
-        &self,
-        _: &str,
-        _: &aether_chat::ToolCall,
-        _: &CancellationToken,
-    ) -> BoxFuture<'_, bool> {
-        Box::pin(async { panic!("no approvals are offered") })
-    }
+
+fn reserve(
+    host: &AetherHost,
+    req: &aether_runtime::RunRequest,
+) -> aether_runtime::conversations::TurnHandle {
+    let conversation = req
+        .conversation_id
+        .as_deref()
+        .map(|id| host.chat_store.load(id).unwrap());
+    let (action, _) = aether_runtime::conversations::resolve_action(
+        conversation.as_ref(),
+        req.conversation_id.clone(),
+        req.scope.clone(),
+        req.input.clone(),
+        req.images.clone(),
+        req.regenerate,
+        req.reply_to_id.clone(),
+        req.retry_turn_id.clone(),
+        req.translate_turn_id.clone(),
+        req.target_language.clone(),
+    )
+    .unwrap();
+    host.chat_store
+        .reserve_action(&action, &mut |source| {
+            let connection = host.providers.resolve(&host.select_model(req)?).unwrap();
+            Ok(aether_chat::RunInput {
+                run_id: "reservation-test".into(),
+                purpose: req.purpose.clone(),
+                permission_mode: req.permission_mode.unwrap_or_default(),
+                budget: aether_chat::Budget::default().for_connection(&connection),
+                connection,
+                system: Vec::new(),
+                history: Vec::new(),
+                input: source.input.clone(),
+                images: source.images.clone(),
+                tools: Vec::new(),
+                reasoning_effort: Default::default(),
+                native_web_search: false,
+            })
+        })
+        .unwrap()
+        .handle
+}
+
+async fn complete_run(
+    runs: &Arc<aether_runtime::RunService>,
+    owner: &aether_runtime::RunOwner,
+    req: aether_runtime::RunRequest,
+) -> aether_runtime::RunAccepted {
+    let (sender, mut events) = tokio::sync::mpsc::unbounded_channel();
+    let accepted = runs
+        .start(
+            aether_runtime::RunContext {
+                owner: owner.clone(),
+                own_mcp_port: None,
+            },
+            req,
+            Arc::new(move |event| {
+                sender.send(event).unwrap();
+                Ok(())
+            }),
+        )
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let aether_runtime::RunEvent::End { status, error, .. } =
+                events.recv().await.unwrap()
+            {
+                assert_eq!(status, aether_runtime::EndStatus::Completed, "{error:?}");
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        runs.snapshot(owner, &accepted.run_id).unwrap().status,
+        aether_runtime::RunStatus::Completed
+    );
+    accepted
 }
 
 #[test]
@@ -250,7 +356,7 @@ fn dropped_context_reaches_loopback_without_note_body_and_preserves_history() {
     let server = std::thread::spawn(move || {
         let deadline = std::time::Instant::now() + Duration::from_secs(30);
         let mut seen = Vec::new();
-        while seen.len() < 3 {
+        while seen.len() < 4 {
             let (mut socket, _) = match listener.accept() {
                 Ok(connection) => connection,
                 Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
@@ -296,97 +402,58 @@ fn dropped_context_reaches_loopback_without_note_body_and_preserves_history() {
         seen
     });
     let (_dir, host, note, model) = fixture(&base_url);
+    let host = Arc::new(host);
     let mut req = request(&note, &model);
     tauri::async_runtime::block_on(async {
-        let runner = aether_chat::Runner::new(aether_chat::AddressPolicy::default()).unwrap();
+        let mut deps = aether_runtime::RunDependencies::new(host.providers.clone());
+        deps.conversations = Some(host.chat_store.clone());
+        let runs = aether_runtime::RunService::new(
+            host.clone(),
+            aether_runtime::RunConfig::default(),
+            deps,
+            aether_runtime::AddressPolicy::default(),
+        )
+        .unwrap();
+        let owner = aether_runtime::RunOwner::new();
         for (text, include) in [
             ("First without payload", false),
             ("With payload", true),
             ("Continue without payload", false),
         ] {
             req.input = text.into();
-            req.context = include.then(|| tauri_plugin_aether::ContextRef {
+            req.context = include.then(|| aether_runtime::ContextRef {
                 kind: "autonote-note".into(),
                 id: note.to_string(),
             });
-            let selected = host.select_model(&req).unwrap();
-            let connection = host.providers.resolve(&selected).unwrap();
-            let budget = aether_chat::Budget::default().for_connection(&connection);
-            let mut system = vec![aether_chat::SystemPart::Host(
-                host.system_prompt(&req).unwrap(),
-            )];
-            if let Some(block) = host.context(&req).unwrap() {
-                system.push(aether_chat::SystemPart::Context {
-                    source: block.source,
-                    text: block.text,
-                });
-            }
-            let history = req
-                .conversation_id
-                .as_ref()
-                .map(|id| {
-                    aether_chat::trim_history(&host.chat_store.load(id).unwrap().turns, 24_000)
-                })
-                .unwrap_or_default();
-            let turn = host
-                .chat_store
-                .begin_turn(
-                    req.conversation_id.as_deref(),
-                    req.scope.as_deref(),
-                    &req.input,
-                )
-                .unwrap();
-            req.conversation_id = Some(turn.conversation_id.clone());
-            let summary = runner
-                .run(
-                    aether_chat::RunInput {
-                        run_id: turn.turn_id.clone(),
-                        purpose: req.purpose.clone(),
-                        permission_mode: req.permission_mode.unwrap_or_default(),
-                        connection,
-                        system,
-                        history,
-                        input: req.input.clone(),
-                        images: Vec::new(),
-                        tools: Vec::new(),
-                        budget,
-                        reasoning_effort: Default::default(),
-                        native_web_search: false,
-                    },
-                    &NoTools,
-                    &NoTools,
-                    &CancellationToken::new(),
-                    |_| {},
-                )
-                .await;
-            assert_eq!(summary.status, aether_chat::EndStatus::Completed);
-            host.chat_store
-                .finish_turn(
-                    turn,
-                    aether_chat::TurnRecord {
-                        status: summary.status,
-                        messages: summary.messages,
-                        model_id: Some(model.model_id.clone()),
-                        skills: Vec::new(),
-                        error_code: None,
-                        input_tokens: summary.usage.input_tokens,
-                        output_tokens: summary.usage.output_tokens,
-                        cache_read_tokens: summary.usage.cache_read_tokens,
-                        cache_write_tokens: summary.usage.cache_write_tokens,
-                        reasoning_tokens: summary.usage.reasoning_tokens,
-                        context_usage: summary.context_usage,
-                        reasoning_effort: None,
-                        endpoint_id: Some(model.endpoint_id.clone()),
-                        cost: summary.cost,
-                    },
-                )
-                .unwrap();
+            let accepted = complete_run(&runs, &owner, req.clone()).await;
+            req.conversation_id = accepted.conversation_id;
         }
+        let mut writing = request(&note, &model);
+        writing.purpose = "writing".into();
+        writing.scope = Some(format!("note:{note}:writing"));
+        writing.context = Some(aether_runtime::ContextRef {
+            kind: "autonote-note".into(),
+            id: note.to_string(),
+        });
+        writing.input = json!({"action":"polish", "noteId":note, "selectedText":"x",
+            "beforeText":"", "afterText":"", "cursorOffset":0, "language":"en-US", "title":"Plan"})
+        .to_string();
+        let accepted = complete_run(&runs, &owner, writing).await;
+        assert!(accepted.conversation_id.unwrap().starts_with("writing:"));
+        assert!(
+            host.chat_store
+                .list(Some(&format!("note:{note}:writing")), 20)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(host.chat_store.list(None, 20).unwrap().len(), 1);
+        runs.shutdown(Duration::from_secs(3)).await;
     });
     let seen = server.join().unwrap();
     assert!(!seen[0].to_string().contains(BODY));
     assert!(seen[1].to_string().contains(BODY));
     assert!(!seen[2].to_string().contains(BODY));
+    assert!(seen[3].to_string().contains(BODY));
     assert_eq!(
         &seen[2]["messages"].as_array().unwrap()[1..],
         &[

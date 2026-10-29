@@ -5,9 +5,16 @@
   "private": true,
   "license": "LGPL-3.0-only",
   "type": "module",
-  "packageManager": "pnpm@12.5.1",
+  "packageManager": "pnpm@12.16.1",
   "engines": {
-    "node": ">=22.12"
+    "node": "26.13.0"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "26.13.0",
+      "onFail": "download"
+    }
   },
   "scripts": {
     "dev": "vite dev",
@@ -31,8 +38,8 @@
   },
   "dependencies": {
     "@autonote/app": "workspace:*",
-    "@ouraihub/aether-ui": "github:ouraihub/Aether#855c55bc2eb23c162323c9bfe29c2d9f8e430b9e&path:packages/ui",
-    "@tauri-apps/api": "2.11.1"
+    "@ouraihub/aether-ui": "github:ouraihub/Aether#53b80630bdd58f22ca94d119e93586f84fbceec7&path:packages/ui",
+    "@tauri-apps/api": "2.12.4"
   },
   "devDependencies": {
     "@ouraihub/desktop-kit": "github:ouraihub/desktop-kit#83889a82abbbf99c6e1fc3cc46ef4942ac37dc5f",
@@ -40,7 +47,7 @@
     "@sveltejs/kit": "2.70.3",
     "@sveltejs/vite-plugin-svelte": "7.3.0",
     "@tailwindcss/vite": "4.3.3",
-    "@tauri-apps/cli": "2.12.1",
+    "@tauri-apps/cli": "2.12.4",
     "@types/node": "24.13.3",
     "svelte": "5.57.1",
     "svelte-check": "4.7.6",

@@ -6,10 +6,7 @@ import type {
   ModelRef,
   ModelPricing,
   ModelType,
-  ProbeError,
-  ProbeErrorKind,
   ProbeResult,
-  ProbedModel,
   Protocol,
   Provider,
   ReasoningConfig,
@@ -19,25 +16,18 @@ import type { Env } from '../env'
 import { decryptAiKey, encryptAiKey } from '../lib/crypto'
 import { newId } from '../lib/id'
 import { requireCurrentPassword } from '../lib/reauth'
-import { inferModel, inferReasoning } from './infer'
+import { inferReasoning, probe as probeProvider, validateReasoning } from '@ouraihub/aether-core/providers'
+import { outbound } from './outbound'
 import {
   KitFailure,
-  addressAllowed,
   apiBase,
-  at,
   badRequest,
-  cancelled,
   conflict,
   charCount,
-  excerpt,
-  isLoopback,
   maskSecret,
   needsConfig,
   notFound,
-  parseTarget,
-  readUpTo,
 } from './kit'
-import { authHeaders } from './protocol'
 
 const PROTOCOLS = ['anthropic-messages', 'openai-chat', 'openai-responses'] as const
 const MODEL_TYPES = ['chat', 'image', 'video', 'tts', 'stt', 'embedding', 'rerank', 'unknown'] as const
@@ -133,33 +123,6 @@ export const ModelFilterSchema = z.strictObject({
     .optional(),
 })
 
-export function validateReasoning(
-  config: ReasoningConfig,
-  protocol: Protocol,
-  modelType: ModelType,
-  maxOutput: number | null,
-): void {
-  const switchStyle = config.dialect === 'thinking-type' || config.dialect === 'qwen'
-  if (
-    modelType !== 'chat' ||
-    !config.efforts.length ||
-    config.efforts.includes('default') ||
-    (config.efforts.includes('auto') && !switchStyle) ||
-    new Set(config.efforts).size !== config.efforts.length
-  )
-    throw badRequest('reasoning', 'invalid_efforts')
-  const fits = config.dialect === 'anthropic-budget' || config.dialect === 'anthropic-adaptive'
-    ? protocol === 'anthropic-messages'
-    : config.dialect === 'openai' ? protocol !== 'anthropic-messages' : protocol === 'openai-chat'
-  if (!fits) throw badRequest('reasoning', 'protocol_mismatch')
-  const budget = config.budgetTokens
-  if (config.dialect === 'anthropic-budget') {
-    if (budget == null || budget < 1024 || budget >= (maxOutput ?? 4096))
-      throw badRequest('reasoning', 'invalid_budget')
-  } else if (config.dialect === 'qwen') {
-    if (budget === 0) throw badRequest('reasoning', 'invalid_budget')
-  } else if (budget != null) throw badRequest('reasoning', 'unexpected_budget')
-}
 
 function readReasoning(
   raw: string | null,
@@ -902,15 +865,6 @@ async function probeKeys(env: Env, userId: string, endpointId: string, keyId?: s
   return [await openKey(env, row)]
 }
 
-const PROBE_TIMEOUT_MS = 20_000
-const PROBE_MAX_BODY = 4 * 1024 * 1024
-
-const failure = (kind: ProbeErrorKind, hint: string | null = null): ProbeError => ({
-  kind,
-  status: null,
-  message: null,
-  hint,
-})
 
 export async function probe(
   env: Env,
@@ -933,116 +887,6 @@ export async function probe(
       keys = await probeKeys(env, userId, target.endpointId, target.keyId)
     } else if (target.keyId !== undefined) throw notFound('key')
   }
-  const probeUrl = `${apiBase(baseUrl)}/models`
-  const done = (models: ProbedModel[], error: ProbeError | null, suggestedProtocol: Protocol | null = null): ProbeResult => ({ probeUrl, models, error, suggestedProtocol })
-  const url = parseTarget(probeUrl)
-  if (!(await addressAllowed(env.DB, url))) return done([], failure('blocked_address'))
-  if (!keys.length && !isLoopback(url)) return done([], failure('missing_key'))
-  const ipHost = /^\[.*\]$|^\d+\.\d+\.\d+\.\d+$/.test(url.hostname)
-  const candidates = keys.length ? keys : [null]
-  let body: { bytes: Uint8Array; overflow: boolean } | null = null
-  let used: string | null = null
-  for (let index = 0; ; index++) {
-    const key = candidates[index] ?? null
-    used = key
-    const timeout = AbortSignal.timeout(PROBE_TIMEOUT_MS)
-    const transport = (): ProbeResult => {
-      if (signal.aborted) throw cancelled()
-      return done(
-        [],
-        timeout.aborted ? failure('timeout') : failure('connect', ipHost ? 'providers.hint.check_network' : null),
-      )
-    }
-    let response: Response
-    try {
-      response = await fetch(url, {
-        headers: { ...headers, ...authHeaders(protocol, key) },
-        redirect: 'manual',
-        signal: AbortSignal.any([signal, timeout]),
-      })
-    } catch {
-      return transport()
-    }
-    const declared = Number(response.headers.get('content-length') ?? '0')
-    try {
-      body = declared > PROBE_MAX_BODY ? null : await readUpTo(response.body, PROBE_MAX_BODY)
-    } catch {
-      if (!response.ok) body = null
-      else return transport()
-    }
-    if (body?.overflow) body = null
-    if (response.ok) break
-    const status = response.status
-    const message = body ? excerpt(new TextDecoder().decode(body.bytes), keys) || null : null
-    const [kind, hint]: [ProbeErrorKind, string | null] =
-      status === 401 || status === 403
-        ? ['unauthorized', 'providers.hint.check_key']
-        : status === 404
-          ? ['not_found', baseUrl.includes('/v1') ? null : 'providers.hint.missing_v1']
-          : status === 429
-            ? ['rate_limited', null]
-            : ['status', null]
-    if ((kind === 'unauthorized' || kind === 'rate_limited') && index + 1 < candidates.length) continue
-    return done([], { kind, status, message, hint })
-  }
-  const ids = body ? modelIds(new TextDecoder().decode(body.bytes)) : null
-  if (!ids?.length) return done([], failure('invalid_body'))
-  const models = ids.map((id): ProbedModel => {
-    const inferred = inferModel(id)
-    return {
-      group: inferred.group,
-      id,
-      modelType: inferred.modelType,
-      typeSource: 'inferred',
-      contextWindow: inferred.contextWindow,
-      maxOutput: inferred.maxOutput,
-      canVision: inferred.canVision,
-      supportsTools: inferred.supportsTools,
-      reasoning: inferred.modelType === 'chat' ? inferReasoning(id, protocol, baseUrl, inferred.maxOutput) : null,
-      nativeWebSearch: false,
-      name: null,
-      groupName: inferred.group,
-      pricing: null,
-    }
-  })
-  // Relays resolve the model before validating the body, so ask with a listed one.
-  const claude = models.find((model) => model.group === 'claude')?.id
-  const speaks = protocol !== 'anthropic-messages' && claude !== undefined && (await speaksMessages(baseUrl, claude, used, headers, signal))
-  return done(models, null, speaks ? 'anthropic-messages' : null)
+  return probeProvider(outbound(env), { endpoint: { endpointId: target.endpointId ?? null, baseUrl, protocol, keys, headers }, signal })
 }
 
-/** Whether `POST <api_base>/messages` exists for this key: an empty `messages` list is rejected (400/422) before any model runs, so no tokens are spent. */
-async function speaksMessages(baseUrl: string, model: string, key: string | null, headers: Record<string, string>, signal: AbortSignal): Promise<boolean> {
-  try {
-    const response = await fetch(`${apiBase(baseUrl)}/messages`, {
-      method: 'POST',
-      headers: { ...headers, ...authHeaders('anthropic-messages', key), 'content-type': 'application/json' },
-      body: JSON.stringify({ model, max_tokens: 1, messages: [] }),
-      redirect: 'manual',
-      signal: AbortSignal.any([signal, AbortSignal.timeout(PROBE_TIMEOUT_MS)]),
-    })
-    await response.body?.cancel()
-    return response.status === 400 || response.status === 422
-  } catch {
-    if (signal.aborted) throw cancelled()
-    return false
-  }
-}
-
-function modelIds(text: string): string[] | null {
-  let value: unknown
-  try {
-    value = JSON.parse(text)
-  } catch {
-    return null
-  }
-  const items = Array.isArray(value) ? value : (at(value, 'data') ?? at(value, 'models'))
-  if (!Array.isArray(items)) return null
-  const ids: string[] = []
-  for (const item of items) {
-    const id = typeof item === 'string' ? item : (at(item, 'id') ?? at(item, 'name'))
-    if (typeof id !== 'string') return null
-    ids.push(id)
-  }
-  return [...new Set(ids)].sort()
-}

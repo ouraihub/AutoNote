@@ -12,6 +12,7 @@ on:
       - pnpm-lock.yaml
       - pnpm-workspace.yaml
       - package.json
+      - .node-version
       - .github/workflows/web.yml
   # Deploys run only when started by hand (Actions → Web → Run workflow, tick
   # "deploy"). To deploy on every push to main again, change the deploy job's
@@ -40,7 +41,7 @@ jobs:
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm run web:check
@@ -57,7 +58,7 @@ jobs:
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Start an isolated local instance
@@ -87,7 +88,7 @@ jobs:
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Build and deploy to Cloudflare
