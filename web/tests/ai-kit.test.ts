@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Conversation } from '@ouraihub/aether-ui/ports'
 import { initializeDatabase } from '../src/worker/db/schema'
 import { beginAction, loadConversation } from '../src/worker/ai/history'
-import { executeRun, prepareRun, RunRequestSchema } from '../src/worker/ai/runs'
+import { executeRun, getRunSnapshot, prepareRun, RunRequestSchema, saveRunSnapshot } from '../src/worker/ai/runs'
 import { inferModel } from '@ouraihub/aether-core/providers'
 import { upstreamFailure } from '../src/worker/ai/kit'
 import { resolveModel, withKeys } from '../src/worker/ai/providers'
@@ -42,6 +42,27 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllGlobals()
+})
+
+describe('run snapshot retention', () => {
+  it('prunes only finished runs, never an older active one', async () => {
+    const h = await createHarness()
+    const { endpointId } = await saveProvider(h)
+    const prepared = await prepareRun(h.env, 'user-a', RunRequestSchema.parse({ purpose: 'chat', model: { endpointId, modelId: 'm1' }, input: 'Hi', skills: [], regenerate: false, language: 'en-US' }))
+    const run = (runId: string) => ({ ...prepared, runId })
+    await saveRunSnapshot(h.env, 'user-a', run('0000000000-active'))
+    for (let i = 0; i < 205; i++) {
+      vi.setSystemTime(clock + i)
+      await saveRunSnapshot(h.env, 'user-a', run(`finished-${String(204 - i).padStart(3, '0')}`), { kind: 'end', status: 'completed' })
+    }
+    await expect(getRunSnapshot(h.env, 'user-a', '0000000000-active')).resolves.toMatchObject({ status: 'running' })
+    const latest = await getRunSnapshot(h.env, 'user-a', 'finished-000')
+    expect(latest.status).toBe('completed')
+    expect(latest).not.toHaveProperty('completedAt')
+    await expect(getRunSnapshot(h.env, 'user-a', 'finished-200')).rejects.toMatchObject({ code: 'not_found' })
+    const { count } = (await h.env.DB.prepare(`SELECT COUNT(*) AS count FROM app_meta WHERE key LIKE 'ai-run:user-a:%'`).first<{ count: number }>())!
+    expect(count).toBe(201)
+  })
 })
 
 async function saveProvider(h: Harness, user = 'user-a', protocol: (typeof PROTOCOLS)[number] = 'openai-chat') {
