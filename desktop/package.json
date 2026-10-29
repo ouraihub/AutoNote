@@ -1,6 +1,6 @@
 {
   "name": "autonote-desktop",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "description": "AutoNote Desktop: Tauri 2 + Svelte 5 local-first Markdown notebook.",
   "private": true,
   "license": "LGPL-3.0-only",
