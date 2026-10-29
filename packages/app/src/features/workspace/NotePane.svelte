@@ -315,7 +315,7 @@
         oninput={(event) => notes.editTitle(noteId, event.currentTarget.value)}
         onblur={(event) => notes.editTitle(noteId, event.currentTarget.value.trim())}
         onkeydown={(event) => {
-          if (event.key === 'Enter') {
+          if (event.key === 'Enter' && !event.isComposing && event.keyCode !== 229) {
             event.preventDefault()
             view?.focus()
           }

@@ -216,6 +216,23 @@ describe('NotesState', () => {
     state.dispose()
   })
 
+  test('a sync during a queued Web title edit retains the latest title until that write settles', async () => {
+    const original = makeNote('note', 'body')
+    const backend = backendWithNotes({
+      get: async () => original,
+      patch: async (id, body, options) => ({ queued: true, noteId: id, rev: body.rev, writeId: options.writeId }),
+    })
+    const state = new NotesState({ backend: { ...backend, kind: 'web' }, logger })
+    state.applySync({ ...emptySnapshot, notes: [original], cursor: 1 })
+    await state.open('note')
+    state.editTitle('note', '中文标题')
+    await vi.waitFor(() => expect(state.saveState.note).toBe('saved-local'))
+    state.applySync({ ...emptySnapshot, full: false, cursor: 2, notes: [{ ...original, rev: 2 }] })
+    expect(state.summaries.note?.title).toBe('中文标题')
+    expect(state.dirtyById.note).toBe(true)
+    state.dispose()
+  })
+
   test('reset discards the previous account and ignores a late open response', async () => {
     const oldOpen = deferred<Note>()
     const backend = backendWithNotes({
