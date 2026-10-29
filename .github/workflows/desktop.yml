@@ -82,7 +82,7 @@ jobs:
       - uses: actions/setup-node@v7
         if: steps.scope.outputs.run == 'true'
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
       - name: Install Linux build, package and real desktop smoke dependencies
         if: steps.scope.outputs.run == 'true' && runner.os == 'Linux'

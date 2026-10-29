@@ -5,9 +5,16 @@
   "license": "LGPL-3.0-only",
   "type": "module",
   "description": "AutoNote Web: a self-hosted Markdown notebook on Cloudflare Workers with a Svelte 5 client.",
-  "packageManager": "pnpm@12.5.1",
+  "packageManager": "pnpm@12.16.1",
   "engines": {
-    "node": ">=24.15.0"
+    "node": "26.13.0"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "26.13.0",
+      "onFail": "download"
+    }
   },
   "scripts": {
     "dev": "vite",
