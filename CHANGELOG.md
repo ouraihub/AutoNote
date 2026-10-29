@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### 新功能
+
+* **ai:** 技能“添加技能”菜单支持通过 Agent 创建（内置 skill-creator 多轮创作，脚本逐次审批运行，预览确认后安装）、在线搜索／GitHub URL、系统搜索和本地导入。
+
 ### 内部调整
 
 * Aether 前后端固定到 `53b80630bdd58f22ca94d119e93586f84fbceec7`（Aether main，含 #16/#17/#19），桌面拆分运行／会话／MCP runtime，Web 复用 core 执行并保留产品存储与授权；原 `aether-core-workers.patch` 已并入上游并移除；Windows 构建与实际对话／取消／退出验收见设计文档 24 §15。

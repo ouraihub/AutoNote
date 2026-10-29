@@ -652,7 +652,8 @@ pub fn run() {
             return;
         }
     };
-    let skills = match aether_skills::Store::open(&data_dir, &[]) {
+    let skills = match aether_skills::Store::open(&data_dir, aether_skills::creator::CREATOR_SKILLS)
+    {
         Ok(store) => Arc::new(store),
         Err(_) => {
             eprintln!("AutoNote could not start: skills store unavailable");
@@ -722,6 +723,23 @@ pub fn run() {
             return;
         }
     };
+    let skill_authoring = match tauri::async_runtime::block_on(async {
+        aether_runtime::SkillAuthoringService::new(
+            providers.clone(),
+            skills.clone(),
+            aether_runtime::AddressPolicy::default(),
+        )
+    }) {
+        Ok(service) => service,
+        Err(_) => {
+            tauri::async_runtime::block_on(async {
+                runs.shutdown(std::time::Duration::from_secs(3)).await;
+                mcp_client.shutdown().await;
+            });
+            eprintln!("AutoNote could not start: skill authoring unavailable");
+            return;
+        }
+    };
     let aether = match tauri_plugin_aether::Builder::new(logs.clone())
         .providers(providers.clone())
         .search(search)
@@ -729,6 +747,7 @@ pub fn run() {
         .conversations(conversations)
         .mcp_server(aether_server)
         .skills(skills)
+        .skill_authoring(skill_authoring)
         .mcp_client(mcp_client.clone())
         .build()
     {

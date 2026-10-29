@@ -12,6 +12,7 @@ export function aiHostPort(transport: Pick<IpcTransport, 'invoke'>): AiHostPort 
       conversations: true,
       search: true,
       skills: true,
+      skillSources: true,
       mcpClient: true,
     }),
     roles: (options) => transport.invoke('ai_roles_get', undefined, options),
