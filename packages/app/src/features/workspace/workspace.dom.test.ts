@@ -68,6 +68,28 @@ test('two panes keep independent bodies and undo history across all layouts', as
   expect(patch.mock.calls.some(([id]) => id === '00000000000000000000000002')).toBe(true)
 })
 
+test('confirming an IME candidate keeps title focus and persists the committed Chinese title', async () => {
+  const { deps, records } = fixture()
+  const target = document.createElement('div')
+  document.body.append(target)
+  const app = mountApp(target, deps)
+  handles.push(app)
+  await waitFor(() => expect(within(target).getByRole('option', { name: 'First note' })).toBeTruthy())
+  await fireEvent.click(within(target).getByRole('option', { name: 'First note' }))
+  const title = within(target).getByRole('textbox', { name: ZH_CN_MESSAGES['workspace.note_title'] })
+  title.focus()
+  await fireEvent.compositionStart(title)
+  await fireEvent.input(title, { target: { value: 'zhong' }, isComposing: true })
+  await fireEvent.keyDown(title, { key: 'Enter', isComposing: true, keyCode: 229 })
+  expect(document.activeElement).toBe(title)
+  await fireEvent.compositionEnd(title, { data: '中文' })
+  await fireEvent.input(title, { target: { value: '中文标题' } })
+  await fireEvent.keyDown(title, { key: 'Enter' })
+  expect(document.activeElement).not.toBe(title)
+  await app.flush()
+  expect(records['00000000000000000000000001']?.title).toBe('中文标题')
+})
+
 test('source curves map nonuniform blocks and only the user driver scrolls the other side', async () => {
   vi.useFakeTimers()
   const curve = buildScrollCurve([{ line: 2, top: 800 }, { line: 8, top: 900 }], 10, 0, 1000)

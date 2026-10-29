@@ -274,7 +274,12 @@ export class NotesState {
         ]
       }),
     )
-    const merged = mergeSync(this.#shell, payload, dirty, new SvelteMap(Object.entries(this.#tombstones)))
+    const merged = mergeSync(
+      { ...this.#shell, notes: this.#summaries },
+      payload,
+      dirty,
+      new SvelteMap(Object.entries(this.#tombstones)),
+    )
     this.#shell = merged.shell
     this.#cursor = merged.shell.cursor
     this.#summaries = merged.shell.notes
