@@ -1,4 +1,3 @@
-import type { ReasoningEffort } from '@ouraihub/aether-contracts'
 import type { OutboundHttp } from '@ouraihub/aether-core/ports'
 import type { Env } from '../env'
 import { addressAllowed, badRequest, cancelled, KitFailure, parseTarget, readUpTo, upstreamFailure } from './kit'
@@ -17,27 +16,10 @@ export function outbound(env: Env): OutboundHttp {
   }
 }
 
-/** Keep AutoNote's persisted fill-first/key exhaustion policy before handing the stream to Aether. */
-export function modelOutbound(env: Env, connection: Connection, effort: ReasoningEffort): OutboundHttp {
+export function modelOutbound(env: Env, connection: Connection): OutboundHttp {
   const http = outbound(env)
   return {
     async fetch(url, init) {
-      if (connection.reasoning?.dialect === 'qwen' && effort !== 'default' && typeof init.body === 'string') {
-        const body = JSON.parse(init.body) as Record<string, unknown>
-        body.enable_thinking = effort !== 'none'
-        const ratios: Partial<Record<ReasoningEffort, number>> = {
-          minimal: 0.05,
-          low: 0.1,
-          medium: 0.5,
-          high: 0.8,
-          xhigh: 0.9,
-          max: 1,
-        }
-        const ratio = ratios[effort]
-        if (ratio !== undefined && connection.reasoning.budgetTokens != null)
-          body.thinking_budget = Math.max(1, Math.floor(connection.reasoning.budgetTokens * ratio))
-        init = { ...init, body: JSON.stringify(body) }
-      }
       let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
       return new Response(
         new ReadableStream<Uint8Array>({

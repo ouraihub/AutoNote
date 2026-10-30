@@ -1,3 +1,7 @@
+/// <reference types="vitest/jsdom" />
+
+Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: jsdom.window.localStorage })
+
 class ResizeObserverStub {
   observe(): void {}
 

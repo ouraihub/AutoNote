@@ -95,3 +95,21 @@ test('web exposes no unsupported modes and explicitly sends Default', async () =
   await waitFor(() => expect(run).toHaveBeenCalledTimes(1))
   expect(run.mock.calls[0]![0].permissionMode).toBe('default')
 })
+
+test('shared composer keeps a multiline draft and selection when expanded and collapsed', async () => {
+  const { run } = mount('web')
+  const input = await screen.findByRole<HTMLTextAreaElement>('textbox', { name: 'Message' })
+  expect(screen.getByRole('region', { name: 'Messages' })).toBeTruthy()
+  const draft = 'Shared composer\n保留草稿'
+  await fireEvent.input(input, { target: { value: draft } })
+  input.focus()
+  input.setSelectionRange(2, 8)
+  await fireEvent.click(screen.getByRole('button', { name: 'Expand input' }))
+  expect(input.value).toBe(draft)
+  expect([input.selectionStart, input.selectionEnd]).toEqual([2, 8])
+  await fireEvent.click(screen.getByRole('button', { name: 'Collapse input' }))
+  expect(screen.getByRole('textbox', { name: 'Message' })).toBe(input)
+  expect(input.value).toBe(draft)
+  expect([input.selectionStart, input.selectionEnd]).toEqual([2, 8])
+  expect(run).not.toHaveBeenCalled()
+})

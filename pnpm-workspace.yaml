@@ -4,15 +4,18 @@ packages:
   - packages/*
 
 nodeLinker: hoisted
-symlink: false
+# Local Aether link dependencies must be materialized even with the hoisted linker.
+symlink: true
 
 minimumReleaseAge: 0
 # Git workspace edges require this; deps:check restricts sources to pinned ouraihub tarballs.
 blockExoticSubdeps: false
 overrides:
   runed: 0.35.1
-  '@ouraihub/aether-contracts': github:ouraihub/Aether#53b80630bdd58f22ca94d119e93586f84fbceec7&path:packages/contracts
-  '@ouraihub/aether-core': github:ouraihub/Aether#53b80630bdd58f22ca94d119e93586f84fbceec7&path:packages/core
+  '@ouraihub/aether-contracts': link:../Aether/packages/contracts
+  '@ouraihub/aether-core': link:../Aether/packages/core
+  '@ouraihub/aether-ui': link:../Aether/packages/ui
+  '@ouraihub/aether-presets': link:../Aether/packages/presets
 
 peerDependencyRules:
   allowAny:
