@@ -8,52 +8,55 @@ import { autonotePwa } from './pwa.config'
 
 const ephemeralDevState = process.env.AUTONOTE_EPHEMERAL_DEV === '1'
 
-const config: UserConfigFnPromise = async ({ mode, command }) => ({
-  plugins: [
-    svelte(),
-    tailwindcss(),
-    themeBootstrapPlugin('autonote.ui:layout'),
-    autonotePwa(),
-    ...(mode === 'demo' ? [] : cloudflare({
-      configPath: mode === 'kv' ? './wrangler.kv.toml' : './wrangler.toml',
-      persistState: !ephemeralDevState,
-      ...(command === 'serve' && mode !== 'ai'
-        ? {
-            config: (worker) => {
-              delete worker.ai
-            },
-          }
-        : {}),
-    })),
-  ],
+const config: UserConfigFnPromise = async ({ mode, command }) => {
+  if (mode === 'demo') throw new Error('The demo mode has been removed; use production or kv')
 
-  resolve: {
-    alias: [
-      { find: '$lib', replacement: fileURLToPath(new URL('./src/client/lib', import.meta.url)) },
-      { find: '@app', replacement: fileURLToPath(new URL('../packages/app/src', import.meta.url)) },
-      { find: '@shared', replacement: fileURLToPath(new URL('../packages/shared/src', import.meta.url)) },
+  return {
+    plugins: [
+      svelte(),
+      tailwindcss(),
+      themeBootstrapPlugin('autonote.ui:layout'),
+      autonotePwa(),
+      cloudflare({
+        configPath: mode === 'kv' ? './wrangler.kv.toml' : './wrangler.toml',
+        persistState: !ephemeralDevState,
+        ...(command === 'serve' && mode !== 'ai'
+          ? {
+              config: (worker) => {
+                delete worker.ai
+              },
+            }
+          : {}),
+      }),
     ],
-  },
 
-  optimizeDeps: {
-    exclude: ['@ouraihub/aether-ui'],
-  },
+    resolve: {
+      dedupe: ['svelte', 'bits-ui'],
+      alias: [
+        { find: '$lib', replacement: fileURLToPath(new URL('./src/client/lib', import.meta.url)) },
+        { find: '@app', replacement: fileURLToPath(new URL('../packages/app/src', import.meta.url)) },
+        { find: '@shared', replacement: fileURLToPath(new URL('../packages/shared/src', import.meta.url)) },
+      ],
+    },
 
-  server: {
-    port: mode === 'demo' ? 7714 : 7712,
-    strictPort: mode === 'demo',
-  },
+    optimizeDeps: {
+      exclude: ['@ouraihub/aether-ui'],
+    },
 
-  preview: {
-    port: mode === 'demo' ? 7715 : 7713,
-  },
+    server: {
+      port: 7712,
+    },
 
-  build: {
-    target: 'esnext',
-    ...(mode === 'demo' ? { outDir: 'dist/demo', emptyOutDir: true } : {}),
-    sourcemap: false,
-    cssMinify: 'lightningcss',
-  },
-})
+    preview: {
+      port: 7713,
+    },
+
+    build: {
+      target: 'esnext',
+      sourcemap: false,
+      cssMinify: 'lightningcss',
+    },
+  }
+}
 
 export default config

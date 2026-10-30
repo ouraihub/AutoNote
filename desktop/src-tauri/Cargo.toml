@@ -108,3 +108,17 @@ codegen-units = 4
 opt-level = "z"
 strip = true
 panic = "abort"
+
+# Coordinated local integration; replace with the published Aether revision before release.
+[patch."https://github.com/ouraihub/Aether.git"]
+aether-support = { path = "../../../Aether/crates/aether-support" }
+aether-observability = { path = "../../../Aether/crates/aether-observability" }
+aether-providers = { path = "../../../Aether/crates/aether-providers" }
+aether-chat = { path = "../../../Aether/crates/aether-chat" }
+aether-runtime = { path = "../../../Aether/crates/aether-runtime" }
+aether-images = { path = "../../../Aether/crates/aether-images" }
+aether-mcp-server = { path = "../../../Aether/crates/aether-mcp-server" }
+aether-search = { path = "../../../Aether/crates/aether-search" }
+aether-skills = { path = "../../../Aether/crates/aether-skills" }
+aether-mcp-client = { path = "../../../Aether/crates/aether-mcp-client" }
+tauri-plugin-aether = { path = "../../../Aether/plugin/tauri-plugin-aether" }
