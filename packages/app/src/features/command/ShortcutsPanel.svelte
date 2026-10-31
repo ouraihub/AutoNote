@@ -39,33 +39,50 @@
     [['[', '['], 'command.link_to_another_note_autocomplete'],
     [['#'], 'command.insert_tag_autocomplete'],
     [['`', '`', '`'], 'command.code_block_language_autocomplete'],
-    [['↵'], 'command.continue_lists_automatically_press_enter_on_an_empty_item_to_exit'],
+    [
+      ['↵'],
+      'command.continue_lists_automatically_press_enter_on_an_empty_item_to_exit',
+    ],
     [['Tab'], 'command.jump_to_the_next_cell_in_the_table'],
   ]
   const groups = $derived.by(() => {
     const grouped: Record<string, { combo: string; description: string }[]> = {}
     for (const hotkey of hotkeys.listHotkeys()) {
       const group = hotkeyText(hotkey.group)
-      ;(grouped[group] ??= []).push({ combo: hotkey.combo, description: hotkeyText(hotkey.description) })
+      ;(grouped[group] ??= []).push({
+        combo: hotkey.combo,
+        description: hotkeyText(hotkey.description),
+      })
     }
     const edit = i18n.t('common.edit')
-    ;(grouped[edit] ??= []).push(...editorShortcuts.map(([combo, key]) => ({ combo, description: i18n.t(key) })))
+    ;(grouped[edit] ??= []).push(
+      ...editorShortcuts.map(([combo, key]) => ({
+        combo,
+        description: i18n.t(key),
+      })),
+    )
     return Object.entries(grouped)
   })
   const rowClass =
     'flex min-h-10 items-center justify-between gap-4 rounded-[var(--r-sm)] px-1.5 py-[5px] transition-colors hover:bg-[var(--bg-hover)] md:min-h-0'
-  const textClass = 'min-w-0 text-[12.5px] leading-snug text-[var(--text-secondary)] md:truncate'
-  const headingClass = 'mb-2 text-[10.5px] font-semibold tracking-[0.07em] text-[var(--text-quaternary)]'
+  const textClass =
+    'min-w-0 text-[12.5px] leading-snug text-[var(--text-secondary)] md:truncate'
+  const headingClass =
+    'mb-2 text-[10.5px] font-semibold tracking-[0.07em] text-[var(--text-quaternary)]'
 </script>
 
 <Modal
   {open}
   onClose={() => onOpenChange(false)}
   title={i18n.t('command.keyboard_shortcuts_021cf9')}
-  description={i18n.t('command.use_nearly_every_action_without_touching_the_mouse')}
+  description={i18n.t(
+    'command.use_nearly_every_action_without_touching_the_mouse',
+  )}
   width={720}
 >
-  <div class="grid grid-cols-1 gap-x-8 gap-y-5 pr-1 md:max-h-[62vh] md:grid-cols-2 md:overflow-y-auto">
+  <div
+    class="grid grid-cols-1 gap-x-8 gap-y-5 pr-1 md:max-h-[62vh] md:grid-cols-2 md:overflow-y-auto"
+  >
     {#each groups as [group, items] (group)}
       <section aria-label={group}>
         <h3 class={headingClass}>{group}</h3>

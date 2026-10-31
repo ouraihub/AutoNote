@@ -70,33 +70,45 @@ mcpSettingsRoutes.put('/', async (c) => {
     }
   }
   if (body.enabled !== undefined) {
-    if (user.role !== 'owner') throw ApiError.forbidden('Only the owner can enable or disable MCP')
+    if (user.role !== 'owner')
+      throw ApiError.forbidden('Only the owner can enable or disable MCP')
     await setMcpEnabled(c.env.DB, body.enabled)
   }
 
   const preferences = await updateMcpPreferences(c.env.DB, user.id, {
-    ...(body.writeEnabled !== undefined ? { writeEnabled: body.writeEnabled } : {}),
-    ...(body.trashEnabled !== undefined ? { trashEnabled: body.trashEnabled } : {}),
+    ...(body.writeEnabled !== undefined
+      ? { writeEnabled: body.writeEnabled }
+      : {}),
+    ...(body.trashEnabled !== undefined
+      ? { trashEnabled: body.trashEnabled }
+      : {}),
   })
   return c.json({
     enabled: await isMcpEnabled(c.env.DB),
     preferences,
-    reconnectRequired: body.writeEnabled !== undefined || body.trashEnabled !== undefined,
+    reconnectRequired:
+      body.writeEnabled !== undefined || body.trashEnabled !== undefined,
   })
 })
 
 mcpSettingsRoutes.post('/keys', async (c) => {
   const user = c.get('user')
-  if (!await isMcpEnabled(c.env.DB)) throw ApiError.conflict('MCP is disabled')
+  if (!(await isMcpEnabled(c.env.DB)))
+    throw ApiError.conflict('MCP is disabled')
   const body = await readJson<{ name?: unknown }>(c, JSON_BODY_LIMITS.small)
   const name = typeof body.name === 'string' ? body.name.trim() : ''
-  if (!name || name.length > 80) throw ApiError.badRequest('name must be 1-80 characters')
+  if (!name || name.length > 80)
+    throw ApiError.badRequest('name must be 1-80 characters')
   const created = await createMcpApiKey(c.env.DB, user.id, name)
   return c.json({ key: created.record, token: created.token }, 201)
 })
 
 mcpSettingsRoutes.delete('/keys/:id', async (c) => {
-  const revoked = await revokeMcpApiKey(c.env.DB, c.get('userId'), c.req.param('id'))
+  const revoked = await revokeMcpApiKey(
+    c.env.DB,
+    c.get('userId'),
+    c.req.param('id'),
+  )
   if (!revoked) throw ApiError.notFound('API key not found')
   return c.json({ ok: true })
 })
@@ -108,8 +120,10 @@ mcpSettingsRoutes.get('/ai-search', async (c) => {
 mcpSettingsRoutes.put('/ai-search', async (c) => {
   const userId = c.get('userId')
   const body = await readJson<{ enabled?: unknown }>(c, JSON_BODY_LIMITS.small)
-  if (typeof body.enabled !== 'boolean') throw ApiError.badRequest('enabled must be a boolean')
-  if (body.enabled && !await isMcpEnabled(c.env.DB)) throw ApiError.conflict('MCP is disabled')
+  if (typeof body.enabled !== 'boolean')
+    throw ApiError.badRequest('enabled must be a boolean')
+  if (body.enabled && !(await isMcpEnabled(c.env.DB)))
+    throw ApiError.conflict('MCP is disabled')
   if (body.enabled && !isAiSearchAvailable(c.env)) {
     throw ApiError.conflict('Workers AI is not configured')
   }
@@ -118,16 +132,22 @@ mcpSettingsRoutes.put('/ai-search', async (c) => {
     const enqueued = await enqueueAllNotesForIndex(c.env.DB, userId)
     // Kick off the first batch immediately; the rest is drained by the cron.
     c.executionCtx.waitUntil(drainAiIndexQueue(c.env, 30).catch(() => {}))
-    return c.json({ ...await getAiSearchStatus(c.env.DB, c.env, userId), enqueued })
+    return c.json({
+      ...(await getAiSearchStatus(c.env.DB, c.env, userId)),
+      enqueued,
+    })
   }
   return c.json(await getAiSearchStatus(c.env.DB, c.env, userId))
 })
 
 mcpSettingsRoutes.post('/ai-search/reindex', async (c) => {
   const userId = c.get('userId')
-  if (!await isMcpEnabled(c.env.DB)) throw ApiError.conflict('MCP is disabled')
-  if (!isAiSearchAvailable(c.env)) throw ApiError.conflict('Workers AI is not configured')
-  if (!await isAiSearchEnabled(c.env.DB, userId)) throw ApiError.conflict('AI search is disabled')
+  if (!(await isMcpEnabled(c.env.DB)))
+    throw ApiError.conflict('MCP is disabled')
+  if (!isAiSearchAvailable(c.env))
+    throw ApiError.conflict('Workers AI is not configured')
+  if (!(await isAiSearchEnabled(c.env.DB, userId)))
+    throw ApiError.conflict('AI search is disabled')
   const enqueued = await enqueueAllNotesForIndex(c.env.DB, userId)
   const status = await getAiSearchStatus(c.env.DB, c.env, userId)
   c.executionCtx.waitUntil(drainAiIndexQueue(c.env, 30).catch(() => {}))
@@ -140,17 +160,20 @@ mcpSettingsRoutes.post('/ai-search/clear', async (c) => {
 })
 
 mcpSettingsRoutes.delete('/grants/:id', async (c) => {
-  if (!c.env.OAUTH_PROVIDER) throw new ApiError(503, 'internal', 'OAuth is unavailable')
+  if (!c.env.OAUTH_PROVIDER)
+    throw new ApiError(503, 'internal', 'OAuth is unavailable')
   await c.env.OAUTH_PROVIDER.revokeGrant(c.req.param('id'), c.get('userId'))
   return c.json({ ok: true })
 })
 
 mcpSettingsRoutes.post('/grants/revoke-all', async (c) => {
-  if (!c.env.OAUTH_PROVIDER) throw new ApiError(503, 'internal', 'OAuth is unavailable')
+  if (!c.env.OAUTH_PROVIDER)
+    throw new ApiError(503, 'internal', 'OAuth is unavailable')
   const grants = await collectGrantIds(c.env.OAUTH_PROVIDER, c.get('userId'))
   for (let offset = 0; offset < grants.length; offset += 25) {
     await Promise.all(
-      grants.slice(offset, offset + 25)
+      grants
+        .slice(offset, offset + 25)
         .map((id) => c.env.OAUTH_PROVIDER!.revokeGrant(id, c.get('userId'))),
     )
   }
@@ -165,15 +188,23 @@ async function collectGrants(
   let cursor: string | undefined
   do {
     const page = await oauth.listUserGrants(userId, { limit: 100, cursor })
-    output.push(...page.items.map((grant) => ({
-      id: grant.id,
-      clientId: grant.clientId,
-      clientName: typeof grant.metadata?.clientName === 'string' ? grant.metadata.clientName : 'MCP client',
-      clientUri: typeof grant.metadata?.clientUri === 'string' ? grant.metadata.clientUri : null,
-      scopes: grant.scope,
-      createdAt: grant.createdAt * 1000,
-      expiresAt: grant.expiresAt ? grant.expiresAt * 1000 : null,
-    })))
+    output.push(
+      ...page.items.map((grant) => ({
+        id: grant.id,
+        clientId: grant.clientId,
+        clientName:
+          typeof grant.metadata?.clientName === 'string'
+            ? grant.metadata.clientName
+            : 'MCP client',
+        clientUri:
+          typeof grant.metadata?.clientUri === 'string'
+            ? grant.metadata.clientUri
+            : null,
+        scopes: grant.scope,
+        createdAt: grant.createdAt * 1000,
+        expiresAt: grant.expiresAt ? grant.expiresAt * 1000 : null,
+      })),
+    )
     cursor = page.cursor
   } while (cursor && output.length < 500)
   return output

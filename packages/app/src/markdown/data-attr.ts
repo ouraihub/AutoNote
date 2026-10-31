@@ -12,9 +12,13 @@ export function encodeDataValue(value: string): string {
 export function decodeDataValue(value: string | undefined): string {
   if (!value?.startsWith(PREFIX)) return value ?? ''
   try {
-    const encoded = value.slice(PREFIX.length).replace(/-/g, '+').replace(/_/g, '/')
-    const bytes = Uint8Array.from(atob(encoded.padEnd(Math.ceil(encoded.length / 4) * 4, '=')), (character) =>
-      character.charCodeAt(0),
+    const encoded = value
+      .slice(PREFIX.length)
+      .replace(/-/g, '+')
+      .replace(/_/g, '/')
+    const bytes = Uint8Array.from(
+      atob(encoded.padEnd(Math.ceil(encoded.length / 4) * 4, '=')),
+      (character) => character.charCodeAt(0),
     )
     return new TextDecoder().decode(bytes)
   } catch {

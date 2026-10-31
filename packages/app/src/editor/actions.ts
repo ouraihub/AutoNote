@@ -30,7 +30,9 @@ export function insertTag(view: EditorView): boolean {
   view.dispatch(
     view.state.changeByRange((range) => ({
       changes: { from: range.from, insert: '#' },
-      range: range.empty ? EditorSelection.cursor(range.from + 1) : EditorSelection.range(range.from + 1, range.to + 1),
+      range: range.empty
+        ? EditorSelection.cursor(range.from + 1)
+        : EditorSelection.range(range.from + 1, range.to + 1),
     })),
     { scrollIntoView: true, userEvent: 'input.insert' },
   )
@@ -40,7 +42,10 @@ export function insertTag(view: EditorView): boolean {
 }
 
 /** Uploads files chosen from a toolbar file picker at the current selection. */
-export async function insertPickedFiles(view: EditorView, files: Iterable<File>): Promise<void> {
+export async function insertPickedFiles(
+  view: EditorView,
+  files: Iterable<File>,
+): Promise<void> {
   const list = [...files]
   if (!list.length) return
   view.focus()

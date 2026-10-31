@@ -55,7 +55,9 @@ test('snapshot is installed before concurrent notification reconciliation and la
   expect(released).toBe(1)
 
   const delayed = Promise.withResolvers<() => void>()
-  const late = new IpcChangeFeed({ listenLibrary: () => delayed.promise } as unknown as IpcTransport)
+  const late = new IpcChangeFeed({
+    listenLibrary: () => delayed.promise,
+  } as unknown as IpcTransport)
   const start = late.start()
   late.dispose()
   delayed.resolve(() => {
@@ -78,6 +80,8 @@ test('incremental pagination rejects a non-advancing cursor instead of looping',
     },
   } as unknown as IpcTransport)
   await feed.snapshot()
-  await expect(feed.reconcile()).rejects.toMatchObject({ code: 'invalid_response' })
+  await expect(feed.reconcile()).rejects.toMatchObject({
+    code: 'invalid_response',
+  })
   feed.dispose()
 })

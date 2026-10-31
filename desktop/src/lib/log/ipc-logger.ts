@@ -6,8 +6,12 @@ const numericFields =
   /^(count|pending|failed|pendingCount|droppedCount|durationMs|cursor|rev|schemaVersion|indexed|attachmentCount|noteCount|recoveredCount|orphanCount|dpi|status)$/
 const codes =
   /^(bad_request|unauthenticated|forbidden|not_found|conflict|payload_too_large|too_many_attempts|storage_unavailable|internal|offline|cancelled|request_timeout|invalid_response)$/
-function safeField(key: string, value: string | number | boolean | null): boolean {
-  if (typeof value === 'number') return numericFields.test(key) && Number.isFinite(value)
+function safeField(
+  key: string,
+  value: string | number | boolean | null,
+): boolean {
+  if (typeof value === 'number')
+    return numericFields.test(key) && Number.isFinite(value)
   if (typeof value === 'boolean') return key === 'online' || key === 'available'
   if (typeof value !== 'string') return false
   switch (key) {
@@ -23,10 +27,14 @@ function safeField(key: string, value: string | number | boolean | null): boolea
     case 'format':
       return value === 'zip' || value === 'json'
     case 'reason':
-      return /^(dpi_changed|monitor_removed|offscreen|invalid_state)$/.test(value)
+      return /^(dpi_changed|monitor_removed|offscreen|invalid_state)$/.test(
+        value,
+      )
     case 'jobId':
     case 'writeId':
-      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        value,
+      )
     case 'noteId':
     case 'note_id':
       return /^[0-9a-hjkmnp-tv-z]{26}$/.test(value)
@@ -49,8 +57,12 @@ export class IpcLogger implements Logger {
   #sending: Promise<void> | null = null
   #inFlightCount = 0
   #disposed = false
-  #diagnostic: { event: 'app.log.unavailable'; droppedCount: number } | null = null
-  get diagnostic(): Readonly<{ event: 'app.log.unavailable'; droppedCount: number }> | null {
+  #diagnostic: { event: 'app.log.unavailable'; droppedCount: number } | null =
+    null
+  get diagnostic(): Readonly<{
+    event: 'app.log.unavailable'
+    droppedCount: number
+  }> | null {
     return this.#diagnostic
   }
   available = true
@@ -69,11 +81,18 @@ export class IpcLogger implements Logger {
   }
   #enqueue(level: LogRecord['level'], event: string, fields?: LogFields): void {
     if (this.#disposed) return
-    if (event.length > 128 || !/^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$/.test(event)) {
+    if (
+      event.length > 128 ||
+      !/^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$/.test(event)
+    ) {
       this.#dropped++
       return
     }
-    const safe = Object.fromEntries(Object.entries(fields ?? {}).filter(([key, value]) => safeField(key, value)))
+    const safe = Object.fromEntries(
+      Object.entries(fields ?? {}).filter(([key, value]) =>
+        safeField(key, value),
+      ),
+    )
     const entry: LogRecord = { level, event, fields: safe }
     // All retained values are ASCII; length equals UTF-8 bytes after JSON escaping.
     if (JSON.stringify(entry).length > 4096) {
@@ -81,7 +100,9 @@ export class IpcLogger implements Logger {
       return
     }
     if (this.#queue.length === 200) {
-      const index = this.#queue.findIndex((item) => item.level === 'debug' || item.level === 'info')
+      const index = this.#queue.findIndex(
+        (item) => item.level === 'debug' || item.level === 'info',
+      )
       if (index === -1) {
         this.#dropped++
         return
@@ -108,15 +129,23 @@ export class IpcLogger implements Logger {
         this.#dropped = 0
         this.#inFlightCount = entries.length
         try {
-          const result = await this.transport.invoke('app_log', { entries, droppedCount })
+          const result = await this.transport.invoke('app_log', {
+            entries,
+            droppedCount,
+          })
           if (this.#disposed) break
           this.available = result.available
-          this.#diagnostic = result.available ? null : { event: 'app.log.unavailable', droppedCount }
+          this.#diagnostic = result.available
+            ? null
+            : { event: 'app.log.unavailable', droppedCount }
         } catch {
           if (this.#disposed) break
           this.available = false
           this.#dropped += entries.length + droppedCount
-          this.#diagnostic = { event: 'app.log.unavailable', droppedCount: this.#dropped }
+          this.#diagnostic = {
+            event: 'app.log.unavailable',
+            droppedCount: this.#dropped,
+          }
           this.#inFlightCount = 0
           break
         }
@@ -141,7 +170,10 @@ export class IpcLogger implements Logger {
     if (this.#queue.length || this.#dropped || this.#inFlightCount) {
       this.#dropped += this.#queue.length + this.#inFlightCount
       this.#queue = []
-      this.#diagnostic = { event: 'app.log.unavailable', droppedCount: this.#dropped }
+      this.#diagnostic = {
+        event: 'app.log.unavailable',
+        droppedCount: this.#dropped,
+      }
     }
   }
 }

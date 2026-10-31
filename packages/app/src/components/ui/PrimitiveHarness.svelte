@@ -45,6 +45,14 @@
   </Field.Field>
   <Field.Field>
     <Field.Label id="font-size-label" for="font-size">Font size</Field.Label>
-    <Slider id="font-size" aria-labelledby="font-size-label" type="single" bind:value={fontSize} min={12} max={18} step={1} />
+    <Slider
+      id="font-size"
+      aria-labelledby="font-size-label"
+      type="single"
+      bind:value={fontSize}
+      min={12}
+      max={18}
+      step={1}
+    />
   </Field.Field>
 </Field.Group>

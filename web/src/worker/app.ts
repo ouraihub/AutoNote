@@ -39,10 +39,21 @@ export function createApp() {
     c.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
     c.header(
       'Content-Security-Policy',
-        "default-src 'self'; base-uri 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
-        `img-src 'self' data: blob: ${imageSchemes}; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; ` +
-        `manifest-src 'self'; media-src 'self' blob:; form-action ${formAction}; frame-src 'none'; ` +
-        "frame-ancestors 'none'; object-src 'none'",
+      "default-src 'self'; base-uri 'self'; script-src 'self' 'unsafe-inline'" +
+        ';' +
+        ' ' +
+        "style-src 'self' 'unsafe-inline';" +
+        ' ' +
+        `img-src 'self' data: blob: ${imageSchemes}; font-src 'self' data:;` +
+        ' ' +
+        'connect-src \'self\'; ' +
+        'worker-src \'self\' blob:;' +
+        ' ' +
+        `manifest-src 'self'; media-src 'self' blob:; form-action ` +
+        `${formAction}` +
+        ';' +
+        ' ' +
+        "frame-src 'none'; frame-ancestors 'none'; object-src 'none'",
     )
     if (isHttps) {
       c.header('Strict-Transport-Security', 'max-age=31536000')
@@ -51,7 +62,6 @@ export function createApp() {
       c.header('Cache-Control', 'no-store')
     }
   })
-
 
   app.use('/api/*', requireClientHeader)
   app.use('/api/*', async (c, next) => {
@@ -116,27 +126,34 @@ export function createApp() {
   app.route('/s', sharePageRoutes)
   app.route('/', mcpAuthorizeRoutes)
 
-
   app.all('*', (c) => c.env.ASSETS.fetch(c.req.raw))
 
   return app
 }
 
-function authorizationFormAction(requestUrl: string, response: Response): string {
+function authorizationFormAction(
+  requestUrl: string,
+  response: Response,
+): string {
   const sources = ["'self'"]
   const url = new URL(requestUrl)
-  if (url.pathname !== '/authorize' || response.status !== 200 ||
-      !response.headers.get('Content-Type')?.includes('text/html')) {
+  if (
+    url.pathname !== '/authorize' ||
+    response.status !== 200 ||
+    !response.headers.get('Content-Type')?.includes('text/html')
+  ) {
     return sources.join(' ')
   }
   const redirectUri = url.searchParams.get('redirect_uri')
   if (!redirectUri) return sources.join(' ')
   try {
     const callback = new URL(redirectUri)
-    if ((callback.protocol === 'http:' || callback.protocol === 'https:') && callback.origin !== url.origin) {
+    if (
+      (callback.protocol === 'http:' || callback.protocol === 'https:') &&
+      callback.origin !== url.origin
+    ) {
       sources.push(callback.origin)
     }
-  } catch {
-  }
+  } catch {}
   return sources.join(' ')
 }

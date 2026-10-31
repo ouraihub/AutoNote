@@ -15,7 +15,8 @@ import { enqueueNoteIndex } from './ai-search'
 import { runIdempotent } from './operations'
 import { buildOutline } from './retrieval'
 
-export type NoteEditOperation = 'replace' | 'replace_section' | 'append' | 'prepend' | 'replace_all'
+export type NoteEditOperation =
+  'replace' | 'replace_section' | 'append' | 'prepend' | 'replace_all'
 
 export interface McpWriteContext {
   env: Env
@@ -35,7 +36,8 @@ export async function createMcpNote(
   },
 ): Promise<Note> {
   const id = input.noteId ?? newId()
-  if (!isValidId(id)) throw ApiError.badRequest('note_id must be a valid AutoNote note id')
+  if (!isValidId(id))
+    throw ApiError.badRequest('note_id must be a valid AutoNote note id')
   return runIdempotent({
     db: context.env.DB,
     userId: context.userId,
@@ -45,18 +47,26 @@ export async function createMcpNote(
     recovery: { noteId: id },
     recover: async (recovery) => {
       const noteId = typeof recovery?.noteId === 'string' ? recovery.noteId : ''
-      return noteId ? loadNoteOrNull(context.env.DB, context.userId, noteId) : null
+      return noteId
+        ? loadNoteOrNull(context.env.DB, context.userId, noteId)
+        : null
     },
     execute: async () => {
       const content = input.content ?? ''
       assertContentSize(content)
       const title = resolveTitle(input.title ?? deriveTitle(content))
-      const folderId = await resolveFolderId(context.env.DB, context.userId, input.folderId ?? null)
+      const folderId = await resolveFolderId(
+        context.env.DB,
+        context.userId,
+        input.folderId ?? null,
+      )
       const now = Date.now()
       const excerpt = deriveExcerpt(content)
       const { words, chars } = countText(content)
       const hash = await sha256Hex(content)
-      const collision = await context.env.DB.prepare(`SELECT user_id FROM notes WHERE id = ?1`)
+      const collision = await context.env.DB.prepare(
+        `SELECT user_id FROM notes WHERE id = ?1`,
+      )
         .bind(id)
         .first<{ user_id: string }>()
       if (collision) throw ApiError.conflict('This note id is already in use')
@@ -65,7 +75,19 @@ export async function createMcpNote(
         `INSERT INTO notes (id, user_id, folder_id, title, content, excerpt, rev, word_count, char_count,
            is_pinned, is_starred, is_archived, position, content_hash, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, ?8, 0, 0, 0, ?9, ?10, ?11, ?11)`,
-      ).bind(id, context.userId, folderId, title, content, excerpt, words, chars, now, hash, now)
+      ).bind(
+        id,
+        context.userId,
+        folderId,
+        title,
+        content,
+        excerpt,
+        words,
+        chars,
+        now,
+        hash,
+        now,
+      )
       const derived = buildNoteDerivedStatements({
         db: context.env.DB,
         userId: context.userId,
@@ -114,9 +136,14 @@ export async function editMcpNote(
     request: input,
     recovery: { noteId: input.noteId, expectedRev: input.expectedRev },
     execute: async () => {
-      const current = await loadNoteRow(context.env.DB, context.userId, input.noteId)
+      const current = await loadNoteRow(
+        context.env.DB,
+        context.userId,
+        input.noteId,
+      )
       assertExpectedRevision(current, input.expectedRev)
-      if (current.deleted_at !== null) throw ApiError.notFound('The note is in the trash')
+      if (current.deleted_at !== null)
+        throw ApiError.notFound('The note is in the trash')
       const content = applyEdit(current.content, input)
       return patchNote(context, current, {
         content,
@@ -146,11 +173,18 @@ export async function organizeMcpNote(
     request: input,
     recovery: { noteId: input.noteId, expectedRev: input.expectedRev },
     execute: async () => {
-      const current = await loadNoteRow(context.env.DB, context.userId, input.noteId)
+      const current = await loadNoteRow(
+        context.env.DB,
+        context.userId,
+        input.noteId,
+      )
       assertExpectedRevision(current, input.expectedRev)
-      if (current.deleted_at !== null) throw ApiError.notFound('The note is in the trash')
+      if (current.deleted_at !== null)
+        throw ApiError.notFound('The note is in the trash')
       return patchNote(context, current, {
-        ...(Object.prototype.hasOwnProperty.call(input, 'folderId') ? { folderId: input.folderId } : {}),
+        ...(Object.prototype.hasOwnProperty.call(input, 'folderId')
+          ? { folderId: input.folderId }
+          : {}),
         ...(input.starred !== undefined ? { isStarred: input.starred } : {}),
         ...(input.archived !== undefined ? { isArchived: input.archived } : {}),
         ...(input.pinned !== undefined ? { isPinned: input.pinned } : {}),
@@ -171,9 +205,14 @@ export async function trashMcpNote(
     request: input,
     recovery: { noteId: input.noteId, expectedRev: input.expectedRev },
     execute: async () => {
-      const row = await loadNoteRow(context.env.DB, context.userId, input.noteId)
+      const row = await loadNoteRow(
+        context.env.DB,
+        context.userId,
+        input.noteId,
+      )
       assertExpectedRevision(row, input.expectedRev)
-      if (row.deleted_at !== null) throw ApiError.notFound('The note is already in the trash')
+      if (row.deleted_at !== null)
+        throw ApiError.notFound('The note is already in the trash')
       const now = Math.max(Date.now(), row.updated_at + 1)
       const nextRev = row.rev + 1
       const guard = `EXISTS (SELECT 1 FROM notes
@@ -229,9 +268,14 @@ export async function restoreMcpNote(
     request: input,
     recovery: { noteId: input.noteId, expectedRev: input.expectedRev },
     execute: async () => {
-      const row = await loadNoteRow(context.env.DB, context.userId, input.noteId)
+      const row = await loadNoteRow(
+        context.env.DB,
+        context.userId,
+        input.noteId,
+      )
       assertExpectedRevision(row, input.expectedRev)
-      if (row.deleted_at === null) throw ApiError.badRequest('The note is not in the trash')
+      if (row.deleted_at === null)
+        throw ApiError.badRequest('The note is not in the trash')
       const now = Math.max(Date.now(), row.updated_at + 1)
       const nextRev = row.rev + 1
       const update = context.env.DB.prepare(
@@ -297,7 +341,8 @@ async function patchNote(
       contentChanged = true
       newHash = hash
       newContent = patch.content
-      newTitle = patch.title === undefined ? row.title : resolveTitle(patch.title)
+      newTitle =
+        patch.title === undefined ? row.title : resolveTitle(patch.title)
       const { words, chars } = countText(patch.content)
       push(sets, binds, 'content', patch.content)
       push(sets, binds, 'content_hash', hash)
@@ -306,16 +351,36 @@ async function patchNote(
       push(sets, binds, 'word_count', words)
       push(sets, binds, 'char_count', chars)
     }
-  } else if (patch.title !== undefined && resolveTitle(patch.title) !== row.title) {
+  } else if (
+    patch.title !== undefined &&
+    resolveTitle(patch.title) !== row.title
+  ) {
     newTitle = resolveTitle(patch.title)
     push(sets, binds, 'title', newTitle)
   }
-  if (Object.prototype.hasOwnProperty.call(patch, 'folderId') && patch.folderId !== row.folder_id) {
-    push(sets, binds, 'folder_id', await resolveFolderId(context.env.DB, context.userId, patch.folderId))
+  if (
+    Object.prototype.hasOwnProperty.call(patch, 'folderId') &&
+    patch.folderId !== row.folder_id
+  ) {
+    push(
+      sets,
+      binds,
+      'folder_id',
+      await resolveFolderId(context.env.DB, context.userId, patch.folderId),
+    )
   }
-  if (patch.isPinned !== undefined && Number(patch.isPinned) !== row.is_pinned) push(sets, binds, 'is_pinned', patch.isPinned ? 1 : 0)
-  if (patch.isStarred !== undefined && Number(patch.isStarred) !== row.is_starred) push(sets, binds, 'is_starred', patch.isStarred ? 1 : 0)
-  if (patch.isArchived !== undefined && Number(patch.isArchived) !== row.is_archived) push(sets, binds, 'is_archived', patch.isArchived ? 1 : 0)
+  if (patch.isPinned !== undefined && Number(patch.isPinned) !== row.is_pinned)
+    push(sets, binds, 'is_pinned', patch.isPinned ? 1 : 0)
+  if (
+    patch.isStarred !== undefined &&
+    Number(patch.isStarred) !== row.is_starred
+  )
+    push(sets, binds, 'is_starred', patch.isStarred ? 1 : 0)
+  if (
+    patch.isArchived !== undefined &&
+    Number(patch.isArchived) !== row.is_archived
+  )
+    push(sets, binds, 'is_archived', patch.isArchived ? 1 : 0)
   if (!sets.length) return toNote(row)
 
   push(sets, binds, 'updated_at', now)
@@ -329,7 +394,14 @@ async function patchNote(
   const mutationGuard = `EXISTS (SELECT 1 FROM notes
     WHERE id = ?1 AND user_id = ?2 AND rev = ?3
       AND content_hash = ?4 AND title = ?5 AND updated_at = ?6)`
-  const mutationValues = [row.id, context.userId, nextRev, newHash, newTitle, now] as const
+  const mutationValues = [
+    row.id,
+    context.userId,
+    nextRev,
+    newHash,
+    newTitle,
+    now,
+  ] as const
   const statements: D1PreparedStatement[] = [update]
 
   if (contentChanged && row.content) {
@@ -339,8 +411,14 @@ async function patchNote(
          SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
           WHERE ${shiftSqlPlaceholders(mutationGuard, 7)}`,
       ).bind(
-        newId(), row.id, context.userId, row.title, row.content,
-        utf8ByteLength(row.content), now, ...mutationValues,
+        newId(),
+        row.id,
+        context.userId,
+        row.title,
+        row.content,
+        utf8ByteLength(row.content),
+        now,
+        ...mutationValues,
       ),
       context.env.DB.prepare(
         `DELETE FROM note_versions WHERE note_id = ?1
@@ -352,20 +430,22 @@ async function patchNote(
   }
 
   if (contentChanged || newTitle !== row.title) {
-    statements.push(...buildNoteDerivedStatements({
-      db: context.env.DB,
-      userId: context.userId,
-      noteId: row.id,
-      title: newTitle,
-      content: newContent,
-      ftsEnabled: context.ftsEnabled,
-      titleChanged: newTitle !== row.title,
-      previousTitle: row.title,
-      expectedRev: nextRev,
-      expectedContentHash: newHash,
-      expectedTitle: newTitle,
-      expectedUpdatedAt: now,
-    }).statements)
+    statements.push(
+      ...buildNoteDerivedStatements({
+        db: context.env.DB,
+        userId: context.userId,
+        noteId: row.id,
+        title: newTitle,
+        content: newContent,
+        ftsEnabled: context.ftsEnabled,
+        titleChanged: newTitle !== row.title,
+        previousTitle: row.title,
+        expectedRev: nextRev,
+        expectedContentHash: newHash,
+        expectedTitle: newTitle,
+        expectedUpdatedAt: now,
+      }).statements,
+    )
     if (contentChanged) {
       statements.push(
         context.env.DB.prepare(
@@ -399,7 +479,12 @@ async function patchNote(
 
 function applyEdit(
   content: string,
-  input: { operation: NoteEditOperation; text: string; oldText?: string; section?: string },
+  input: {
+    operation: NoteEditOperation
+    text: string
+    oldText?: string
+    section?: string
+  },
 ): string {
   if (input.operation === 'replace_all') return input.text
   if (input.operation === 'append') {
@@ -414,23 +499,35 @@ function applyEdit(
     const oldText = input.oldText ?? ''
     if (!oldText) throw ApiError.badRequest('old_text is required for replace')
     const first = content.indexOf(oldText)
-    if (first < 0) throw ApiError.conflict('old_text was not found; read the current note and retry')
+    if (first < 0)
+      throw ApiError.conflict(
+        'old_text was not found; read the current note and retry',
+      )
     if (content.indexOf(oldText, first + oldText.length) >= 0) {
-      throw ApiError.conflict('old_text occurs more than once; provide a larger unique passage')
+      throw ApiError.conflict(
+        'old_text occurs more than once; provide a larger unique passage',
+      )
     }
     return `${content.slice(0, first)}${input.text}${content.slice(first + oldText.length)}`
   }
 
   const section = input.section?.trim().toLowerCase()
-  if (!section) throw ApiError.badRequest('section is required for replace_section')
+  if (!section)
+    throw ApiError.badRequest('section is required for replace_section')
   const outline = buildOutline(content)
-  const index = outline.findIndex((item) => item.slug === section || item.title.toLowerCase() === section)
+  const index = outline.findIndex(
+    (item) => item.slug === section || item.title.toLowerCase() === section,
+  )
   if (index < 0) throw ApiError.notFound(`Section not found: ${input.section}`)
   const heading = outline[index]!
   const offsets = lineOffsets(content)
   const headingEnd = offsets[heading.line] ?? content.length
-  const next = outline.slice(index + 1).find((item) => item.level <= heading.level)
-  const sectionEnd = next ? (offsets[next.line - 1] ?? content.length) : content.length
+  const next = outline
+    .slice(index + 1)
+    .find((item) => item.level <= heading.level)
+  const sectionEnd = next
+    ? (offsets[next.line - 1] ?? content.length)
+    : content.length
   const replacement = input.text.trim()
   const middle = replacement ? `${replacement}\n\n` : ''
   return `${content.slice(0, headingEnd)}${middle}${content.slice(sectionEnd)}`
@@ -446,21 +543,39 @@ async function afterMutation(context: McpWriteContext): Promise<void> {
   )
 }
 
-async function loadNote(db: D1Database, userId: string, id: string): Promise<Note> {
+async function loadNote(
+  db: D1Database,
+  userId: string,
+  id: string,
+): Promise<Note> {
   return toNote(await loadNoteRow(db, userId, id))
 }
 
-async function loadNoteOrNull(db: D1Database, userId: string, id: string): Promise<Note | null> {
-  const row = await db.prepare(
-    `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
-  ).bind(id, userId).first<NoteRow>()
+async function loadNoteOrNull(
+  db: D1Database,
+  userId: string,
+  id: string,
+): Promise<Note | null> {
+  const row = await db
+    .prepare(
+      `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
+    )
+    .bind(id, userId)
+    .first<NoteRow>()
   return row ? toNote(row) : null
 }
 
-async function loadNoteRow(db: D1Database, userId: string, id: string): Promise<NoteRow> {
-  const row = await db.prepare(
-    `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
-  ).bind(id, userId).first<NoteRow>()
+async function loadNoteRow(
+  db: D1Database,
+  userId: string,
+  id: string,
+): Promise<NoteRow> {
+  const row = await db
+    .prepare(
+      `SELECT ${NOTE_COLUMNS_FULL} FROM notes n WHERE n.id = ?1 AND n.user_id = ?2`,
+    )
+    .bind(id, userId)
+    .first<NoteRow>()
   if (!row) throw ApiError.notFound('Note not found')
   return row
 }
@@ -470,7 +585,9 @@ function assertExpectedRevision(row: NoteRow, expectedRev: number): void {
     throw ApiError.badRequest('expected_rev must be a positive integer')
   }
   if (row.rev !== expectedRev) {
-    throw ApiError.conflict('This note was modified elsewhere', { server: toNote(row) })
+    throw ApiError.conflict('This note was modified elsewhere', {
+      server: toNote(row),
+    })
   }
 }
 
@@ -480,9 +597,12 @@ async function resolveFolderId(
   folderId: string | null | undefined,
 ): Promise<string | null> {
   if (!folderId) return null
-  const row = await db.prepare(
-    `SELECT id FROM folders WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`,
-  ).bind(folderId, userId).first<{ id: string }>()
+  const row = await db
+    .prepare(
+      `SELECT id FROM folders WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`,
+    )
+    .bind(folderId, userId)
+    .first<{ id: string }>()
   if (!row) throw ApiError.badRequest('Folder not found')
   return row.id
 }
@@ -491,13 +611,21 @@ function resolveTitle(value: string): string {
   return truncateText(value.trim(), LIMITS.titleMaxLength)
 }
 
-function push(sets: string[], binds: unknown[], column: string, value: unknown): void {
+function push(
+  sets: string[],
+  binds: unknown[],
+  column: string,
+  value: unknown,
+): void {
   binds.push(value)
   sets.push(`${column} = ?${binds.length}`)
 }
 
 function shiftSqlPlaceholders(sql: string, offset: number): string {
-  return sql.replace(/\?(\d+)/g, (_match, value: string) => `?${Number(value) + offset}`)
+  return sql.replace(
+    /\?(\d+)/g,
+    (_match, value: string) => `?${Number(value) + offset}`,
+  )
 }
 
 function lineOffsets(content: string): number[] {

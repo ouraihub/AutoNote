@@ -10,7 +10,9 @@ export type FetchLike = (request: Request) => Promise<Response>
 export interface RequestSpec {
   readonly method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   readonly path: `/api/${string}`
-  readonly query?: Readonly<Record<string, string | number | boolean | undefined>>
+  readonly query?: Readonly<
+    Record<string, string | number | boolean | undefined>
+  >
   readonly body?: unknown
   readonly form?: FormData
   readonly signal?: AbortSignal | undefined
@@ -28,7 +30,8 @@ export interface HttpTransportDeps {
   readonly captureCurrent?: () => () => boolean
 }
 
-const NOTIFY_PATH = /^\/api\/(?:notes(?:\/|\?|$)|folders(?:\/|\?|$)|tags(?:\/|\?|$)|import(?:\/|\?|$))/
+const NOTIFY_PATH =
+  /^\/api\/(?:notes(?:\/|\?|$)|folders(?:\/|\?|$)|tags(?:\/|\?|$)|import(?:\/|\?|$))/
 
 export class HttpTransport {
   readonly #fetch: FetchLike
@@ -50,10 +53,14 @@ export class HttpTransport {
   async json<T>(spec: RequestSpec): Promise<T> {
     const current = this.#captureCurrent?.()
     const response = await this.#request(spec)
-    if (spec.signal?.aborted || current?.() === false) throw new BackendError('cancelled', 0, 'Request superseded')
+    if (spec.signal?.aborted || current?.() === false)
+      throw new BackendError('cancelled', 0, 'Request superseded')
     if (!response.ok) {
-      const payload = isJsonResponse(response) ? parseJson(await response.text()) : undefined
-      if (spec.signal?.aborted || current?.() === false) throw new BackendError('cancelled', 0, 'Request superseded')
+      const payload = isJsonResponse(response)
+        ? parseJson(await response.text())
+        : undefined
+      if (spec.signal?.aborted || current?.() === false)
+        throw new BackendError('cancelled', 0, 'Request superseded')
       throw errorFromResponse(response, payload)
     }
     if (response.status === 204) {
@@ -62,24 +69,31 @@ export class HttpTransport {
     }
     const json = isJsonResponse(response)
     const text = await response.text()
-    if (spec.signal?.aborted || current?.() === false) throw new BackendError('cancelled', 0, 'Request superseded')
+    if (spec.signal?.aborted || current?.() === false)
+      throw new BackendError('cancelled', 0, 'Request superseded')
     if (!json) {
       this.#notifyOtherTabs(spec)
       return text as T
     }
-    if (text.trim() === '') throw new BackendError('invalid_response', 502, 'Invalid server response')
+    if (text.trim() === '')
+      throw new BackendError('invalid_response', 502, 'Invalid server response')
     const parsed = parseJson(text)
-    if (parsed === undefined) throw new BackendError('invalid_response', 502, 'Invalid server response')
+    if (parsed === undefined)
+      throw new BackendError('invalid_response', 502, 'Invalid server response')
     this.#notifyOtherTabs(spec)
     return parsed as T
   }
   async raw(spec: RequestSpec): Promise<Response> {
     const current = this.#captureCurrent?.()
     const response = await this.#request(spec)
-    if (spec.signal?.aborted || current?.() === false) throw new BackendError('cancelled', 0, 'Request superseded')
+    if (spec.signal?.aborted || current?.() === false)
+      throw new BackendError('cancelled', 0, 'Request superseded')
     if (!response.ok && !spec.allowErrorStatus) {
-      const payload = isJsonResponse(response) ? parseJson(await response.text()) : undefined
-      if (spec.signal?.aborted || current?.() === false) throw new BackendError('cancelled', 0, 'Request superseded')
+      const payload = isJsonResponse(response)
+        ? parseJson(await response.text())
+        : undefined
+      if (spec.signal?.aborted || current?.() === false)
+        throw new BackendError('cancelled', 0, 'Request superseded')
       throw errorFromResponse(response, payload)
     }
     this.#notifyOtherTabs(spec)
@@ -89,14 +103,19 @@ export class HttpTransport {
   #notifyOtherTabs(spec: RequestSpec): void {
     const method = spec.method ?? 'GET'
     const path = appendQuery(spec.path, spec.query)
-    if (method !== 'GET' && NOTIFY_PATH.test(path)) this.#bus.post({ type: 'local-write', clientId: this.#clientId })
+    if (method !== 'GET' && NOTIFY_PATH.test(path))
+      this.#bus.post({ type: 'local-write', clientId: this.#clientId })
   }
 
   async #request(spec: RequestSpec): Promise<Response> {
     const method = spec.method ?? 'GET'
     const path = appendQuery(spec.path, spec.query)
     if (spec.body !== undefined && spec.form !== undefined) {
-      throw new BackendError('bad_request', 0, 'A request cannot contain both JSON and form data')
+      throw new BackendError(
+        'bad_request',
+        0,
+        'A request cannot contain both JSON and form data',
+      )
     }
 
     const headers = new Headers({
@@ -126,7 +145,8 @@ export class HttpTransport {
       if (spec.signal?.aborted) abortFromCaller()
       else if (spec.signal) {
         spec.signal.addEventListener('abort', abortFromCaller, { once: true })
-        removeAbortListener = () => spec.signal?.removeEventListener('abort', abortFromCaller)
+        removeAbortListener = () =>
+          spec.signal?.removeEventListener('abort', abortFromCaller)
       }
       timeoutId = this.#timers.setTimeout(() => {
         timedOut = true
@@ -146,7 +166,8 @@ export class HttpTransport {
       )
     } catch (error) {
       if (timedOut) throw toBackendError(error, { timedOut: true })
-      if (cancelled || spec.signal?.aborted || isAbortError(error)) throw toBackendError(error, { cancelled: true })
+      if (cancelled || spec.signal?.aborted || isAbortError(error))
+        throw toBackendError(error, { cancelled: true })
       throw toBackendError(error)
     } finally {
       if (timeoutId !== undefined) this.#timers.clearTimeout(timeoutId)
@@ -157,7 +178,9 @@ export class HttpTransport {
 
 function appendQuery(path: string, query: RequestSpec['query']): string {
   if (!query) return path
-  const entries = Object.entries(query).filter(([, value]) => value !== undefined && value !== '')
+  const entries = Object.entries(query).filter(
+    ([, value]) => value !== undefined && value !== '',
+  )
   if (entries.length === 0) return path
   const queryString = entries
     .map(
@@ -171,13 +194,21 @@ function appendQuery(path: string, query: RequestSpec['query']): string {
 function toRequestUrl(path: string): string {
   if (/^https?:\/\//i.test(path)) return path
   const origin =
-    typeof globalThis.location?.origin === 'string' ? globalThis.location.origin : 'http://autonote.invalid'
+    typeof globalThis.location?.origin === 'string'
+      ? globalThis.location.origin
+      : 'http://autonote.invalid'
   return new URL(path, origin).toString()
 }
 
 function isJsonResponse(response: Response): boolean {
-  const mediaType = response.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase()
-  return mediaType === 'application/json' || Boolean(mediaType?.endsWith('+json'))
+  const mediaType = response.headers
+    .get('content-type')
+    ?.split(';', 1)[0]
+    ?.trim()
+    .toLowerCase()
+  return (
+    mediaType === 'application/json' || Boolean(mediaType?.endsWith('+json'))
+  )
 }
 
 function parseJson(text: string): unknown {

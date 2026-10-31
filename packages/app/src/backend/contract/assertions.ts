@@ -14,19 +14,35 @@ export function expect(condition: boolean, message: string): asserts condition {
 
 export function expectEqual<T>(actual: T, expected: T, message: string): void {
   if (Object.is(actual, expected)) return
-  throw new BackendContractFailure(`${message}; expected ${describe(expected)}, received ${describe(actual)}`)
+  throw new BackendContractFailure(
+    `${message}; expected ${describe(expected)}, received ${describe(actual)}`,
+  )
 }
 
-export function expectIncludes(values: readonly string[], expected: string, message: string): void {
-  if (!values.includes(expected)) throw new BackendContractFailure(`${message}; missing ${expected}`)
+export function expectIncludes(
+  values: readonly string[],
+  expected: string,
+  message: string,
+): void {
+  if (!values.includes(expected))
+    throw new BackendContractFailure(`${message}; missing ${expected}`)
 }
 
-export function expectExcludes(values: readonly string[], unexpected: string, message: string): void {
-  if (values.includes(unexpected)) throw new BackendContractFailure(`${message}; unexpected ${unexpected}`)
+export function expectExcludes(
+  values: readonly string[],
+  unexpected: string,
+  message: string,
+): void {
+  if (values.includes(unexpected))
+    throw new BackendContractFailure(`${message}; unexpected ${unexpected}`)
 }
 
-export function expectDefined<T>(value: T | null | undefined, message: string): T {
-  if (value === null || value === undefined) throw new BackendContractFailure(message)
+export function expectDefined<T>(
+  value: T | null | undefined,
+  message: string,
+): T {
+  if (value === null || value === undefined)
+    throw new BackendContractFailure(message)
   return value
 }
 
@@ -40,21 +56,31 @@ export async function expectBackendError(
     outcome = await operation
   } catch (error) {
     if (isBackendError(error) && error.code === code) return error
-    throw new BackendContractFailure(`${message}; expected BackendError(${code}), received ${describeError(error)}`, {
-      cause: error,
-    })
+    throw new BackendContractFailure(
+      `${message}; expected BackendError(${code}), received ${describeError(error)}`,
+      {
+        cause: error,
+      },
+    )
   }
-  throw new BackendContractFailure(`${message}; expected BackendError(${code}), received ${describe(outcome)}`)
+  throw new BackendContractFailure(
+    `${message}; expected BackendError(${code}), received ${describe(outcome)}`,
+  )
 }
 
 export async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', Uint8Array.from(bytes))
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, '0'),
+  ).join('')
 }
 
 function describeError(error: unknown): string {
-  if (isBackendError(error)) return `BackendError(${error.code}): ${error.message}`
-  return error instanceof Error ? `${error.name}: ${error.message}` : describe(error)
+  if (isBackendError(error))
+    return `BackendError(${error.code}): ${error.message}`
+  return error instanceof Error
+    ? `${error.name}: ${error.message}`
+    : describe(error)
 }
 
 function describe(value: unknown): string {

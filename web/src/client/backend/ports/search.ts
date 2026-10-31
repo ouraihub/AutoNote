@@ -12,7 +12,11 @@ export class HttpSearchPort implements SearchPort {
     this.#transport = deps.transport
   }
 
-  query(query: string, limit?: number, options?: CallOptions): Promise<SearchResponse> {
+  query(
+    query: string,
+    limit?: number,
+    options?: CallOptions,
+  ): Promise<SearchResponse> {
     return this.#transport.json<SearchResponse>({
       path: '/api/search',
       query: { q: query, limit },
@@ -22,7 +26,11 @@ export class HttpSearchPort implements SearchPort {
   graph(input: GraphQuery, options?: CallOptions): Promise<GraphResponse> {
     return this.#transport.json<GraphResponse>({
       path: '/api/graph',
-      query: { ...input, includeOrphans: input.includeOrphans, includeUnresolved: input.includeUnresolved },
+      query: {
+        ...input,
+        includeOrphans: input.includeOrphans,
+        includeUnresolved: input.includeUnresolved,
+      },
       signal: options?.signal,
     })
   }

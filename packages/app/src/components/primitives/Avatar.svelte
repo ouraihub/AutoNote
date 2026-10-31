@@ -7,11 +7,18 @@
     name,
     size = 24,
     class: className,
-  }: { src?: string | undefined; name: string; size?: number | undefined; class?: string | undefined } = $props()
+  }: {
+    src?: string | undefined
+    name: string
+    size?: number | undefined
+    class?: string | undefined
+  } = $props()
   let failed = $state<string | null>(null)
   const seed = $derived(name.trim() || '?')
   const resolved = $derived(resolveAvatarSource(src, seed))
-  const display = $derived(failed === resolved ? resolveAvatarSource(null, seed) : resolved)
+  const display = $derived(
+    failed === resolved ? resolveAvatarSource(null, seed) : resolved,
+  )
 </script>
 
 <span
@@ -25,5 +32,12 @@
   style:height={`${size}px`}
   style:font-size={`${size * 0.42}px`}
 >
-  <img src={display} alt="" width={size} height={size} onerror={() => (failed = resolved)} class="size-full object-cover" />
+  <img
+    src={display}
+    alt=""
+    width={size}
+    height={size}
+    onerror={() => (failed = resolved)}
+    class="size-full object-cover"
+  />
 </span>

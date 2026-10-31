@@ -11,7 +11,9 @@ export function presetAvatarPreference(index: number): string {
   return `preset:${String(index).padStart(2, '0')}`
 }
 
-export function presetAvatarIndex(value: string | null | undefined): number | null {
+export function presetAvatarIndex(
+  value: string | null | undefined,
+): number | null {
   const match = /^preset:(\d{2})$/.exec(value ?? '')
   const index = match ? Number(match[1]) : 0
   return index >= 1 && index <= PRESET_AVATAR_COUNT ? index : null
@@ -21,13 +23,17 @@ export function generatedAvatarPreference(seed: string): string {
   return `${GENERATED_AVATAR_PREFIX}${seed}`
 }
 
-export function generatedAvatarSeed(value: string | null | undefined): string | null {
+export function generatedAvatarSeed(
+  value: string | null | undefined,
+): string | null {
   if (!value?.startsWith(GENERATED_AVATAR_PREFIX)) return null
   const seed = value.slice(GENERATED_AVATAR_PREFIX.length)
   return GENERATED_SEED_PATTERN.test(seed) ? seed : null
 }
 
-export function isBitmapAvatarDataUrl(value: string | null | undefined): boolean {
+export function isBitmapAvatarDataUrl(
+  value: string | null | undefined,
+): boolean {
   return /^data:image\/(?:png|jpeg|webp);base64,/i.test(value ?? '')
 }
 
@@ -39,10 +45,13 @@ export interface StoredAvatarLocation {
   key: string
 }
 
-export function parseStoredAvatarUrl(value: string | null | undefined): StoredAvatarLocation | null {
-  const match = /^\/api\/avatars\/(r2|kv)\/([0-9a-hjkmnp-tv-z]{26})\/([0-9a-hjkmnp-tv-z]{26})\.(png|jpg|webp)$/.exec(
-    value ?? '',
-  )
+export function parseStoredAvatarUrl(
+  value: string | null | undefined,
+): StoredAvatarLocation | null {
+  const match =
+    /^\/api\/avatars\/(r2|kv)\/([0-9a-hjkmnp-tv-z]{26})\/([0-9a-hjkmnp-tv-z]{26})\.(png|jpg|webp)$/.exec(
+      value ?? '',
+    )
   if (!match) return null
   const storage = match[1] as 'r2' | 'kv'
   const userId = match[2]!

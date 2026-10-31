@@ -8,7 +8,10 @@ export interface KvStore {
   getMany<T = unknown>(keys: readonly string[]): Promise<(T | undefined)[]>
   set<T = unknown>(key: string, value: T): Promise<void>
   setMany(entries: readonly KvEntry[]): Promise<void>
-  update<T = unknown>(key: string, updater: (current: T | undefined) => T): Promise<void>
+  update<T = unknown>(
+    key: string,
+    updater: (current: T | undefined) => T,
+  ): Promise<void>
   del(key: string): Promise<void>
   delMany(keys: readonly string[]): Promise<void>
   entries(): Promise<[string, unknown][]>
@@ -18,13 +21,22 @@ export interface KvStore {
 export interface IdbKeyvalAdapter {
   createStore(databaseName: string, storeName: string): UseStore
   get<T = unknown>(key: IDBValidKey, store?: UseStore): Promise<T | undefined>
-  getMany<T = unknown>(keys: IDBValidKey[], store?: UseStore): Promise<(T | undefined)[]>
+  getMany<T = unknown>(
+    keys: IDBValidKey[],
+    store?: UseStore,
+  ): Promise<(T | undefined)[]>
   set(key: IDBValidKey, value: unknown, store?: UseStore): Promise<void>
   setMany(entries: [IDBValidKey, unknown][], store?: UseStore): Promise<void>
-  update<T = unknown>(key: IDBValidKey, updater: (current: T | undefined) => T, store?: UseStore): Promise<void>
+  update<T = unknown>(
+    key: IDBValidKey,
+    updater: (current: T | undefined) => T,
+    store?: UseStore,
+  ): Promise<void>
   del(key: IDBValidKey, store?: UseStore): Promise<void>
   delMany(keys: IDBValidKey[], store?: UseStore): Promise<void>
-  entries<KeyType extends IDBValidKey, ValueType = unknown>(store?: UseStore): Promise<[KeyType, ValueType][]>
+  entries<KeyType extends IDBValidKey, ValueType = unknown>(
+    store?: UseStore,
+  ): Promise<[KeyType, ValueType][]>
   clear(store?: UseStore): Promise<void>
 }
 
@@ -53,7 +65,10 @@ export class IdbKvStore implements KvStore {
 
   constructor(options: IdbKvStoreOptions = {}) {
     this.#adapter = options.adapter ?? defaultAdapter
-    this.#store = this.#adapter.createStore(options.databaseName ?? 'autonote', options.storeName ?? 'kv')
+    this.#store = this.#adapter.createStore(
+      options.databaseName ?? 'autonote',
+      options.storeName ?? 'kv',
+    )
   }
 
   get<T = unknown>(key: string): Promise<T | undefined> {
@@ -75,7 +90,10 @@ export class IdbKvStore implements KvStore {
     )
   }
 
-  update<T = unknown>(key: string, updater: (current: T | undefined) => T): Promise<void> {
+  update<T = unknown>(
+    key: string,
+    updater: (current: T | undefined) => T,
+  ): Promise<void> {
     return this.#adapter.update(key, updater, this.#store)
   }
 
@@ -106,14 +124,17 @@ export class MemoryKvStore implements KvStore {
   readonly #updates = new Map<string, Promise<void>>()
 
   constructor(initial?: Iterable<KvEntry>) {
-    for (const [key, value] of initial ?? []) this.#values.set(key, clone(value))
+    for (const [key, value] of initial ?? [])
+      this.#values.set(key, clone(value))
   }
 
   async get<T = unknown>(key: string): Promise<T | undefined> {
     return clone(this.#values.get(key) as T | undefined)
   }
 
-  async getMany<T = unknown>(keys: readonly string[]): Promise<(T | undefined)[]> {
+  async getMany<T = unknown>(
+    keys: readonly string[],
+  ): Promise<(T | undefined)[]> {
     return Promise.all(keys.map((key) => this.get<T>(key)))
   }
 
@@ -126,7 +147,10 @@ export class MemoryKvStore implements KvStore {
     for (const [key, value] of next) this.#values.set(key, value)
   }
 
-  async update<T = unknown>(key: string, updater: (current: T | undefined) => T): Promise<void> {
+  async update<T = unknown>(
+    key: string,
+    updater: (current: T | undefined) => T,
+  ): Promise<void> {
     const previous = this.#updates.get(key) ?? Promise.resolve()
     const next = previous
       .catch(() => undefined)
@@ -152,7 +176,10 @@ export class MemoryKvStore implements KvStore {
   }
 
   async entries(): Promise<[string, unknown][]> {
-    return [...this.#values.entries()].map(([key, value]) => [key, clone(value)])
+    return [...this.#values.entries()].map(([key, value]) => [
+      key,
+      clone(value),
+    ])
   }
 
   async clear(): Promise<void> {

@@ -26,8 +26,14 @@ export interface CompletionTag {
  * document changes so a slow lookup can never populate a stale popup.
  */
 export interface CompletionSources {
-  notes(query: string, signal: AbortSignal): readonly CompletionNote[] | Promise<readonly CompletionNote[]>
-  tags(query: string, signal: AbortSignal): readonly CompletionTag[] | Promise<readonly CompletionTag[]>
+  notes(
+    query: string,
+    signal: AbortSignal,
+  ): readonly CompletionNote[] | Promise<readonly CompletionNote[]>
+  tags(
+    query: string,
+    signal: AbortSignal,
+  ): readonly CompletionTag[] | Promise<readonly CompletionTag[]>
 }
 
 export interface CompletionLabels {
@@ -36,7 +42,8 @@ export interface CompletionLabels {
 }
 
 const WIKI_TRIGGER = /\[\[([^[\]\n]*)$/
-const TAG_TRIGGER = /(?:^|[\s(\uff08[\u3010>\u300c\u300e\uff0c,\u3001;\uff1b])#([\p{L}\p{N}_\-/·]{0,60})$/u
+const TAG_TRIGGER =
+  /(?:^|[\s(\uff08[\u3010>\u300c\u300e\uff0c,\u3001;\uff1b])#([\p{L}\p{N}_\-/·]{0,60})$/u
 const HEADING_LINE = /^#{1,6}\s/
 const FENCE_TRIGGER = /^```([a-zA-Z0-9+#-]*)$/
 const FENCE_VALID = /^[a-zA-Z0-9+#-]*$/
@@ -82,12 +89,19 @@ export const CODE_FENCE_LANGUAGES: readonly string[] = [
  * Results are not cached across keystrokes (no `validFor`) because ranking is computed
  * here rather than by CodeMirror's filter; every edit re-queries and aborts the old query.
  */
-export function wikiLinkSource(getSources: () => CompletionSources, labels: CompletionLabels): CompletionSource {
-  return async (context: CompletionContext): Promise<CompletionResult | null> => {
+export function wikiLinkSource(
+  getSources: () => CompletionSources,
+  labels: CompletionLabels,
+): CompletionSource {
+  return async (
+    context: CompletionContext,
+  ): Promise<CompletionResult | null> => {
     const before = context.matchBefore(WIKI_TRIGGER)
     if (!before) return null
     const trimmed = before.text.slice(2).trim()
-    const notes = await queryProvider(context, (signal) => getSources().notes(trimmed, signal))
+    const notes = await queryProvider(context, (signal) =>
+      getSources().notes(trimmed, signal),
+    )
     if (!notes) return null
 
     const ranked: RankedOption[] = []
@@ -102,12 +116,20 @@ export function wikiLinkSource(getSources: () => CompletionSources, labels: Comp
       const detail = note.excerpt ? truncateText(note.excerpt, 34) : undefined
       ranked.push({
         score,
-        option: { label: note.title, ...(detail ? { detail } : {}), apply: applyWikiTitle(note.title) },
+        option: {
+          label: note.title,
+          ...(detail ? { detail } : {}),
+          apply: applyWikiTitle(note.title),
+        },
       })
     }
     const options = sortByScore(ranked).slice(0, MAX_WIKI_OPTIONS)
     if (trimmed && !seenTitles.has(normalizeLinkKey(trimmed))) {
-      options.push({ label: trimmed, detail: labels.createNote(), apply: applyWikiTitle(trimmed) })
+      options.push({
+        label: trimmed,
+        detail: labels.createNote(),
+        apply: applyWikiTitle(trimmed),
+      })
     }
     if (!options.length) return null
     return { from: before.from + 2, options, filter: false }
@@ -115,8 +137,13 @@ export function wikiLinkSource(getSources: () => CompletionSources, labels: Comp
 }
 
 /** Completes inline `#tag` tokens; ATX headings (`# Title`) never trigger it. */
-export function tagSource(getSources: () => CompletionSources, labels: CompletionLabels): CompletionSource {
-  return async (context: CompletionContext): Promise<CompletionResult | null> => {
+export function tagSource(
+  getSources: () => CompletionSources,
+  labels: CompletionLabels,
+): CompletionSource {
+  return async (
+    context: CompletionContext,
+  ): Promise<CompletionResult | null> => {
     const before = context.matchBefore(TAG_TRIGGER)
     if (!before) return null
     const hashIndex = before.text.lastIndexOf('#')
@@ -124,7 +151,9 @@ export function tagSource(getSources: () => CompletionSources, labels: Completio
     const query = before.text.slice(hashIndex + 1)
     const line = context.state.doc.lineAt(context.pos)
     if (from - 1 === line.from && HEADING_LINE.test(line.text)) return null
-    const tags = await queryProvider(context, (signal) => getSources().tags(query, signal))
+    const tags = await queryProvider(context, (signal) =>
+      getSources().tags(query, signal),
+    )
     if (!tags) return null
 
     const ranked: RankedOption[] = []
@@ -133,21 +162,34 @@ export function tagSource(getSources: () => CompletionSources, labels: Completio
       if (score === null) continue
       ranked.push({
         score: score / 10 + Math.min(tag.count, 20) / 10,
-        option: { label: tag.name, detail: labels.tagCount(tag.count), type: 'keyword' },
+        option: {
+          label: tag.name,
+          detail: labels.tagCount(tag.count),
+          type: 'keyword',
+        },
       })
     }
     if (!ranked.length) return null
-    return { from, options: sortByScore(ranked).slice(0, MAX_TAG_OPTIONS), filter: false }
+    return {
+      from,
+      options: sortByScore(ranked).slice(0, MAX_TAG_OPTIONS),
+      filter: false,
+    }
   }
 }
 
 /** Completes the info string of an opening fence typed at the start of a line. */
-export function codeFenceSource(context: CompletionContext): CompletionResult | null {
+export function codeFenceSource(
+  context: CompletionContext,
+): CompletionResult | null {
   const before = context.matchBefore(FENCE_TRIGGER)
   if (!before) return null
   return {
     from: before.from + 3,
-    options: CODE_FENCE_LANGUAGES.map((language) => ({ label: language, type: 'type' })),
+    options: CODE_FENCE_LANGUAGES.map((language) => ({
+      label: language,
+      type: 'type',
+    })),
     validFor: FENCE_VALID,
   }
 }
@@ -157,7 +199,9 @@ async function queryProvider<T>(
   run: (signal: AbortSignal) => readonly T[] | Promise<readonly T[]>,
 ): Promise<readonly T[] | null> {
   const controller = new AbortController()
-  context.addEventListener('abort', () => controller.abort(), { onDocChange: true })
+  context.addEventListener('abort', () => controller.abort(), {
+    onDocChange: true,
+  })
   try {
     const items = await run(controller.signal)
     return controller.signal.aborted || context.aborted ? null : items
@@ -168,7 +212,12 @@ async function queryProvider<T>(
 }
 
 function applyWikiTitle(title: string) {
-  return (view: EditorView, completion: Completion, from: number, to: number): void => {
+  return (
+    view: EditorView,
+    completion: Completion,
+    from: number,
+    to: number,
+  ): void => {
     const closed = view.state.sliceDoc(to, to + 2) === ']]'
     const insert = closed ? title : `${title}]]`
     view.dispatch({
@@ -187,7 +236,9 @@ interface RankedOption {
 
 /** With `filter: false` CodeMirror keeps result order, so ranking happens here; the stable sort keeps provider order on ties. */
 function sortByScore(ranked: RankedOption[]): Completion[] {
-  return ranked.sort((left, right) => right.score - left.score).map(({ option }) => option)
+  return ranked
+    .sort((left, right) => right.score - left.score)
+    .map(({ option }) => option)
 }
 
 /**

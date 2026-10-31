@@ -2,7 +2,9 @@ import { createContext } from 'svelte'
 import type { Backend } from '@app/backend'
 import type { SettingsResourceId } from './sections'
 
-export function createSettingsResource<T>(fetcher: (signal: AbortSignal) => Promise<T>) {
+export function createSettingsResource<T>(
+  fetcher: (signal: AbortSignal) => Promise<T>,
+) {
   let value: T | undefined
   let pending: Promise<T | undefined> | undefined
   let controller: AbortController | undefined
@@ -49,11 +51,21 @@ export function createSettingsResource<T>(fetcher: (signal: AbortSignal) => Prom
 
 export function createSettingsResources(backend: Backend): SettingsResources {
   const resources = {
-    backupTargets: createSettingsResource((signal) => backend.backup!.targets({ signal })),
-    backupRuns: createSettingsResource((signal) => backend.backup!.runs({ signal })),
-    mcp: createSettingsResource((signal) => backend.mcp!.getPreferences({ signal })),
-    stats: createSettingsResource((signal) => backend.settings.stats({ signal })),
-    totp: createSettingsResource((signal) => backend.session.account!.totp.status({ signal })),
+    backupTargets: createSettingsResource((signal) =>
+      backend.backup!.targets({ signal }),
+    ),
+    backupRuns: createSettingsResource((signal) =>
+      backend.backup!.runs({ signal }),
+    ),
+    mcp: createSettingsResource((signal) =>
+      backend.mcp!.getPreferences({ signal }),
+    ),
+    stats: createSettingsResource((signal) =>
+      backend.settings.stats({ signal }),
+    ),
+    totp: createSettingsResource((signal) =>
+      backend.session.account!.totp.status({ signal }),
+    ),
     shares: createSettingsResource((signal) => backend.share!.list({ signal })),
   }
   let epoch: number | undefined
@@ -66,7 +78,8 @@ export function createSettingsResources(backend: Backend): SettingsResources {
       }
       return resources[id].load()
     },
-    cancel: () => Object.values(resources).forEach((resource) => resource.cancel()),
+    cancel: () =>
+      Object.values(resources).forEach((resource) => resource.cancel()),
     clear: () => {
       Object.values(resources).forEach((resource) => resource.clear())
       epoch = undefined
@@ -80,4 +93,5 @@ export interface SettingsResources {
   cancel(): void
   clear(): void
 }
-export const [getSettingsResources, setSettingsResources] = createContext<SettingsResources>()
+export const [getSettingsResources, setSettingsResources] =
+  createContext<SettingsResources>()

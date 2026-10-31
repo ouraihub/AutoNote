@@ -1,5 +1,11 @@
 import type { Attachment } from '@shared/types'
-import type { FilesPort, FoldersPort, NotesPort, SettingsPort, TagsPort } from '../port'
+import type {
+  FilesPort,
+  FoldersPort,
+  NotesPort,
+  SettingsPort,
+  TagsPort,
+} from '../port'
 
 export type WriteConflictMode = 'reject' | 'rebase'
 
@@ -36,7 +42,9 @@ export interface ContractLibrary<B extends ContractBackend> {
 }
 
 /** Host-owned factory: use a fresh library/account for each case; no production data or fake. */
-export interface BackendContractFixture<B extends ContractBackend = ContractBackend> {
+export interface BackendContractFixture<
+  B extends ContractBackend = ContractBackend,
+> {
   /** Choose 'rebase' for Web text outbox; direct HTTP API and Desktop writes use 'reject'. */
   readonly writeConflictMode: WriteConflictMode
   createLibrary(): Promise<ContractLibrary<B>>
@@ -48,4 +56,5 @@ export interface BackendContractCase {
 }
 
 export type BackendContractResult =
-  { readonly name: string; readonly ok: true } | { readonly name: string; readonly ok: false; readonly error: unknown }
+  | { readonly name: string; readonly ok: true }
+  | { readonly name: string; readonly ok: false; readonly error: unknown }

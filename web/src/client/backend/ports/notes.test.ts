@@ -14,7 +14,11 @@ function transport() {
 
 async function writer(db: LocalDb, clientId = 'client') {
   await db.bindUser('user')
-  return new HttpNotesTextWriter({ transport: transport(), localDb: db, clientId })
+  return new HttpNotesTextWriter({
+    transport: transport(),
+    localDb: db,
+    clientId,
+  })
 }
 
 const remote = {
@@ -37,18 +41,35 @@ const remote = {
 }
 
 async function shell(db: LocalDb) {
-  await db.saveShell({ notes: [{ ...remote }], folders: [], tags: [], cursor: 1 })
+  await db.saveShell({
+    notes: [{ ...remote }],
+    folders: [],
+    tags: [],
+    cursor: 1,
+  })
 }
 
 describe('HttpNotesTextWriter', () => {
   it('persists each writeId in one slot and preserves the latest body', async () => {
     const db = createLocalDb({ kv: new MemoryKvStore() })
     const notes = await writer(db)
-    const first = notes.patch('note', { rev: 1, content: 'first' }, { writeId: 'w1' })
-    const second = notes.patch('note', { rev: 1, content: 'second' }, { writeId: 'w2' })
+    const first = notes.patch(
+      'note',
+      { rev: 1, content: 'first' },
+      { writeId: 'w1' },
+    )
+    const second = notes.patch(
+      'note',
+      { rev: 1, content: 'second' },
+      { writeId: 'w2' },
+    )
     await Promise.all([first, second])
     await expect(db.getOutbox()).resolves.toMatchObject([
-      { id: 'patch:client:note', writeId: 'w2', payload: { content: 'second', contentDirty: true } },
+      {
+        id: 'patch:client:note',
+        writeId: 'w2',
+        payload: { content: 'second', contentDirty: true },
+      },
     ])
   })
 
@@ -56,7 +77,9 @@ describe('HttpNotesTextWriter', () => {
     const db = createLocalDb({ kv: new MemoryKvStore() })
     const notes = await writer(db)
     await notes.patch('note', { rev: 1, title: '' }, { writeId: 'title' })
-    await expect(db.getOutbox()).resolves.toMatchObject([{ payload: { content: '', contentDirty: false, title: '' } }])
+    await expect(db.getOutbox()).resolves.toMatchObject([
+      { payload: { content: '', contentDirty: false, title: '' } },
+    ])
     await expect(db.getContent('note')).resolves.toBeUndefined()
   })
 
@@ -73,8 +96,14 @@ describe('HttpNotesTextWriter', () => {
         return typeof value === 'function' ? value.bind(target) : value
       },
     })
-    const notes = new HttpNotesTextWriter({ transport: transport(), localDb: failingDb, clientId: 'client' })
-    await expect(notes.patch('note', { rev: 1, content: 'safe' }, { writeId: 'w1' })).resolves.toMatchObject({
+    const notes = new HttpNotesTextWriter({
+      transport: transport(),
+      localDb: failingDb,
+      clientId: 'client',
+    })
+    await expect(
+      notes.patch('note', { rev: 1, content: 'safe' }, { writeId: 'w1' }),
+    ).resolves.toMatchObject({
       queued: true,
       writeId: 'w1',
     })
@@ -85,18 +114,31 @@ describe('HttpNotesTextWriter', () => {
     const db = createLocalDb({ kv: new MemoryKvStore() })
     const original = await writer(db)
     await shell(db)
-    await original.patch('note', { rev: 1, content: 'offline body', title: 'Offline title' }, { writeId: 'edit' })
+    await original.patch(
+      'note',
+      { rev: 1, content: 'offline body', title: 'Offline title' },
+      { writeId: 'edit' },
+    )
     const reopened = await writer(db, 'another-tab')
-    await expect(reopened.get('note')).resolves.toMatchObject({ content: 'offline body', title: 'Offline title' })
+    await expect(reopened.get('note')).resolves.toMatchObject({
+      content: 'offline body',
+      title: 'Offline title',
+    })
     await db.completeOutboxItem('patch:client:note', 'edit')
     await db.dropContent('note')
-    await expect(reopened.get('note')).rejects.toMatchObject({ code: 'offline' })
+    await expect(reopened.get('note')).rejects.toMatchObject({
+      code: 'offline',
+    })
   })
 
   it('does not synthesize missing summary metadata while offline', async () => {
     const db = createLocalDb({ kv: new MemoryKvStore() })
     const notes = await writer(db)
-    await notes.patch('note', { rev: 1, content: 'journal body' }, { writeId: 'body' })
+    await notes.patch(
+      'note',
+      { rev: 1, content: 'journal body' },
+      { writeId: 'body' },
+    )
     await expect(notes.get('note')).rejects.toMatchObject({ code: 'offline' })
   })
 
@@ -105,40 +147,83 @@ describe('HttpNotesTextWriter', () => {
     const first = await writer(db, 'first')
     const second = await writer(db, 'second')
     const getRemote = { json: async <T>() => remote as T }
-    const reader = new HttpNotesTextWriter({ transport: getRemote, localDb: db, clientId: 'reader' })
-    await first.patch('note', { rev: 1, content: 'body from tab one' }, { writeId: 'one' })
-    await second.patch('note', { rev: 1, title: 'title from tab two' }, { writeId: 'two' })
+    const reader = new HttpNotesTextWriter({
+      transport: getRemote,
+      localDb: db,
+      clientId: 'reader',
+    })
+    await first.patch(
+      'note',
+      { rev: 1, content: 'body from tab one' },
+      { writeId: 'one' },
+    )
+    await second.patch(
+      'note',
+      { rev: 1, title: 'title from tab two' },
+      { writeId: 'two' },
+    )
     await expect(reader.get('note')).resolves.toMatchObject({
       content: 'body from tab one',
       title: 'title from tab two',
     })
     await db.completeOutboxItem('patch:first:note', 'one')
     await db.dropContent('note')
-    await expect(reader.get('note')).resolves.toMatchObject({ content: 'Server body', title: 'title from tab two' })
-    expect((await db.getOutbox())[0]?.payload).toMatchObject({ contentDirty: false, title: 'title from tab two' })
+    await expect(reader.get('note')).resolves.toMatchObject({
+      content: 'Server body',
+      title: 'title from tab two',
+    })
+    expect((await db.getOutbox())[0]?.payload).toMatchObject({
+      contentDirty: false,
+      title: 'title from tab two',
+    })
   })
 
   it('recovers each tab’s distinct title and body journal entries offline', async () => {
     const db = createLocalDb({ kv: new MemoryKvStore() })
     await db.bindUser('user')
     await shell(db)
-    await (await writer(db, 'first')).patch('note', { rev: 1, content: 'text from tab one' }, { writeId: 'body' })
-    await (await writer(db, 'second')).patch('note', { rev: 1, title: 'title from tab two' }, { writeId: 'title' })
+    await (
+      await writer(db, 'first')
+    ).patch(
+      'note',
+      { rev: 1, content: 'text from tab one' },
+      { writeId: 'body' },
+    )
+    await (
+      await writer(db, 'second')
+    ).patch(
+      'note',
+      { rev: 1, title: 'title from tab two' },
+      { writeId: 'title' },
+    )
     await db.dropContent('note')
-    await expect((await writer(db, 'restarted')).get('note')).resolves.toMatchObject({
+    await expect(
+      (await writer(db, 'restarted')).get('note'),
+    ).resolves.toMatchObject({
       content: 'text from tab one',
       title: 'title from tab two',
     })
-    await expect((await writer(db, 'restarted')).flush()).resolves.toEqual({ pending: 1, failed: 0 })
+    await expect((await writer(db, 'restarted')).flush()).resolves.toEqual({
+      pending: 1,
+      failed: 0,
+    })
   })
 
   it('keeps the journal body when a restarted tab changes only the title', async () => {
     const db = createLocalDb({ kv: new MemoryKvStore() })
     const first = await writer(db)
-    await first.patch('note', { rev: 1, content: 'saved locally' }, { writeId: 'body' })
+    await first.patch(
+      'note',
+      { rev: 1, content: 'saved locally' },
+      { writeId: 'body' },
+    )
     await db.dropContent('note')
     const second = await writer(db)
-    await second.patch('note', { rev: 1, title: 'renamed' }, { writeId: 'title' })
+    await second.patch(
+      'note',
+      { rev: 1, title: 'renamed' },
+      { writeId: 'title' },
+    )
     expect((await db.getOutbox())[0]).toMatchObject({
       writeId: 'title',
       payload: {
@@ -158,9 +243,18 @@ describe('HttpNotesTextWriter', () => {
       localDb: db,
       clientId: 'client',
     })
-    await online.patch('note', { rev: 1, title: 'renamed' }, { writeId: 'title' })
-    await expect(online.get('note')).resolves.toMatchObject({ content: 'Server body', title: 'renamed' })
-    await expect((await writer(db, 'restarted')).get('note')).resolves.toMatchObject({
+    await online.patch(
+      'note',
+      { rev: 1, title: 'renamed' },
+      { writeId: 'title' },
+    )
+    await expect(online.get('note')).resolves.toMatchObject({
+      content: 'Server body',
+      title: 'renamed',
+    })
+    await expect(
+      (await writer(db, 'restarted')).get('note'),
+    ).resolves.toMatchObject({
       content: 'Server body',
       title: 'renamed',
     })
@@ -173,8 +267,14 @@ describe('HttpNotesTextWriter', () => {
     await notes.patch('note', { rev: 1, content: 'second' }, { writeId: 'two' })
     await db.completeOutboxItem('patch:client:note', 'one')
     await db.markOutboxFailure('patch:client:note', 'two', 'failed to replay')
-    await expect(notes.flush('note')).resolves.toEqual({ pending: 1, failed: 1 })
-    await expect(notes.flush('other')).resolves.toEqual({ pending: 0, failed: 0 })
+    await expect(notes.flush('note')).resolves.toEqual({
+      pending: 1,
+      failed: 1,
+    })
+    await expect(notes.flush('other')).resolves.toEqual({
+      pending: 0,
+      failed: 0,
+    })
     expect((await db.getOutbox())[0]?.writeId).toBe('two')
   })
 
@@ -190,8 +290,15 @@ describe('HttpNotesTextWriter', () => {
         calls.push(id)
       },
     })
-    const enrollment = notes.patch('note', { rev: 1, content: 'durable' }, { writeId: 'first' })
-    await expect(notes.flush('note')).resolves.toEqual({ pending: 1, failed: 0 })
+    const enrollment = notes.patch(
+      'note',
+      { rev: 1, content: 'durable' },
+      { writeId: 'first' },
+    )
+    await expect(notes.flush('note')).resolves.toEqual({
+      pending: 1,
+      failed: 0,
+    })
     await enrollment
     expect(calls).toEqual(['note'])
     expect((await db.getOutbox())[0]?.payload.content).toBe('durable')
@@ -204,7 +311,9 @@ describe('HttpNotesTextWriter', () => {
     await kv.set('user:user:outbox', [{ id: 'invalid', payload: null }])
     await expect(notes.flush()).rejects.toMatchObject({ code: 'internal' })
     await expect(notes.get('note')).rejects.toMatchObject({ code: 'internal' })
-    await expect(notes.patch('note', { rev: 1, content: 'not saved' }, { writeId: 'bad' })).rejects.toMatchObject({
+    await expect(
+      notes.patch('note', { rev: 1, content: 'not saved' }, { writeId: 'bad' }),
+    ).rejects.toMatchObject({
       code: 'internal',
     })
     await kv.del('user:user:outbox')
@@ -220,11 +329,22 @@ describe('HttpNotesTextWriter', () => {
     })
     const quotaDb = createLocalDb({ kv: quotaKv })
     await quotaDb.bindUser('user')
-    const quotaWriter = new HttpNotesTextWriter({ transport: transport(), localDb: quotaDb, clientId: 'client' })
+    const quotaWriter = new HttpNotesTextWriter({
+      transport: transport(),
+      localDb: quotaDb,
+      clientId: 'client',
+    })
     await expect(
-      quotaWriter.patch('note', { rev: 1, content: 'not saved' }, { writeId: 'quota' }),
+      quotaWriter.patch(
+        'note',
+        { rev: 1, content: 'not saved' },
+        { writeId: 'quota' },
+      ),
     ).rejects.toMatchObject({ code: 'internal' })
-    await expect(quotaWriter.flush('note')).resolves.toEqual({ pending: 1, failed: 1 })
+    await expect(quotaWriter.flush('note')).resolves.toEqual({
+      pending: 1,
+      failed: 1,
+    })
   })
 
   it('rejects a previous account GET instead of caching its private body in the new account', async () => {
@@ -259,12 +379,22 @@ it('refuses local disposal after a failed journal and allows it after the edit i
   kv.update = async () => {
     throw new Error('quota')
   }
-  await expect(notes.patch('note', { rev: 1, content: 'retain' }, { writeId: 'failed' })).rejects.toMatchObject({
+  await expect(
+    notes.patch('note', { rev: 1, content: 'retain' }, { writeId: 'failed' }),
+  ).rejects.toMatchObject({
     code: 'internal',
   })
-  await expect(notes.waitForLocalCommit()).rejects.toMatchObject({ code: 'internal' })
+  await expect(notes.waitForLocalCommit()).rejects.toMatchObject({
+    code: 'internal',
+  })
   kv.update = update
-  await notes.patch('note', { rev: 1, content: 'retain' }, { writeId: 'persisted' })
+  await notes.patch(
+    'note',
+    { rev: 1, content: 'retain' },
+    { writeId: 'persisted' },
+  )
   await notes.waitForLocalCommit()
-  expect(await db.getOutbox()).toMatchObject([{ writeId: 'persisted', payload: { content: 'retain' } }])
+  expect(await db.getOutbox()).toMatchObject([
+    { writeId: 'persisted', payload: { content: 'retain' } },
+  ])
 })

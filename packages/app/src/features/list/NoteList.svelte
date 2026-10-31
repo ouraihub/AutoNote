@@ -2,24 +2,50 @@
   import { tick, untrack } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
   import type { MessageKey } from '@shared/locales/en-US'
-  import type { ListNotesQuery, NoteSummary, PatchNoteBody, ViewKind } from '@shared/types'
+  import type {
+    ListNotesQuery,
+    NoteSummary,
+    PatchNoteBody,
+    ViewKind,
+  } from '@shared/types'
   import { logFailure } from '@app/log/logger'
   import { AppError, errorMessageKey } from '@app/i18n/errors'
   import { folderPath, selectVisibleNotes } from '@app/state/selectors'
   import { organizerColorOrNull } from '@shared/organizer-colors'
   import { breakpoint } from '@app/lib/breakpoint.svelte'
-  import { getBackend, getExtensions, getI18n, getLogger, getNotes, getNotifier, getUi } from '@app/root/context'
+  import {
+    getBackend,
+    getExtensions,
+    getI18n,
+    getLogger,
+    getNotes,
+    getNotifier,
+    getUi,
+  } from '@app/root/context'
   import { Button } from '@app/components/ui/button'
   import * as DropdownMenu from '@app/components/ui/dropdown-menu'
   import * as Field from '@app/components/ui/field'
   import * as Dialog from '@app/components/ui/dialog'
   import IconButton from '@app/components/primitives/IconButton.svelte'
   import Logo from '@app/components/primitives/Logo.svelte'
-  import { ArrowDownWideNarrow, MoreHorizontal, PanelLeft, Pin, Plus, Search, Star, X } from '@lucide/svelte'
+  import {
+    ArrowDownWideNarrow,
+    MoreHorizontal,
+    PanelLeft,
+    Pin,
+    Plus,
+    Search,
+    Star,
+    X,
+  } from '@lucide/svelte'
   import Empty, { type EmptyArt } from '@app/components/primitives/Empty.svelte'
   import { prettyCombo } from '@app/lib/hotkeys'
-  import { appendPage, NOTE_DRAG_TYPE, runNoteBatch, type BatchResult } from './actions'
-
+  import {
+    appendPage,
+    NOTE_DRAG_TYPE,
+    runNoteBatch,
+    type BatchResult,
+  } from './actions'
   const layout = $derived(breakpoint())
   const notes = getNotes(),
     ui = getUi(),
@@ -41,11 +67,20 @@
     tag: 'navigation.tag',
   }
   const shortcut = (combo: string) => prettyCombo(combo).join('+')
-  const emptyStates: Record<ViewKind, { art: EmptyArt; title: MessageKey; description: MessageKey; combo?: string }> = {
+  const emptyStates: Record<
+    ViewKind,
+    {
+      art: EmptyArt
+      title: MessageKey
+      description: MessageKey
+      combo?: string
+    }
+  > = {
     all: {
       art: 'notes',
       title: 'notes.no_notes_yet',
-      description: 'notes.press_shortcut_or_the_plus_button_to_write_your_first_note',
+      description:
+        'notes.press_shortcut_or_the_plus_button_to_write_your_first_note',
       combo: 'mod+n',
     },
     recent: {
@@ -59,18 +94,27 @@
       description: 'notes.right_click_a_note_or_press_shortcut_to_favorite_it',
       combo: 'mod+d',
     },
-    unfiled: { art: 'folder', title: 'notes.every_note_is_filed', description: 'notes.everything_is_neatly_organized' },
+    unfiled: {
+      art: 'folder',
+      title: 'notes.every_note_is_filed',
+      description: 'notes.everything_is_neatly_organized',
+    },
     archived: {
       art: 'archive',
       title: 'notes.archive_is_empty',
-      description: 'notes.keep_notes_here_when_you_want_them_out_of_the_way_but_not_deleted',
+      description:
+        'notes.keep_notes_here_when_you_want_them_out_of_the_way_but_not_deleted',
     },
     trash: {
       art: 'trash',
       title: 'notes.trash_is_empty',
       description: 'notes.deleted_notes_remain_until_you_restore_or_clear_them',
     },
-    folder: { art: 'folder', title: 'notes.this_folder_is_still_empty', description: 'notes.drag_notes_in_or_create_new_ones_here' },
+    folder: {
+      art: 'folder',
+      title: 'notes.this_folder_is_still_empty',
+      description: 'notes.drag_notes_in_or_create_new_ones_here',
+    },
     tag: {
       art: 'tag',
       title: 'notes.there_are_no_notes_with_this_tag',
@@ -144,8 +188,12 @@
       locale: i18n.locale,
     })
   })
-  const displayed = $derived(filter.trim() ? filtered.slice(0, filterLimit) : paged)
-  const positions = $derived(new Map(filtered.map((note, index) => [note.id, index + 1])))
+  const displayed = $derived(
+    filter.trim() ? filtered.slice(0, filterLimit) : paged,
+  )
+  const positions = $derived(
+    new Map(filtered.map((note, index) => [note.id, index + 1])),
+  )
   const selected = $derived(ui.selection.filter((id) => positions.has(id)))
 
   $effect(() => {
@@ -166,7 +214,14 @@
       if (key !== previousQuery) pages = []
       previousQuery = key
       if (localFilter) loading = false
-      else void loadPage(currentQuery, null, requestGeneration, signal, Math.max(PAGE_SIZE, pages.length))
+      else
+        void loadPage(
+          currentQuery,
+          null,
+          requestGeneration,
+          signal,
+          Math.max(PAGE_SIZE, pages.length),
+        )
     })
     return () => requestController.abort()
   })
@@ -190,7 +245,9 @@
     const pending = loading
     untrack(() => {
       if (!pending && !available.includes(focused ?? ''))
-        focused = available.includes(ui.activeNoteId ?? '') ? ui.activeNoteId : (available[0] ?? null)
+        focused = available.includes(ui.activeNoteId ?? '')
+          ? ui.activeNoteId
+          : (available[0] ?? null)
     })
   })
   async function loadPage(
@@ -220,7 +277,8 @@
       pages = accumulated
       nextCursor = pageCursor
     } catch (error) {
-      if (!signal.aborted && requestGeneration === generation) pageError = errorText(error)
+      if (!signal.aborted && requestGeneration === generation)
+        pageError = errorText(error)
     } finally {
       if (requestGeneration === generation) loading = false
     }
@@ -233,7 +291,8 @@
       filterLimit += PAGE_SIZE
       return
     }
-    if (!loading && nextCursor && controller) await loadPage(query, nextCursor, generation, controller.signal)
+    if (!loading && nextCursor && controller)
+      await loadPage(query, nextCursor, generation, controller.signal)
   }
   async function open(id: string, secondary = false): Promise<void> {
     try {
@@ -277,7 +336,10 @@
   async function keyboard(event: KeyboardEvent): Promise<void> {
     if (
       event.target !== listbox &&
-      !(event.target instanceof HTMLElement && event.target.getAttribute('role') === 'option')
+      !(
+        event.target instanceof HTMLElement &&
+        event.target.getAttribute('role') === 'option'
+      )
     )
       return
     const ids = displayed.map((note) => note.id)
@@ -301,46 +363,90 @@
       select(focused, event.shiftKey, true)
       return
     }
-    if (((event.key === 'F10' && event.shiftKey) || event.key === 'ContextMenu') && focused) {
+    if (
+      ((event.key === 'F10' && event.shiftKey) ||
+        event.key === 'ContextMenu') &&
+      focused
+    ) {
       event.preventDefault()
-      document.getElementById(optionId(focused))?.querySelector<HTMLButtonElement>('[data-note-menu]')?.click()
+      document
+        .getElementById(optionId(focused))
+        ?.querySelector<HTMLButtonElement>('[data-note-menu]')
+        ?.click()
       return
     }
-    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key) || !ids.length) return
+    if (
+      !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key) ||
+      !ids.length
+    )
+      return
     event.preventDefault()
     const index = ids.indexOf(focused ?? '')
     const next =
-      event.key === 'Home' ? 0 : event.key === 'End' ? ids.length - 1 : index + (event.key === 'ArrowDown' ? 1 : -1)
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? ids.length - 1
+          : index + (event.key === 'ArrowDown' ? 1 : -1)
     const id = ids[Math.max(0, Math.min(ids.length - 1, next))]
     if (id === undefined) return
     if (event.shiftKey && anchor === null) anchor = focused ?? id
     focused = id
     if (event.shiftKey) select(id, true, false)
     await tick()
-    document.getElementById(optionId(id))?.scrollIntoView?.({ block: 'nearest' })
+    document
+      .getElementById(optionId(id))
+      ?.scrollIntoView?.({ block: 'nearest' })
   }
   function optionId(id: string): string {
     return `${instanceId}-note-${encodeURIComponent(id)}`
   }
   function group(note: NoteSummary): string {
-    if (note.isPinned && ui.filter.view !== 'trash' && ui.filter.view !== 'recent') return i18n.t('notes.pin')
-    if (ui.sort === 'title' && !['recent', 'trash'].includes(ui.filter.view)) return i18n.t('notes.other')
+    if (
+      note.isPinned &&
+      ui.filter.view !== 'trash' &&
+      ui.filter.view !== 'recent'
+    )
+      return i18n.t('notes.pin')
+    if (ui.sort === 'title' && !['recent', 'trash'].includes(ui.filter.view))
+      return i18n.t('notes.other')
     const timestamp =
       ui.filter.view === 'trash'
         ? (note.deletedAt ?? note.updatedAt)
         : ui.filter.view === 'recent' || ui.sort === 'updated'
           ? note.updatedAt
           : note.createdAt
-    return i18n.formatDate(timestamp, { year: 'numeric', month: 'short', day: 'numeric' })
+    return i18n.formatDate(timestamp, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    })
   }
   type Action =
-    'star' | 'unstar' | 'pin' | 'unpin' | 'archive' | 'unarchive' | 'trash' | 'restore' | 'purge' | 'move' | 'duplicate'
-  async function batch(action: Action, ids: readonly string[], folderId: string | null = null): Promise<void> {
+    | 'star'
+    | 'unstar'
+    | 'pin'
+    | 'unpin'
+    | 'archive'
+    | 'unarchive'
+    | 'trash'
+    | 'restore'
+    | 'purge'
+    | 'move'
+    | 'duplicate'
+  async function batch(
+    action: Action,
+    ids: readonly string[],
+    folderId: string | null = null,
+  ): Promise<void> {
     if (busy || !ids.length) return
     busy = true
     results = []
     const titles = Object.fromEntries(
-      ids.map((id) => [id, notes.summaries[id]?.title || i18n.t('common.untitled_note')]),
+      ids.map((id) => [
+        id,
+        notes.summaries[id]?.title || i18n.t('common.untitled_note'),
+      ]),
     )
     try {
       const outcome = await runNoteBatch(
@@ -348,7 +454,10 @@
         () =>
           action === 'trash' || action === 'purge'
             ? notifier.confirm({
-                titleKey: action === 'trash' ? 'common.move_to_trash' : 'notes.delete_permanently',
+                titleKey:
+                  action === 'trash'
+                    ? 'common.move_to_trash'
+                    : 'notes.delete_permanently',
                 bodyKey:
                   action === 'trash'
                     ? 'notes.restore_it_from_trash_at_any_time'
@@ -370,9 +479,12 @@
           else if (action === 'duplicate') await notes.duplicate(id)
           else {
             const patch: PatchNoteBody = { rev: note.rev }
-            if (action === 'star' || action === 'unstar') patch.isStarred = action === 'star'
-            if (action === 'pin' || action === 'unpin') patch.isPinned = action === 'pin'
-            if (action === 'archive' || action === 'unarchive') patch.isArchived = action === 'archive'
+            if (action === 'star' || action === 'unstar')
+              patch.isStarred = action === 'star'
+            if (action === 'pin' || action === 'unpin')
+              patch.isPinned = action === 'pin'
+            if (action === 'archive' || action === 'unarchive')
+              patch.isArchived = action === 'archive'
             if (action === 'move') patch.folderId = folderId
             await notes.patch(id, patch)
           }
@@ -382,8 +494,14 @@
       if (outcome.length) {
         resultTitles = titles
         results = outcome
-        const failures = outcome.filter((result) => result.error !== null).map((result) => result.id)
-        if (failures.length) logger.warn('notes.batch.partial_failed', { count: outcome.length, failed: failures.length })
+        const failures = outcome
+          .filter((result) => result.error !== null)
+          .map((result) => result.id)
+        if (failures.length)
+          logger.warn('notes.batch.partial_failed', {
+            count: outcome.length,
+            failed: failures.length,
+          })
         ui.setSelection(failures)
         refresh++
       }
@@ -407,9 +525,13 @@
     }
     const ids = selected.includes(id) ? selected : [id]
     event.dataTransfer.effectAllowed = 'move'
-    event.dataTransfer.setData(NOTE_DRAG_TYPE, JSON.stringify({ source: `${instanceId}-listbox`, ids }))
+    event.dataTransfer.setData(
+      NOTE_DRAG_TYPE,
+      JSON.stringify({ source: `${instanceId}-listbox`, ids }),
+    )
   }
 </script>
+
 
 {#snippet sortMenu(iconSize: number, triggerClass = '')}
   <DropdownMenu.Root
@@ -422,20 +544,40 @@
       ]}><ArrowDownWideNarrow size={iconSize} /></DropdownMenu.Trigger
     ><DropdownMenu.Content
       ><DropdownMenu.Group>
-        {#if ui.filter.view === 'recent' || ui.filter.view === 'trash'}<DropdownMenu.Item disabled
+        {#if ui.filter.view === 'recent' || ui.filter.view === 'trash'}<DropdownMenu.Item
+            disabled
             >{i18n.t(
-              ui.filter.view === 'trash' ? 'notes.recently_deleted_first' : 'notes.recently_edited_first',
+              ui.filter.view === 'trash'
+                ? 'notes.recently_deleted_first'
+                : 'notes.recently_edited_first',
             )}</DropdownMenu.Item
           >{:else}
-          <DropdownMenu.Item onclick={() => ui.setSort('updated')}>{i18n.t('notes.modified')}</DropdownMenu.Item
-          ><DropdownMenu.Item onclick={() => ui.setSort('created')}>{i18n.t('notes.created')}</DropdownMenu.Item
-          ><DropdownMenu.Item onclick={() => ui.setSort('title', 'asc')}>{i18n.t('notes.title')}</DropdownMenu.Item
-          ><DropdownMenu.Item onclick={() => ui.setSort(ui.sort, ui.order === 'asc' ? 'desc' : 'asc')}
-            >{i18n.t(ui.order === 'desc' ? 'notes.sort_ascending' : 'notes.sort_descending')}</DropdownMenu.Item
+          <DropdownMenu.Item onclick={() => ui.setSort('updated')}
+            >{i18n.t('notes.modified')}</DropdownMenu.Item
+          ><DropdownMenu.Item onclick={() => ui.setSort('created')}
+            >{i18n.t('notes.created')}</DropdownMenu.Item
+          ><DropdownMenu.Item onclick={() => ui.setSort('title', 'asc')}
+            >{i18n.t('notes.title')}</DropdownMenu.Item
+          ><DropdownMenu.Item
+            onclick={() =>
+              ui.setSort(ui.sort, ui.order === 'asc' ? 'desc' : 'asc')}
+            >{i18n.t(
+              ui.order === 'desc'
+                ? 'notes.sort_ascending'
+                : 'notes.sort_descending',
+            )}</DropdownMenu.Item
           >
         {/if}
-        <DropdownMenu.Item onclick={() => ui.setDensity(ui.layout.density === 'compact' ? 'comfortable' : 'compact')}
-          >{i18n.t(ui.layout.density === 'compact' ? 'notes.comfortable_list' : 'notes.compact_list')}</DropdownMenu.Item
+        <DropdownMenu.Item
+          onclick={() =>
+            ui.setDensity(
+              ui.layout.density === 'compact' ? 'comfortable' : 'compact',
+            )}
+          >{i18n.t(
+            ui.layout.density === 'compact'
+              ? 'notes.comfortable_list'
+              : 'notes.compact_list',
+          )}</DropdownMenu.Item
         >
       </DropdownMenu.Group></DropdownMenu.Content
     ></DropdownMenu.Root
@@ -445,43 +587,78 @@
 {#snippet actions(ids: readonly string[], inTrash: boolean)}
   <DropdownMenu.Group>
     {#if inTrash}
-      <DropdownMenu.Item disabled={busy} onSelect={() => void batch('restore', ids)}
+      <DropdownMenu.Item
+        disabled={busy}
+        onSelect={() => void batch('restore', ids)}
         >{i18n.t('common.restore')}</DropdownMenu.Item
       >
-      <DropdownMenu.Item variant="destructive" disabled={busy} onSelect={() => void batch('purge', ids)}
+      <DropdownMenu.Item
+        variant="destructive"
+        disabled={busy}
+        onSelect={() => void batch('purge', ids)}
         >{i18n.t('notes.delete_permanently')}</DropdownMenu.Item
       >
     {:else}
       <DropdownMenu.Item
         disabled={busy}
-        onSelect={() => void batch(ids.every((id) => notes.summaries[id]?.isStarred) ? 'unstar' : 'star', ids)}
+        onSelect={() =>
+          void batch(
+            ids.every((id) => notes.summaries[id]?.isStarred)
+              ? 'unstar'
+              : 'star',
+            ids,
+          )}
         >{i18n.t(
-          ids.every((id) => notes.summaries[id]?.isStarred) ? 'common.remove_from_favorites' : 'navigation.favorites',
+          ids.every((id) => notes.summaries[id]?.isStarred)
+            ? 'common.remove_from_favorites'
+            : 'navigation.favorites',
         )}</DropdownMenu.Item
       >
       <DropdownMenu.Item
         disabled={busy}
-        onSelect={() => void batch(ids.every((id) => notes.summaries[id]?.isPinned) ? 'unpin' : 'pin', ids)}
-        >{i18n.t(ids.every((id) => notes.summaries[id]?.isPinned) ? 'notes.unpin' : 'notes.pin')}</DropdownMenu.Item
-      >
-      <DropdownMenu.Item disabled={busy} onSelect={() => move(ids)}>{i18n.t('notes.move_to_folder')}</DropdownMenu.Item>
-      <DropdownMenu.Item
-        disabled={busy}
-        onSelect={() => void batch(ids.every((id) => notes.summaries[id]?.isArchived) ? 'unarchive' : 'archive', ids)}
+        onSelect={() =>
+          void batch(
+            ids.every((id) => notes.summaries[id]?.isPinned) ? 'unpin' : 'pin',
+            ids,
+          )}
         >{i18n.t(
-          ids.every((id) => notes.summaries[id]?.isArchived) ? 'common.unarchive' : 'navigation.archive',
+          ids.every((id) => notes.summaries[id]?.isPinned)
+            ? 'notes.unpin'
+            : 'notes.pin',
         )}</DropdownMenu.Item
       >
-      <DropdownMenu.Item disabled={busy} onSelect={() => void batch('duplicate', ids)}
+      <DropdownMenu.Item disabled={busy} onSelect={() => move(ids)}
+        >{i18n.t('notes.move_to_folder')}</DropdownMenu.Item
+      >
+      <DropdownMenu.Item
+        disabled={busy}
+        onSelect={() =>
+          void batch(
+            ids.every((id) => notes.summaries[id]?.isArchived)
+              ? 'unarchive'
+              : 'archive',
+            ids,
+          )}
+        >{i18n.t(
+          ids.every((id) => notes.summaries[id]?.isArchived)
+            ? 'common.unarchive'
+            : 'navigation.archive',
+        )}</DropdownMenu.Item
+      >
+      <DropdownMenu.Item
+        disabled={busy}
+        onSelect={() => void batch('duplicate', ids)}
         >{i18n.t('notes.create_a_copy')}</DropdownMenu.Item
       >
-      <DropdownMenu.Item variant="destructive" disabled={busy} onSelect={() => void batch('trash', ids)}
+      <DropdownMenu.Item
+        variant="destructive"
+        disabled={busy}
+        onSelect={() => void batch('trash', ids)}
         >{i18n.t('common.move_to_trash')}</DropdownMenu.Item
       >
     {/if}
   </DropdownMenu.Group>
 {/snippet}
-
 <section
   class={[
     'relative flex h-full min-h-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-base)]',
@@ -491,12 +668,20 @@
 >
   <header class="shrink-0 px-3 pt-3 pb-2">
     {#if layout === 'mobile'}
-      <div class="mobile-library-brand"><Logo size={22} /><span>{i18n.t('common.product_name')}</span></div>
+      <div class="mobile-library-brand">
+        <Logo size={22} /><span>{i18n.t('common.product_name')}</span>
+      </div>
     {:else}
       <div class="mb-2.5 flex items-center justify-between gap-2">
         <div class="min-w-0">
-          <h2 class="truncate text-[14.5px] font-semibold tracking-[-0.016em] text-[var(--text-primary)]">{title}</h2>
-          {#if ui.filter.view === 'folder'}<p class="mt-0.5 truncate text-[10.5px] text-[var(--text-quaternary)]">
+          <h2
+            class="truncate text-[14.5px] font-semibold tracking-[-0.016em] text-[var(--text-primary)]"
+          >
+            {title}
+          </h2>
+          {#if ui.filter.view === 'folder'}<p
+              class="mt-0.5 truncate text-[10.5px] text-[var(--text-quaternary)]"
+            >
               {i18n.t('folders.includes_subfolders')}
             </p>{/if}
         </div>
@@ -505,7 +690,8 @@
               label={i18n.t('notes.open_navigation')}
               title={i18n.t('notes.open_navigation')}
               size="sm"
-              onclick={() => ui.toggleNavDrawer(true)}><PanelLeft size={14} /></IconButton
+              onclick={() => ui.toggleNavDrawer(true)}
+              ><PanelLeft size={14} /></IconButton
             >{/if}
           {@render sortMenu(14)}
           {#if ui.filter.view !== 'trash' && ui.filter.view !== 'archived'}<IconButton
@@ -574,7 +760,10 @@
     aria-label={title}
     aria-multiselectable="true"
     aria-busy={loading || busy}
-    aria-activedescendant={focused && displayed.some((note) => note.id === focused) ? optionId(focused) : undefined}
+    aria-activedescendant={focused &&
+    displayed.some((note) => note.id === focused)
+      ? optionId(focused)
+      : undefined}
     tabindex={0}
     onkeydown={(event) => void keyboard(event)}
     class="anim-view-content min-h-0 flex-1 overflow-y-auto px-2 pb-4 outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent)] focus-visible:ring-inset"
@@ -603,7 +792,9 @@
           aria-posinset={positions.get(note.id) ?? index + 1}
           aria-setsize={filtered.length}
           style:content-visibility="auto"
-          style:contain-intrinsic-size={ui.layout.density === 'compact' ? 'auto 42px' : 'auto 72px'}
+          style:contain-intrinsic-size={ui.layout.density === 'compact'
+            ? 'auto 42px'
+            : 'auto 72px'}
           class={[
             'motion-note-row group relative mb-px cursor-default rounded-[var(--r-md)] border border-transparent px-2.5 pr-11 transition-[background-color,border-color,box-shadow,transform] duration-[var(--dur-fast)] md:pr-10',
             ui.layout.density === 'compact' ? 'py-[7px]' : 'py-2.5',
@@ -612,27 +803,40 @@
               : active
                 ? 'border-[var(--border-default)] bg-[var(--bg-surface)] shadow-[var(--shadow-sm)]'
                 : 'hover:bg-[var(--bg-hover)]',
-            focused === note.id && 'outline outline-1 -outline-offset-1 outline-[var(--accent)]',
+            focused === note.id &&
+              'outline outline-1 -outline-offset-1 outline-[var(--accent)]',
           ]}
           onclick={(event) => {
-            select(note.id, event.shiftKey && !event.altKey, event.ctrlKey || event.metaKey)
-            if (!event.ctrlKey && !event.metaKey) void open(note.id, event.shiftKey || event.altKey)
+            select(
+              note.id,
+              event.shiftKey && !event.altKey,
+              event.ctrlKey || event.metaKey,
+            )
+            if (!event.ctrlKey && !event.metaKey)
+              void open(note.id, event.shiftKey || event.altKey)
             listbox?.focus()
           }}
           oncontextmenu={(event) => {
             event.preventDefault()
             focused = note.id
-            event.currentTarget.querySelector<HTMLButtonElement>('[data-note-menu]')?.click()
+            event.currentTarget
+              .querySelector<HTMLButtonElement>('[data-note-menu]')
+              ?.click()
           }}
         >
           <div class="flex items-start gap-1.5">
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-1.5">
-                {#if note.isPinned}<Pin size={10} class="anim-mark-enter shrink-0 text-[var(--accent)]" />{/if}
+                {#if note.isPinned}<Pin
+                    size={10}
+                    class="anim-mark-enter shrink-0 text-[var(--accent)]"
+                  />{/if}
                 <h3
                   class={[
                     'min-w-0 flex-1 truncate text-[13px] leading-snug',
-                    active ? 'font-semibold text-[var(--accent)]' : 'font-medium text-[var(--text-primary)]',
+                    active
+                      ? 'font-semibold text-[var(--accent)]'
+                      : 'font-medium text-[var(--text-primary)]',
                   ]}
                 >
                   {note.title || i18n.t('common.untitled_note')}
@@ -652,8 +856,9 @@
                 >
                   {#each note.tags as tag (tag)}<span
                       class="max-w-[70%] shrink-0 truncate"
-                      style:color={organizerColorOrNull(snapshot.tags.find((item) => item.name === tag)?.color)}
-                      >#{tag}</span
+                      style:color={organizerColorOrNull(
+                        snapshot.tags.find((item) => item.name === tag)?.color,
+                      )}>#{tag}</span
                     >{/each}
                 </div>{/if}
             </div>
@@ -664,18 +869,25 @@
             title={i18n.t('common.more_actions')}
             onclick={(event) => event.stopPropagation()}
             class="absolute top-1.5 right-1.5 inline-flex size-8 items-center justify-center rounded-[var(--r-md)] text-[var(--text-secondary)] opacity-100 transition-opacity hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] md:size-6 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100"
-            aria-label={`${i18n.t('common.more_actions')}: ${note.title}`}><MoreHorizontal size={14} /></DropdownMenu.Trigger
+            aria-label={`${i18n.t('common.more_actions')}: ${note.title}`}
+            ><MoreHorizontal size={14} /></DropdownMenu.Trigger
           >
         </div>
         <DropdownMenu.Content
           ><DropdownMenu.Group
-            ><DropdownMenu.Item onclick={() => void open(note.id)}>{i18n.t('common.open')}</DropdownMenu.Item
+            ><DropdownMenu.Item onclick={() => void open(note.id)}
+              >{i18n.t('common.open')}</DropdownMenu.Item
             ><DropdownMenu.Item onclick={() => void open(note.id, true)}
               >{i18n.t('notes.open_to_side')}</DropdownMenu.Item
             ><DropdownMenu.Item onclick={() => select(note.id, false, true)}
-              >{i18n.t(selected ? 'notes.deselect' : 'notes.add_to_selection')}</DropdownMenu.Item
+              >{i18n.t(
+                selected ? 'notes.deselect' : 'notes.add_to_selection',
+              )}</DropdownMenu.Item
             ></DropdownMenu.Group
-          ><DropdownMenu.Separator />{@render actions([note.id], note.deletedAt !== null)}</DropdownMenu.Content
+          ><DropdownMenu.Separator />{@render actions(
+            [note.id],
+            note.deletedAt !== null,
+          )}</DropdownMenu.Content
         >
       </DropdownMenu.Root>
     {/each}
@@ -683,13 +895,19 @@
       {#if filter.trim()}<Empty
           art="search"
           title={i18n.t('notes.no_matching_notes')}
-          description={i18n.t('notes.try_another_search_or_press_shortcut_to_search_everywhere', {
-            shortcut: shortcut('mod+k'),
-          })}
+          description={i18n.t(
+            'notes.try_another_search_or_press_shortcut_to_search_everywhere',
+            {
+              shortcut: shortcut('mod+k'),
+            },
+          )}
         />{:else}<Empty
           art={emptyState.art}
           title={i18n.t(emptyState.title as MessageKey)}
-          description={i18n.t(emptyState.description as MessageKey, emptyState.combo ? { shortcut: shortcut(emptyState.combo) } : {})}
+          description={i18n.t(
+            emptyState.description as MessageKey,
+            emptyState.combo ? { shortcut: shortcut(emptyState.combo) } : {},
+          )}
         >
           {#snippet action()}
             {#if ui.filter.view !== 'trash' && ui.filter.view !== 'archived'}<button
@@ -702,10 +920,18 @@
           {/snippet}
         </Empty>{/if}
     {/if}
-    {#if loading}<p role="status" class="px-2 py-3 text-[11.5px] text-[var(--text-quaternary)]">
+    {#if loading}<p
+        role="status"
+        class="px-2 py-3 text-[11.5px] text-[var(--text-quaternary)]"
+      >
         {i18n.t('common.loading')}
       </p>{/if}
-    {#if pageError}<p role="alert" class="px-2 py-2 text-[11.5px] text-[var(--danger)]">{pageError}</p>
+    {#if pageError}<p
+        role="alert"
+        class="px-2 py-2 text-[11.5px] text-[var(--danger)]"
+      >
+        {pageError}
+      </p>
       <button
         type="button"
         onclick={() => refresh++}
@@ -720,12 +946,17 @@
         >{i18n.t('notes.load_more')}</button
       >{/if}
   </div>
-  {#if selected.length >= 2}<div class="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center pb-3">
+  {#if selected.length >= 2}<div
+      class="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center pb-3"
+    >
       <div
         class="anim-rise pointer-events-auto flex items-center gap-1 rounded-[var(--r-lg)] border border-[var(--border-default)] bg-[var(--bg-overlay)] p-1 pl-3 shadow-[var(--shadow-pop)]"
       >
-        <span class="mr-1 text-[12px] font-medium text-[var(--text-secondary)] tabular-nums"
-          >{i18n.t('notes.selected')}{selected.length}{i18n.t('notes.notes')}</span
+        <span
+          class="mr-1 text-[12px] font-medium text-[var(--text-secondary)] tabular-nums"
+          >{i18n.t('notes.selected')}{selected.length}{i18n.t(
+            'notes.notes',
+          )}</span
         >
         <DropdownMenu.Root
           ><DropdownMenu.Trigger
@@ -734,7 +965,11 @@
             aria-label={i18n.t('common.more_actions')}
             class="inline-flex size-8 items-center justify-center rounded-[var(--r-md)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:opacity-40 md:size-6"
             ><MoreHorizontal size={13} /></DropdownMenu.Trigger
-          ><DropdownMenu.Content>{@render actions(selected, ui.filter.view === 'trash')}</DropdownMenu.Content
+          ><DropdownMenu.Content
+            >{@render actions(
+              selected,
+              ui.filter.view === 'trash',
+            )}</DropdownMenu.Content
           ></DropdownMenu.Root
         >
         <span class="mx-0.5 h-4 w-px bg-[var(--border-subtle)]"></span>
@@ -743,7 +978,9 @@
           title={i18n.t('notes.deselect')}
           size="sm"
           disabled={busy}
-          onclick={() => ui.setSelection(ui.activeNoteId ? [ui.activeNoteId] : [])}><X size={13} /></IconButton
+          onclick={() =>
+            ui.setSelection(ui.activeNoteId ? [ui.activeNoteId] : [])}
+          ><X size={13} /></IconButton
         >
       </div>
     </div>{/if}
@@ -758,16 +995,27 @@
           failed: results.filter((result) => result.error !== null).length,
         })}
       </p>
-      {#each results.filter((result) => result.error !== null) as result (result.id)}<p class="text-destructive">
-          {i18n.t('notes.batch_failure', { title: resultTitles[result.id] ?? '', id: result.id, error: errorText(result.error) })}
+      {#each results.filter((result) => result.error !== null) as result (result.id)}<p
+          class="text-destructive"
+        >
+          {i18n.t('notes.batch_failure', {
+            title: resultTitles[result.id] ?? '',
+            id: result.id,
+            error: errorText(result.error),
+          })}
         </p>{/each}
     </div>{/if}
 </section>
 
 <Dialog.Root bind:open={moveOpen}
   ><Dialog.Content
-    ><Dialog.Header><Dialog.Title>{i18n.t('notes.move_to_folder')}</Dialog.Title></Dialog.Header><Field.Field
-      ><Field.Label for={`${instanceId}-move-folder`}>{i18n.t('navigation.folder')}</Field.Label><select
+    ><Dialog.Header
+      ><Dialog.Title>{i18n.t('notes.move_to_folder')}</Dialog.Title
+      ></Dialog.Header
+    ><Field.Field
+      ><Field.Label for={`${instanceId}-move-folder`}
+        >{i18n.t('navigation.folder')}</Field.Label
+      ><select
         id={`${instanceId}-move-folder`}
         class="rounded-md border border-input bg-background p-2"
         bind:value={destination}
@@ -779,7 +1027,9 @@
           >{/each}</select
       ></Field.Field
     ><Dialog.Footer
-      ><Button variant="outline" onclick={() => (moveOpen = false)}>{i18n.t('common.cancel')}</Button><Button
+      ><Button variant="outline" onclick={() => (moveOpen = false)}
+        >{i18n.t('common.cancel')}</Button
+      ><Button
         disabled={busy}
         onclick={() => {
           moveOpen = false

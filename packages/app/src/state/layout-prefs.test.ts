@@ -26,20 +26,30 @@ describe('parseLayoutPrefs', () => {
   })
 
   test('clamps split ratios so neither side collapses and keeps null as automatic', () => {
-    expect(parseLayoutPrefs({ splitRatio: 0, workspaceSplitRatio: 1 })).toMatchObject({
+    expect(
+      parseLayoutPrefs({ splitRatio: 0, workspaceSplitRatio: 1 }),
+    ).toMatchObject({
       splitRatio: 0.2,
       workspaceSplitRatio: 0.8,
     })
-    expect(parseLayoutPrefs({ splitRatio: null, workspaceSplitRatio: 'half' })).toMatchObject({
+    expect(
+      parseLayoutPrefs({ splitRatio: null, workspaceSplitRatio: 'half' }),
+    ).toMatchObject({
       splitRatio: null,
       workspaceSplitRatio: null,
     })
   })
 
   test('falls back to canonical appearance for unknown values', () => {
-    const prefs = parseLayoutPrefs({ appearance: { theme: 'neon', accent: 'teal', background: 'white' } })
+    const prefs = parseLayoutPrefs({
+      appearance: { theme: 'neon', accent: 'teal', background: 'white' },
+    })
 
-    expect(prefs.appearance).toEqual({ theme: 'system', accent: 'cinnabar', background: 'white' })
+    expect(prefs.appearance).toEqual({
+      theme: 'system',
+      accent: 'cinnabar',
+      background: 'white',
+    })
   })
 
   test('treats corrupt payloads as defaults', () => {
@@ -48,7 +58,12 @@ describe('parseLayoutPrefs', () => {
   })
 
   test('round-trips through the stored value', () => {
-    const prefs = parseLayoutPrefs({ navWidth: 240, listCollapsed: true, splitRatio: 0.4, density: 'compact' })
+    const prefs = parseLayoutPrefs({
+      navWidth: 240,
+      listCollapsed: true,
+      splitRatio: 0.4,
+      density: 'compact',
+    })
 
     expect(parseLayoutPrefs(layoutPrefsValue(prefs))).toEqual(prefs)
   })
@@ -57,7 +72,10 @@ describe('parseLayoutPrefs', () => {
 describe('parseWorkspacePrefs', () => {
   test('promotes a lone secondary note into the primary pane', () => {
     const prefs = parseWorkspacePrefs({
-      panes: { primary: { noteId: null, layout: 'split' }, secondary: { noteId: 'note-b', layout: 'preview' } },
+      panes: {
+        primary: { noteId: null, layout: 'split' },
+        secondary: { noteId: 'note-b', layout: 'preview' },
+      },
       activePane: 'secondary',
     })
 
@@ -79,7 +97,10 @@ describe('parseWorkspacePrefs', () => {
   })
 
   test('deduplicates and bounds recent notes', () => {
-    const ids = Array.from({ length: RECENT_NOTES_LIMIT + 10 }, (_, index) => `note-${index}`)
+    const ids = Array.from(
+      { length: RECENT_NOTES_LIMIT + 10 },
+      (_, index) => `note-${index}`,
+    )
     const prefs = parseWorkspacePrefs({ recentNoteIds: ['note-0', ...ids, 42] })
 
     expect(prefs.recentNoteIds).toHaveLength(RECENT_NOTES_LIMIT)
@@ -89,7 +110,10 @@ describe('parseWorkspacePrefs', () => {
 
   test('round-trips through the stored value', () => {
     const prefs = parseWorkspacePrefs({
-      panes: { primary: { noteId: 'a', layout: 'split' }, secondary: { noteId: 'b', layout: 'preview' } },
+      panes: {
+        primary: { noteId: 'a', layout: 'split' },
+        secondary: { noteId: 'b', layout: 'preview' },
+      },
       activePane: 'secondary',
       filter: { view: 'tag', tag: 'work' },
       sort: 'title',

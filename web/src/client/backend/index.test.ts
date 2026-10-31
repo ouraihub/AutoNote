@@ -43,7 +43,12 @@ it('waits for local journal without network replay and keeps backend alive when 
     clientId: 'tab',
     getLocale: () => 'en-US',
     page: { isHidden: false, isOnline: false, on: () => () => undefined },
-    timers: { setTimeout: () => 1, clearTimeout() {}, setInterval: () => 1, clearInterval() {} },
+    timers: {
+      setTimeout: () => 1,
+      clearTimeout() {},
+      setInterval: () => 1,
+      clearInterval() {},
+    },
     clock: { now: () => 1 },
     logger: { debug() {}, info() {}, warn() {}, error() {} },
   })
@@ -52,19 +57,29 @@ it('waits for local journal without network replay and keeps backend alive when 
   kv.update = async () => {
     throw new Error('quota')
   }
-  await expect(backend.notes.patch('note', { rev: 1, content: 'retain' }, { writeId: 'failed' })).rejects.toMatchObject(
-    { code: 'internal' },
-  )
+  await expect(
+    backend.notes.patch(
+      'note',
+      { rev: 1, content: 'retain' },
+      { writeId: 'failed' },
+    ),
+  ).rejects.toMatchObject({ code: 'internal' })
   await expect(backend.dispose()).rejects.toMatchObject({ code: 'internal' })
   expect(close).not.toHaveBeenCalled()
   kv.update = update
   await expect(
-    backend.notes.patch('note', { rev: 1, content: 'retain' }, { writeId: 'durable' }),
+    backend.notes.patch(
+      'note',
+      { rev: 1, content: 'retain' },
+      { writeId: 'durable' },
+    ),
   ).resolves.toMatchObject({ queued: true })
   await backend.dispose()
   expect(close).toHaveBeenCalledTimes(1)
   expect(fetch).toHaveBeenCalledTimes(1)
-  expect(await kv.get('user:user:outbox')).toMatchObject([{ writeId: 'durable', payload: { content: 'retain' } }])
+  expect(await kv.get('user:user:outbox')).toMatchObject([
+    { writeId: 'durable', payload: { content: 'retain' } },
+  ])
   await backend.dispose()
   expect(close).toHaveBeenCalledTimes(1)
 })

@@ -4,7 +4,12 @@ import type { EditorSettings } from '@shared/types'
 import { describe, expect, test, vi } from 'vitest'
 import CodeEditor from './CodeEditor.svelte'
 import { insertPickedFiles } from './actions'
-import { htmlToMarkdown, uploadedFileMarkdown, type AttachmentServices, type UploadedAttachment } from './paste'
+import {
+  htmlToMarkdown,
+  uploadedFileMarkdown,
+  type AttachmentServices,
+  type UploadedAttachment,
+} from './paste'
 import { createEditorServices } from './testing'
 
 const settings: EditorSettings = {
@@ -19,7 +24,11 @@ const settings: EditorSettings = {
   autoSaveDelay: 1000,
 }
 
-function mountEditor(attachments: Partial<AttachmentServices>, noteId = 'note-a', value = 'Body ') {
+function mountEditor(
+  attachments: Partial<AttachmentServices>,
+  noteId = 'note-a',
+  value = 'Body ',
+) {
   let view: EditorView | null = null
   const changes: string[] = []
   const props = {
@@ -37,7 +46,11 @@ function mountEditor(attachments: Partial<AttachmentServices>, noteId = 'note-a'
   return { editor, changes, rerender: rendered.rerender, props }
 }
 
-function pasteEvent(data: { files?: File[]; types?: string[]; values?: Record<string, string> }): Event {
+function pasteEvent(data: {
+  files?: File[]
+  types?: string[]
+  values?: Record<string, string>
+}): Event {
   const event = new Event('paste', { bubbles: true, cancelable: true })
   Object.defineProperty(event, 'clipboardData', {
     value: {
@@ -50,8 +63,13 @@ function pasteEvent(data: { files?: File[]; types?: string[]; values?: Record<st
   return event
 }
 
-const image = (name = 'photo.png') => new File(['png'], name, { type: 'image/png' })
-const stored: UploadedAttachment = { id: '01HZXTESTATTACHMENT0000001', filename: 'photo.png', mime: 'image/png' }
+const image = (name = 'photo.png') =>
+  new File(['png'], name, { type: 'image/png' })
+const stored: UploadedAttachment = {
+  id: '01HZXTESTATTACHMENT0000001',
+  filename: 'photo.png',
+  mime: 'image/png',
+}
 
 describe('attachment paste', () => {
   test('uploads pasted files through the injected service and stores the logical file URL', async () => {
@@ -64,14 +82,19 @@ describe('attachment paste', () => {
     expect(event.defaultPrevented).toBe(true)
     expect(upload).toHaveBeenCalledWith(expect.any(File), 'note-a')
     await vi.waitFor(() =>
-      expect(editor.state.doc.toString()).toBe('Body ![photo](</api/files/01HZXTESTATTACHMENT0000001>)'),
+      expect(editor.state.doc.toString()).toBe(
+        'Body ![photo](</api/files/01HZXTESTATTACHMENT0000001>)',
+      ),
     )
   })
 
   test('hands a late result to the original note after the editor switched notes', async () => {
     const pending = Promise.withResolvers<UploadedAttachment>()
     const replaceDetached = vi.fn()
-    const { editor, rerender, props } = mountEditor({ upload: () => pending.promise, replaceDetached })
+    const { editor, rerender, props } = mountEditor({
+      upload: () => pending.promise,
+      replaceDetached,
+    })
 
     const insertion = insertPickedFiles(editor, [image()])
     const placeholder = editor.state.doc.toString().slice('Body '.length)
@@ -82,46 +105,81 @@ describe('attachment paste', () => {
     await insertion
 
     expect(editor.state.doc.toString()).toBe('Second note')
-    expect(replaceDetached).toHaveBeenCalledWith('note-a', placeholder, uploadedFileMarkdown(stored))
+    expect(replaceDetached).toHaveBeenCalledWith(
+      'note-a',
+      placeholder,
+      uploadedFileMarkdown(stored),
+    )
   })
 
   test('keeps text typed during a failed upload and leaves a failure marker in place of the placeholder', async () => {
     const pending = Promise.withResolvers<UploadedAttachment>()
     const uploadFailed = vi.fn()
-    const { editor } = mountEditor({ upload: () => pending.promise, uploadFailed })
+    const { editor } = mountEditor({
+      upload: () => pending.promise,
+      uploadFailed,
+    })
 
     const insertion = insertPickedFiles(editor, [image('scan.png')])
-    editor.dispatch({ changes: { from: 0, insert: 'Typed. ' }, userEvent: 'input.type' })
+    editor.dispatch({
+      changes: { from: 0, insert: 'Typed. ' },
+      userEvent: 'input.type',
+    })
     const error = new Error('offline')
     pending.reject(error)
     await insertion
 
     expect(uploadFailed).toHaveBeenCalledWith(expect.any(File), error)
-    expect(editor.state.doc.toString()).toBe('Typed. Body <!-- Upload failed: scan.png -->')
+    expect(editor.state.doc.toString()).toBe(
+      'Typed. Body <!-- Upload failed: scan.png -->',
+    )
   })
 
   test('preserves the original clipboard text when an attachment upload is cancelled', async () => {
     const pending = Promise.withResolvers<UploadedAttachment>()
     const uploadFailed = vi.fn()
-    const { editor } = mountEditor({ upload: () => pending.promise, uploadFailed }, 'note-a', '')
-    const event = pasteEvent({ files: [image()], values: { 'text/plain': 'Original pasted text' } })
+    const { editor } = mountEditor(
+      { upload: () => pending.promise, uploadFailed },
+      'note-a',
+      '',
+    )
+    const event = pasteEvent({
+      files: [image()],
+      values: { 'text/plain': 'Original pasted text' },
+    })
     editor.contentDOM.dispatchEvent(event)
     expect(event.defaultPrevented).toBe(true)
 
     pending.reject(new DOMException('Cancelled', 'AbortError'))
-    await vi.waitFor(() => expect(editor.state.doc.toString()).toBe('Original pasted text'))
+    await vi.waitFor(() =>
+      expect(editor.state.doc.toString()).toBe('Original pasted text'),
+    )
     expect(uploadFailed).toHaveBeenCalledOnce()
   })
 
   test('a failed upload after switching notes restores the original clipboard text only in its source note', async () => {
     const pending = Promise.withResolvers<UploadedAttachment>()
     const replaceDetached = vi.fn()
-    const { editor, rerender, props } = mountEditor({ upload: () => pending.promise, replaceDetached })
-    editor.contentDOM.dispatchEvent(pasteEvent({ files: [image()], values: { 'text/plain': 'Original pasted text' } }))
+    const { editor, rerender, props } = mountEditor({
+      upload: () => pending.promise,
+      replaceDetached,
+    })
+    editor.contentDOM.dispatchEvent(
+      pasteEvent({
+        files: [image()],
+        values: { 'text/plain': 'Original pasted text' },
+      }),
+    )
     const placeholder = editor.state.doc.toString().slice('Body '.length)
     await rerender({ ...props, noteId: 'note-b', value: 'Second note' })
     pending.reject(new DOMException('Cancelled', 'AbortError'))
-    await vi.waitFor(() => expect(replaceDetached).toHaveBeenCalledWith('note-a', placeholder, 'Original pasted text'))
+    await vi.waitFor(() =>
+      expect(replaceDetached).toHaveBeenCalledWith(
+        'note-a',
+        placeholder,
+        'Original pasted text',
+      ),
+    )
     expect(editor.state.doc.toString()).toBe('Second note')
   })
 
@@ -129,11 +187,15 @@ describe('attachment paste', () => {
     const { editor } = mountEditor({}, 'note-a', 'read the [docs]')
     editor.dispatch({ selection: { anchor: 9, head: 15 } })
 
-    const event = pasteEvent({ values: { 'text/plain': 'https://example.com/guide' } })
+    const event = pasteEvent({
+      values: { 'text/plain': 'https://example.com/guide' },
+    })
     editor.contentDOM.dispatchEvent(event)
 
     expect(event.defaultPrevented).toBe(true)
-    expect(editor.state.doc.toString()).toBe('read the [\\[docs\\]](<https://example.com/guide>)')
+    expect(editor.state.doc.toString()).toBe(
+      'read the [\\[docs\\]](<https://example.com/guide>)',
+    )
   })
 
   test('converts pasted HTML to Markdown without executable content', () => {
@@ -198,9 +260,15 @@ describe('htmlToMarkdown', () => {
 
 describe('uploadedFileMarkdown', () => {
   test('embeds images without their extension and links other files with escaped labels', () => {
-    expect(uploadedFileMarkdown(stored)).toBe('![photo](</api/files/01HZXTESTATTACHMENT0000001>)')
-    expect(uploadedFileMarkdown({ id: 'f1', filename: 'notes [v2].pdf', mime: 'application/pdf' })).toBe(
-      '[notes \\[v2\\].pdf](</api/files/f1>)',
+    expect(uploadedFileMarkdown(stored)).toBe(
+      '![photo](</api/files/01HZXTESTATTACHMENT0000001>)',
     )
+    expect(
+      uploadedFileMarkdown({
+        id: 'f1',
+        filename: 'notes [v2].pdf',
+        mime: 'application/pdf',
+      }),
+    ).toBe('[notes \\[v2\\].pdf](</api/files/f1>)')
   })
 })

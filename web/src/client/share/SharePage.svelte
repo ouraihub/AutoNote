@@ -29,7 +29,15 @@
     clientId: string
     resolveFileUrl?(url: string): string
   }
-  let { slug, fetch, logger, language, notifier, clientId, resolveFileUrl }: Props = $props()
+  let {
+    slug,
+    fetch,
+    logger,
+    language,
+    notifier,
+    clientId,
+    resolveFileUrl,
+  }: Props = $props()
   // svelte-ignore state_referenced_locally
   const shareState = new SharePageState({
     fetch,
@@ -45,7 +53,9 @@
   let dialog = $state<HTMLDialogElement>()
   const originalTitle = document.title
   let appliedTitle: string | null = null
-  const stats = $derived(shareState.note ? countText(shareState.note.content) : null)
+  const stats = $derived(
+    shareState.note ? countText(shareState.note.content) : null,
+  )
   const resolveAssetUrl = (url: string): string => {
     const shared = addShareAccess(url, slug, location.origin)
     return resolveFileUrl ? resolveFileUrl(shared) : shared
@@ -54,7 +64,10 @@
     resolveNote: async () => null,
     resolveAssetUrl,
     openNote: () =>
-      notifier.toast({ key: 'share.embedded_private_notes_are_not_included_in_public_shares', tone: 'info' }),
+      notifier.toast({
+        key: 'share.embedded_private_notes_are_not_included_in_public_shares',
+        tone: 'info',
+      }),
     toggleTask: async () => {
       throw new BackendError('forbidden', 403, 'Public shares are read-only')
     },
@@ -82,10 +95,12 @@
   })
   onMount(() => () => {
     shareState.dispose()
-    if (appliedTitle && document.title === appliedTitle) document.title = originalTitle
+    if (appliedTitle && document.title === appliedTitle)
+      document.title = originalTitle
   })
   const prepareLinks = (): void => {
-    for (const link of host?.querySelectorAll<HTMLAnchorElement>('a[href]') ?? []) {
+    for (const link of host?.querySelectorAll<HTMLAnchorElement>('a[href]') ??
+      []) {
       const raw = link.getAttribute('href') ?? ''
       if (!raw.startsWith('#')) link.href = resolveAssetUrl(raw)
     }
@@ -98,14 +113,21 @@
   }
 </script>
 
-
-<div class="h-dvh overflow-y-auto overscroll-contain bg-[var(--bg-base)] text-[var(--text-primary)]">
+<div
+  class="h-dvh overflow-y-auto overscroll-contain bg-[var(--bg-base)] text-[var(--text-primary)]"
+>
   <header
     class="sticky top-0 z-10 border-b border-[var(--border-subtle)] bg-[var(--bg-base)]/85 pt-[env(safe-area-inset-top)] backdrop-blur"
   >
-    <div class="mx-auto flex h-12 max-w-[860px] items-center gap-3 px-4 md:px-5">
-      <span class="flex items-center gap-1.5 text-[var(--accent)]"><Logo size={15} /></span>
-      <span class="text-[12.5px] font-semibold tracking-[-0.01em] text-[var(--text-primary)]">
+    <div
+      class="mx-auto flex h-12 max-w-[860px] items-center gap-3 px-4 md:px-5"
+    >
+      <span class="flex items-center gap-1.5 text-[var(--accent)]"
+        ><Logo size={15} /></span
+      >
+      <span
+        class="text-[12.5px] font-semibold tracking-[-0.01em] text-[var(--text-primary)]"
+      >
         {shareState.note?.site.name ?? language.t('common.product_name')}
       </span>
       <span class="flex-1"></span>
@@ -124,9 +146,13 @@
     </div>
   </header>
 
-  <main class="mx-auto max-w-[860px] px-4 pb-[calc(64px+env(safe-area-inset-bottom))] md:px-5 md:pb-24">
+  <main
+    class="mx-auto max-w-[860px] px-4 pb-[calc(64px+env(safe-area-inset-bottom))] md:px-5 md:pb-24"
+  >
     {#if shareState.status === 'loading'}
-      <div class="pt-24"><LoadingBlock label={language.t('share.opening')} /></div>
+      <div class="pt-24">
+        <LoadingBlock label={language.t('share.opening')} />
+      </div>
     {:else if shareState.status === 'passwordRequired'}
       <div class="anim-rise mx-auto max-w-[340px] pt-[16vh] text-center">
         <div
@@ -138,7 +164,9 @@
           {language.t('share.this_note_requires_a_password')}
         </h1>
         <p class="mt-1.5 text-[12.5px] text-[var(--text-tertiary)]">
-          {language.t('share.ask_the_person_who_shared_this_note_for_its_passcode')}
+          {language.t(
+            'share.ask_the_person_who_shared_this_note_for_its_passcode',
+          )}
         </p>
         <form class="mt-5 space-y-2.5" onsubmit={submit}>
           <TextInput
@@ -154,10 +182,15 @@
           >
             {#snippet leading()}<KeyRound size={13} />{/snippet}
           </TextInput>
-          {#if shareState.errorKey}<p role="alert" class="text-[12px] text-[var(--danger)]">
+          {#if shareState.errorKey}<p
+              role="alert"
+              class="text-[12px] text-[var(--danger)]"
+            >
               {language.t(shareState.errorKey as MessageKey)}
             </p>{/if}
-          <Button type="submit" variant="primary" block>{language.t('share.view_content')}</Button>
+          <Button type="submit" variant="primary" block
+            >{language.t('share.view_content')}</Button
+          >
         </form>
       </div>
     {:else if shareState.status === 'ready' && shareState.note}
@@ -173,7 +206,11 @@
             class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12px] text-[var(--text-quaternary)]"
           >
             <span class="flex items-center gap-1.5">
-              <Avatar src={note.author.avatarUrl} name={note.author.name} size={18} />
+              <Avatar
+                src={note.author.avatarUrl}
+                name={note.author.name}
+                size={18}
+              />
               {note.author.name}
             </span>
             <span>·</span>
@@ -190,7 +227,11 @@
               <span>·</span>
               <span>{stats.words}{language.t('common.words')}</span>
               <span>·</span>
-              <span>{language.t('common.about')}{readingMinutes(stats.words)}{language.t('common.min')}</span>
+              <span
+                >{language.t('common.about')}{readingMinutes(
+                  stats.words,
+                )}{language.t('common.min')}</span
+              >
             {/if}
           </div>
         </header>
@@ -214,13 +255,17 @@
           />
         </div>
 
-        <footer class="mt-16 border-t border-[var(--border-subtle)] pt-6 text-center">
+        <footer
+          class="mt-16 border-t border-[var(--border-subtle)] pt-6 text-center"
+        >
           <a
             href="/"
             rel="external"
             class="inline-flex items-center gap-1.5 text-[11.5px] text-[var(--text-quaternary)] transition-colors hover:text-[var(--accent)]"
           >
-            <Logo size={12} />{language.t('share.shared_via_site', { site: note.site.name })}
+            <Logo size={12} />{language.t('share.shared_via_site', {
+              site: note.site.name,
+            })}
           </a>
         </footer>
       </article>
@@ -229,11 +274,19 @@
         <h1 class="text-[16px] font-semibold text-[var(--text-primary)]">
           {language.t('share.content_unavailable')}
         </h1>
-        {#if shareState.errorKey}<p role="alert" class="mt-2 text-[13px] leading-relaxed text-[var(--text-tertiary)]">
+        {#if shareState.errorKey}<p
+            role="alert"
+            class="mt-2 text-[13px] leading-relaxed text-[var(--text-tertiary)]"
+          >
             {language.t(shareState.errorKey as MessageKey)}
           </p>{/if}
-        {#if shareState.retryAfter}<p role="status" class="mt-2 text-[12px] text-[var(--text-quaternary)]">
-            {language.t('host.retry_after_seconds', { seconds: shareState.retryAfter })}
+        {#if shareState.retryAfter}<p
+            role="status"
+            class="mt-2 text-[12px] text-[var(--text-quaternary)]"
+          >
+            {language.t('host.retry_after_seconds', {
+              seconds: shareState.retryAfter,
+            })}
           </p>{/if}
         {#if shareState.status === 'failed' && !shareState.retryAfter}
           <Button
@@ -256,7 +309,9 @@
     image = null
   }}
 >
-  <div class="absolute top-[calc(12px+env(safe-area-inset-top))] right-2 md:top-4 md:right-4">
+  <div
+    class="absolute top-[calc(12px+env(safe-area-inset-top))] right-2 md:top-4 md:right-4"
+  >
     <IconButton
       label={language.t('common.close')}
       title={language.t('common.close')}

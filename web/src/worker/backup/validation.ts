@@ -1,6 +1,3 @@
-
-
-
 export class BackupConfigError extends Error {
   constructor(message: string) {
     super(message)
@@ -27,13 +24,17 @@ export function parseBackupEndpoint(rawValue: string, label: string): URL {
     throw new BackupConfigError(`${label} must use HTTPS`)
   }
   if (url.username || url.password) {
-    throw new BackupConfigError(`${label} cannot include a username or password in the URL`)
+    throw new BackupConfigError(
+      `${label} cannot include a username or password in the URL`,
+    )
   }
   if (url.search || url.hash) {
     throw new BackupConfigError(`${label} cannot include a query or fragment`)
   }
   if (isUnsafeHostname(url.hostname)) {
-    throw new BackupConfigError(`${label} cannot point to localhost, private, or reserved addresses`)
+    throw new BackupConfigError(
+      `${label} cannot point to localhost, private, or reserved addresses`,
+    )
   }
   if (hasTraversalSegment(url.pathname)) {
     throw new BackupConfigError(`${label} path cannot contain . or .. segments`)
@@ -42,7 +43,10 @@ export function parseBackupEndpoint(rawValue: string, label: string): URL {
 }
 
 export function normalizeBackupPrefix(value: string): string {
-  const prefix = value.trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  const prefix = value
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^\/+|\/+$/g, '')
   validateBackupPrefix(prefix)
   return prefix
 }
@@ -57,10 +61,14 @@ export function validateBackupPrefix(value: string): void {
       throw new BackupConfigError('Path prefix contains invalid escaping')
     }
     if (!segment || segment === '.' || segment === '..') {
-      throw new BackupConfigError('Path prefix cannot contain empty, . or .. segments')
+      throw new BackupConfigError(
+        'Path prefix cannot contain empty, . or .. segments',
+      )
     }
     if (/\p{Cc}/u.test(segment)) {
-      throw new BackupConfigError('Path prefix cannot contain control characters')
+      throw new BackupConfigError(
+        'Path prefix cannot contain control characters',
+      )
     }
   }
 }
@@ -73,7 +81,10 @@ export function normalizeS3Region(value: string | undefined): string {
   return region
 }
 
-export function validateS3Bucket(bucketValue: string, pathStyle: boolean): string {
+export function validateS3Bucket(
+  bucketValue: string,
+  pathStyle: boolean,
+): string {
   const bucket = bucketValue.trim()
   if (!bucket) throw new BackupConfigError('Enter a bucket name')
   const valid = pathStyle
@@ -85,8 +96,10 @@ export function validateS3Bucket(bucketValue: string, pathStyle: boolean): strin
   if (!valid) {
     throw new BackupConfigError(
       pathStyle
-        ? 'Bucket names may contain only letters, numbers, dots, underscores, and hyphens'
-        : 'A virtual-hosted bucket must be a 3-63 character lowercase DNS name',
+        ? 'Bucket names may contain only letters, numbers, dots, underscores,'
+          + ' and hyphens'
+        : 'A virtual-hosted bucket must be a 3-63 character lowercase DNS '
+          + 'name',
     )
   }
   return bucket
@@ -101,7 +114,12 @@ function hasTraversalSegment(pathname: string): boolean {
     if (!raw) return false
     try {
       const value = decodeURIComponent(raw)
-      return value === '.' || value === '..' || value.includes('/') || value.includes('\\')
+      return (
+        value === '.' ||
+        value === '..' ||
+        value.includes('/') ||
+        value.includes('\\')
+      )
     } catch {
       return true
     }
@@ -110,7 +128,8 @@ function hasTraversalSegment(pathname: string): boolean {
 
 function hasRawPathTraversal(value: string): boolean {
   const authority = value.indexOf('//')
-  const pathStart = authority >= 0 ? value.indexOf('/', authority + 2) : value.indexOf('/')
+  const pathStart =
+    authority >= 0 ? value.indexOf('/', authority + 2) : value.indexOf('/')
   if (pathStart < 0) return false
   const query = value.indexOf('?', pathStart)
   const hash = value.indexOf('#', pathStart)
@@ -120,7 +139,10 @@ function hasRawPathTraversal(value: string): boolean {
 }
 
 function isUnsafeHostname(rawHostname: string): boolean {
-  const hostname = rawHostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '')
+  const hostname = rawHostname
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.$/, '')
   if (!hostname || !hostname.includes('.')) {
     if (!hostname.includes(':')) return true
   }
@@ -186,7 +208,11 @@ function parseIpv6(value: string): number[] | null {
   }
   const leftWords = left.map(parse)
   const rightWords = right.map(parse)
-  if (leftWords.some((word) => word === null) || rightWords.some((word) => word === null)) return null
+  if (
+    leftWords.some((word) => word === null) ||
+    rightWords.some((word) => word === null)
+  )
+    return null
   const missing = 8 - leftWords.length - rightWords.length
   if (rightRaw === undefined ? missing !== 0 : missing < 1) return null
   return [
@@ -199,13 +225,15 @@ function parseIpv6(value: string): number[] | null {
 function isUnsafeIpv6(words: number[]): boolean {
   const first = words[0]!
   if (words.every((word) => word === 0)) return true
-  if (words.slice(0, 7).every((word) => word === 0) && words[7] === 1) return true
+  if (words.slice(0, 7).every((word) => word === 0) && words[7] === 1)
+    return true
   if ((first & 0xfe00) === 0xfc00) return true
   if ((first & 0xffc0) === 0xfe80) return true
   if ((first & 0xff00) === 0xff00) return true
   if (first === 0x2001 && words[1] === 0x0db8) return true
 
-  const ipv4Mapped = words.slice(0, 5).every((word) => word === 0) && words[5] === 0xffff
+  const ipv4Mapped =
+    words.slice(0, 5).every((word) => word === 0) && words[5] === 0xffff
   const ipv4Compatible = words.slice(0, 6).every((word) => word === 0)
   if (ipv4Mapped || ipv4Compatible) {
     return isUnsafeIpv4([

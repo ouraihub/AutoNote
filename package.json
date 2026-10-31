@@ -32,7 +32,7 @@
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
-    "@ouraihub/release-kit": "github:ouraihub/release-kit#f5703e5ee7c348e91d22178a3ba1a106da5fa0aa",
+    "@ouraihub/release-kit": "github:ouraihub/release-kit#70aadb0fbbc5a3ad6989b9407422d2ebffbe8d9d",
     "eslint": "10.11.0",
     "eslint-plugin-import-x": "4.17.1",
     "eslint-plugin-svelte": "3.23.0",

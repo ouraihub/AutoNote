@@ -8,7 +8,12 @@ import {
   SESSION_RENEW_BEFORE_MS,
   SESSION_TTL_MS,
 } from '@shared/constants'
-import { destroySession, hashToken, isSessionToken, renewSession } from '../lib/session-store'
+import {
+  destroySession,
+  hashToken,
+  isSessionToken,
+  renewSession,
+} from '../lib/session-store'
 import { ApiError } from '../lib/errors'
 import type { AppBindings, Variables } from '../env'
 
@@ -23,9 +28,12 @@ interface UserRow {
   created_at: number
 }
 
-export const USER_COLUMNS = `id, username, login, name, avatar_url, role, settings, created_at`
+export const USER_COLUMNS =
+  'id, username, login, name, avatar_url, role, settings, created_at'
 
-const USER_COLUMNS_ALIASED = USER_COLUMNS.split(', ').map((column) => `u.${column}`).join(', ')
+const USER_COLUMNS_ALIASED = USER_COLUMNS.split(', ')
+  .map((column) => `u.${column}`)
+  .join(', ')
 
 export function rowToUser(row: UserRow): Variables['user'] {
   return {
@@ -41,7 +49,6 @@ export function rowToUser(row: UserRow): Variables['user'] {
   }
 }
 
-
 interface SessionUserRow extends UserRow {
   session_id: string
   expires_at: number
@@ -52,7 +59,9 @@ export const loadSession = createMiddleware<AppBindings>(async (c, next) => {
   const cookieNames = sessionCookieNames(c.req.url)
   const candidates = cookieNames
     .map((name) => ({ name, token: getCookie(c, name) }))
-    .filter((candidate): candidate is { name: string; token: string } => Boolean(candidate.token))
+    .filter((candidate): candidate is { name: string; token: string } =>
+      Boolean(candidate.token),
+    )
   const seenTokens = new Set<string>()
   let authenticated = false
 
@@ -60,7 +69,8 @@ export const loadSession = createMiddleware<AppBindings>(async (c, next) => {
     if (!isSessionToken(token) || seenTokens.has(token)) continue
     seenTokens.add(token)
     const row = await c.env.DB.prepare(
-      `SELECT ${USER_COLUMNS_ALIASED}, u.last_seen_at, s.id AS session_id, s.expires_at
+      `SELECT ${USER_COLUMNS_ALIASED}, u.last_seen_at, s.id AS session_id, ` +
+        `s.expires_at
          FROM sessions s LEFT JOIN users u ON u.id = s.user_id
         WHERE s.id = ?1 AND s.expires_at > ?2`,
     )
@@ -76,23 +86,31 @@ export const loadSession = createMiddleware<AppBindings>(async (c, next) => {
         c.set('userId', row.id)
         c.set('sessionId', row.session_id)
 
-        const shouldRenew = row.expires_at - Date.now() < SESSION_RENEW_BEFORE_MS
+        const shouldRenew =
+          row.expires_at - Date.now() < SESSION_RENEW_BEFORE_MS
         if (shouldRenew) {
           await renewSession(c.env.DB, row.session_id)
         }
         if (shouldRenew || name === LEGACY_SESSION_COOKIE) {
           writeSessionCookie(c, token)
         }
-        if (new URL(c.req.url).protocol === 'https:' && getCookie(c, LEGACY_SESSION_COOKIE)) {
+        if (
+          new URL(c.req.url).protocol === 'https:' &&
+          getCookie(c, LEGACY_SESSION_COOKIE)
+        ) {
           clearLegacySessionCookie(c)
         }
         const now = Date.now()
-        if (row.last_seen_at < now - 5 * 60 * 1000) c.executionCtx?.waitUntil(
-          c.env.DB.prepare(`UPDATE users SET last_seen_at = ?1 WHERE id = ?2 AND last_seen_at < ?3`)
-            .bind(now, row.id, now - 5 * 60 * 1000)
-            .run()
-            .catch(() => {}),
-        )
+        if (row.last_seen_at < now - 5 * 60 * 1000)
+          c.executionCtx?.waitUntil(
+            c.env.DB.prepare(
+              'UPDATE users SET last_seen_at = ?1 WHERE id = ?2 ' +
+                'AND last_seen_at < ?3',
+            )
+              .bind(now, row.id, now - 5 * 60 * 1000)
+              .run()
+              .catch(() => {}),
+          )
         authenticated = true
         break
       }
@@ -108,15 +126,21 @@ export const requireAuth = createMiddleware<AppBindings>(async (c, next) => {
   await next()
 })
 
-export const requireClientHeader = createMiddleware<AppBindings>(async (c, next) => {
-  const method = c.req.method.toUpperCase()
-  if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
-    if (c.req.header(CLIENT_HEADER) !== '1') {
-      throw new ApiError(403, 'forbidden', 'Missing client identification header. Refresh and try again')
+export const requireClientHeader = createMiddleware<AppBindings>(
+  async (c, next) => {
+    const method = c.req.method.toUpperCase()
+    if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
+      if (c.req.header(CLIENT_HEADER) !== '1') {
+        throw new ApiError(
+          403,
+          'forbidden',
+          'Missing client identification header. Refresh and try again',
+        )
+      }
     }
-  }
-  await next()
-})
+    await next()
+  },
+)
 
 export function sessionCookieString(requestUrl: string, token: string): string {
   const secure = new URL(requestUrl).protocol === 'https:'
@@ -131,13 +155,20 @@ export function sessionCookieString(requestUrl: string, token: string): string {
   return parts.join('; ')
 }
 
-export function writeSessionCookie(c: Context<AppBindings>, token: string): void {
-  c.header('Set-Cookie', sessionCookieString(c.req.url, token), { append: true })
+export function writeSessionCookie(
+  c: Context<AppBindings>,
+  token: string,
+): void {
+  c.header('Set-Cookie', sessionCookieString(c.req.url, token), {
+    append: true,
+  })
 }
 
 export function clearSessionCookie(c: Context<AppBindings>): void {
   const secure = new URL(c.req.url).protocol === 'https:'
-  const names = secure ? [SESSION_COOKIE, LEGACY_SESSION_COOKIE] : [LEGACY_SESSION_COOKIE]
+  const names = secure
+    ? [SESSION_COOKIE, LEGACY_SESSION_COOKIE]
+    : [LEGACY_SESSION_COOKIE]
   for (const name of names) {
     setCookie(c, name, '', {
       path: '/',

@@ -1,4 +1,8 @@
-import { BackendError, type TransferOptions, type TransferPort } from '@app/backend'
+import {
+  BackendError,
+  type TransferOptions,
+  type TransferPort,
+} from '@app/backend'
 import type { Logger } from '@app/log/logger'
 import type { Clock } from '@app/platform/clock'
 import {
@@ -28,7 +32,10 @@ export class HttpTransferPort implements TransferPort {
     this.#deps = deps
   }
 
-  async exportTo(format: 'zip' | 'json', options?: TransferOptions): Promise<{ saved: true } | null> {
+  async exportTo(
+    format: 'zip' | 'json',
+    options?: TransferOptions,
+  ): Promise<{ saved: true } | null> {
     const jobId = crypto.randomUUID()
     const started = this.#deps.clock?.now() ?? Date.now()
     try {
@@ -38,7 +45,13 @@ export class HttpTransferPort implements TransferPort {
         query: { format },
         signal: options?.signal,
       })
-      options?.onProgress?.({ jobId, phase: 'reading', completed: 0, total: null, terminal: false })
+      options?.onProgress?.({
+        jobId,
+        phase: 'reading',
+        completed: 0,
+        total: null,
+        terminal: false,
+      })
       if (
         !(await saveDownload(
           response,
@@ -47,7 +60,13 @@ export class HttpTransferPort implements TransferPort {
         ))
       )
         return null
-      options?.onProgress?.({ jobId, phase: 'finalizing', completed: 1, total: 1, terminal: true })
+      options?.onProgress?.({
+        jobId,
+        phase: 'finalizing',
+        completed: 1,
+        total: 1,
+        terminal: true,
+      })
       this.#deps.logger?.info('transfer.operation.completed', {
         jobId,
         phase: 'export',
@@ -56,7 +75,10 @@ export class HttpTransferPort implements TransferPort {
       })
       return { saved: true }
     } catch (error) {
-      const failure = error instanceof BackendError ? error : new BackendError('internal', 0, 'Export failed')
+      const failure =
+        error instanceof BackendError
+          ? error
+          : new BackendError('internal', 0, 'Export failed')
       this.#deps.logger?.error('transfer.operation.failed', {
         jobId,
         phase: 'export',
@@ -94,33 +116,53 @@ export class HttpTransferPort implements TransferPort {
       if (backup?.warning) result.warnings.push(backup.warning)
       for (let offset = 0; offset < files.length;) {
         if (options?.signal?.aborted) {
-          options.onProgress?.({ jobId, phase: 'uploading', completed, total: files.length, terminal: true })
+          options.onProgress?.({
+            jobId,
+            phase: 'uploading',
+            completed,
+            total: files.length,
+            terminal: true,
+          })
           return completed ? result : null
         }
         const batch: SelectedFile[] = []
         let bytes = 0
         const attachmentBatch =
-          backup?.manifest.attachments.some((entry) => entry.path === files[offset]?.path) ?? false
+          backup?.manifest.attachments.some(
+            (entry) => entry.path === files[offset]?.path,
+          ) ?? false
         while (offset + batch.length < files.length && batch.length < 50) {
           const file = files[offset + batch.length]
           if (
             backup &&
             batch.length > 0 &&
-            attachmentBatch !== backup.manifest.attachments.some((entry) => entry.path === file?.path)
+            attachmentBatch !==
+              backup.manifest.attachments.some(
+                (entry) => entry.path === file?.path,
+              )
           )
             break
-          if (!file || (batch.length > 0 && bytes + file.file.size > 8 * 1024 * 1024)) break
+          if (
+            !file ||
+            (batch.length > 0 && bytes + file.file.size > 8 * 1024 * 1024)
+          )
+            break
           batch.push(file)
           bytes += file.file.size
         }
-        if (!batch.length) throw new BackendError('bad_request', 400, 'No import files')
+        if (!batch.length)
+          throw new BackendError('bad_request', 400, 'No import files')
         const form = new FormData()
         form.set('conflict', conflict)
         form.set('backupPaths', JSON.stringify(batch.map(({ path }) => path)))
         if (backup) {
           const paths = new Set(batch.map(({ path }) => path))
-          const notes = backup.manifest.notes.filter((entry) => paths.has(entry.path))
-          const hashes = new Set(notes.flatMap((entry) => entry.attachmentHashes))
+          const notes = backup.manifest.notes.filter((entry) =>
+            paths.has(entry.path),
+          )
+          const hashes = new Set(
+            notes.flatMap((entry) => entry.attachmentHashes),
+          )
           form.set(
             'backupManifest',
             JSON.stringify({
@@ -142,8 +184,18 @@ export class HttpTransferPort implements TransferPort {
             signal: options?.signal,
           })
         } catch (error) {
-          if (error instanceof BackendError && error.code === 'cancelled' && options?.signal?.aborted) {
-            options.onProgress?.({ jobId, phase: 'uploading', completed, total: files.length, terminal: true })
+          if (
+            error instanceof BackendError &&
+            error.code === 'cancelled' &&
+            options?.signal?.aborted
+          ) {
+            options.onProgress?.({
+              jobId,
+              phase: 'uploading',
+              completed,
+              total: files.length,
+              terminal: true,
+            })
             return completed ? result : null
           }
           throw error
@@ -174,7 +226,9 @@ export class HttpTransferPort implements TransferPort {
       return result
     } catch (error) {
       const failure =
-        error instanceof BackendError ? error : new BackendError('bad_request', 400, 'Invalid backup selection')
+        error instanceof BackendError
+          ? error
+          : new BackendError('bad_request', 400, 'Invalid backup selection')
       this.#deps.logger?.error('transfer.operation.failed', {
         jobId,
         phase: 'import',
@@ -187,7 +241,10 @@ export class HttpTransferPort implements TransferPort {
   }
 }
 
-async function chooseFiles(source: 'files' | 'folder', signal?: AbortSignal): Promise<SelectedFile[] | null> {
+async function chooseFiles(
+  source: 'files' | 'folder',
+  signal?: AbortSignal,
+): Promise<SelectedFile[] | null> {
   const input = document.createElement('input')
   input.type = 'file'
   input.multiple = true
@@ -202,7 +259,14 @@ async function chooseFiles(source: 'files' | 'folder', signal?: AbortSignal): Pr
   const abort = () => finish(null)
   input.onchange = () => {
     const files = input.files ? [...input.files] : []
-    finish(files.length ? files.map((file) => ({ file, path: file.webkitRelativePath || file.name })) : null)
+    finish(
+      files.length
+        ? files.map((file) => ({
+            file,
+            path: file.webkitRelativePath || file.name,
+          }))
+        : null,
+    )
   }
   input.oncancel = abort
   signal?.addEventListener('abort', abort, { once: true })
@@ -213,34 +277,59 @@ async function chooseFiles(source: 'files' | 'folder', signal?: AbortSignal): Pr
 
 async function fileHash(file: File): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('')
 }
 
 export async function selectBackup(
   selected: readonly SelectedFile[],
-): Promise<{ manifest: MarkdownBackupManifest; files: SelectedFile[]; warning: string | null } | null> {
+): Promise<{
+  manifest: MarkdownBackupManifest
+  files: SelectedFile[]
+  warning: string | null
+} | null> {
   const byPath = new Map<string, File>()
   for (const { path, file } of selected) {
-    if (byPath.has(path.toLowerCase())) throw new BackendError('bad_request', 400, 'Duplicate backup path')
+    if (byPath.has(path.toLowerCase()))
+      throw new BackendError('bad_request', 400, 'Duplicate backup path')
     byPath.set(path.toLowerCase(), file)
   }
-  const candidates: { manifest: MarkdownBackupManifest; file: File; root: string; complete: File | undefined }[] = []
+  const candidates: {
+    manifest: MarkdownBackupManifest
+    file: File
+    root: string
+    complete: File | undefined
+  }[] = []
   let seen = false
   for (const { path, file } of selected) {
     if (!/(?:^|\/)manifest\.json$/i.test(path)) continue
-    const complete = byPath.get(`${path.slice(0, path.lastIndexOf('/') + 1)}complete`.toLowerCase())
+    const complete = byPath.get(
+      `${path.slice(0, path.lastIndexOf('/') + 1)}complete`.toLowerCase(),
+    )
     if (file.size > LIMITS.importUploadMaxBytes)
-      throw new BackendError('payload_too_large', 413, 'Backup manifest is too large')
+      throw new BackendError(
+        'payload_too_large',
+        413,
+        'Backup manifest is too large',
+      )
     let raw: unknown
     try {
       raw = JSON.parse(await file.text())
     } catch {
-      if (complete) throw new BackendError('bad_request', 400, 'Invalid backup manifest')
+      if (complete)
+        throw new BackendError('bad_request', 400, 'Invalid backup manifest')
       continue
     }
     const manifest = parseMarkdownBackupManifest(raw)
     if (!manifest) {
-      if (complete || (raw && typeof raw === 'object' && 'format' in raw && raw.format === 'autonote-markdown-backup'))
+      if (
+        complete ||
+        (raw &&
+          typeof raw === 'object' &&
+          'format' in raw &&
+          raw.format === 'autonote-markdown-backup')
+      )
         throw new BackendError('bad_request', 400, 'Invalid backup manifest')
       continue
     }
@@ -253,10 +342,14 @@ export async function selectBackup(
       manifest,
       file,
       root,
-      complete: byPath.get(`${root}${backupCompletePath(manifest.snapshot, manifest.version)}`.toLowerCase()),
+      complete: byPath.get(
+        `${root}${backupCompletePath(manifest.snapshot, manifest.version)}`.toLowerCase(),
+      ),
     })
   }
-  candidates.sort((left, right) => right.manifest.snapshot.localeCompare(left.manifest.snapshot))
+  candidates.sort((left, right) =>
+    right.manifest.snapshot.localeCompare(left.manifest.snapshot),
+  )
   let skipped = false
   for (const candidate of candidates) {
     if (!candidate.complete) {
@@ -265,23 +358,40 @@ export async function selectBackup(
     }
     if (
       candidate.complete.size > 1024 ||
-      completeManifestHash(await candidate.complete.text()) !== (await fileHash(candidate.file))
+      completeManifestHash(await candidate.complete.text()) !==
+        (await fileHash(candidate.file))
     )
-      throw new BackendError('bad_request', 400, 'Backup completion checksum mismatch')
+      throw new BackendError(
+        'bad_request',
+        400,
+        'Backup completion checksum mismatch',
+      )
     const files: SelectedFile[] = []
     // Attachments must exist remotely before note batches resolve their hashes.
-    for (const entry of [...candidate.manifest.attachments, ...candidate.manifest.notes]) {
+    for (const entry of [
+      ...candidate.manifest.attachments,
+      ...candidate.manifest.notes,
+    ]) {
       const file = byPath.get(`${candidate.root}${entry.path}`.toLowerCase())
       if (
         !file ||
         file.size !== ('bytes' in entry ? entry.bytes : entry.size) ||
         (await fileHash(file)) !== entry.sha256
       )
-        throw new BackendError('bad_request', 400, 'Backup file missing or checksum mismatch')
+        throw new BackendError(
+          'bad_request',
+          400,
+          'Backup file missing or checksum mismatch',
+        )
       files.push({ file, path: entry.path })
     }
-    return { manifest: candidate.manifest, files, warning: skipped ? 'Newer incomplete backup skipped' : null }
+    return {
+      manifest: candidate.manifest,
+      files,
+      warning: skipped ? 'Newer incomplete backup skipped' : null,
+    }
   }
-  if (seen) throw new BackendError('bad_request', 400, 'No complete backup snapshot')
+  if (seen)
+    throw new BackendError('bad_request', 400, 'No complete backup snapshot')
   return null
 }

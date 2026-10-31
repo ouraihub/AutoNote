@@ -55,7 +55,8 @@ export function backupManifestPath(
   stamp: string,
   version: MarkdownBackupVersion = MARKDOWN_BACKUP_VERSION,
 ): string {
-  if (version === 2) return `${backupSnapshotDir(stamp)}/${BACKUP_MANIFEST_NAME}`
+  if (version === 2)
+    return `${backupSnapshotDir(stamp)}/${BACKUP_MANIFEST_NAME}`
   if (!STAMP_RE.test(stamp)) throw new Error('Invalid backup snapshot name')
   return BACKUP_MANIFEST_NAME
 }
@@ -64,7 +65,8 @@ export function backupCompletePath(
   stamp: string,
   version: MarkdownBackupVersion = MARKDOWN_BACKUP_VERSION,
 ): string {
-  if (version === 2) return `${backupSnapshotDir(stamp)}/${BACKUP_COMPLETE_NAME}`
+  if (version === 2)
+    return `${backupSnapshotDir(stamp)}/${BACKUP_COMPLETE_NAME}`
   if (!STAMP_RE.test(stamp)) throw new Error('Invalid backup snapshot name')
   return BACKUP_COMPLETE_NAME
 }
@@ -78,50 +80,80 @@ export function backupCompleteBody(
   manifestSha256: string,
   version: MarkdownBackupVersion = MARKDOWN_BACKUP_VERSION,
 ): string {
-  if (!HASH_RE.test(manifestSha256)) throw new Error('Invalid manifest checksum')
+  if (!HASH_RE.test(manifestSha256))
+    throw new Error('Invalid manifest checksum')
   return `${MARKDOWN_BACKUP_FORMAT} v${version}\nmanifest-sha256 ${manifestSha256}\n`
 }
 
 export function completeManifestHash(value: string): string | null {
-  const match = /^autonote-markdown-backup v(?:2|3)\r?\nmanifest-sha256 ([0-9a-f]{64})\r?\n?$/.exec(value)
+  const match =
+    /^autonote-markdown-backup v(?:2|3)\r?\nmanifest-sha256 ([0-9a-f]{64})\r?\n?$/.exec(
+      value,
+    )
   return match?.[1] ?? null
 }
 
-export function parseMarkdownBackupManifest(value: unknown): MarkdownBackupManifest | null {
+export function parseMarkdownBackupManifest(
+  value: unknown,
+): MarkdownBackupManifest | null {
   if (!isRecord(value)) return null
   if (
     value.format !== MARKDOWN_BACKUP_FORMAT ||
     (value.version !== 2 && value.version !== MARKDOWN_BACKUP_VERSION)
-  ) return null
-  if (typeof value.appVersion !== 'string' || value.appVersion.length > 64) return null
-  if (typeof value.createdAt !== 'string' || !Number.isFinite(Date.parse(value.createdAt))) return null
-  if (typeof value.snapshot !== 'string' || !STAMP_RE.test(value.snapshot)) return null
-  if (!Array.isArray(value.notes) || !Array.isArray(value.attachments)) return null
+  )
+    return null
+  if (typeof value.appVersion !== 'string' || value.appVersion.length > 64)
+    return null
+  if (
+    typeof value.createdAt !== 'string' ||
+    !Number.isFinite(Date.parse(value.createdAt))
+  )
+    return null
+  if (typeof value.snapshot !== 'string' || !STAMP_RE.test(value.snapshot))
+    return null
+  if (!Array.isArray(value.notes) || !Array.isArray(value.attachments))
+    return null
 
   const notes: MarkdownBackupNoteEntry[] = []
   const noteIds = new Set<string>()
   const paths = new Set<string>()
   for (const raw of value.notes) {
     if (!isRecord(raw)) return null
-    if (typeof raw.id !== 'string' || !NOTE_ID_RE.test(raw.id) || noteIds.has(raw.id)) return null
-    if (!isSafeBackupPath(raw.path) || paths.has(raw.path.toLowerCase())) return null
-    if (raw.state !== 'notes' && raw.state !== 'archived' && raw.state !== 'trash') return null
+    if (
+      typeof raw.id !== 'string' ||
+      !NOTE_ID_RE.test(raw.id) ||
+      noteIds.has(raw.id)
+    )
+      return null
+    if (!isSafeBackupPath(raw.path) || paths.has(raw.path.toLowerCase()))
+      return null
+    if (
+      raw.state !== 'notes' &&
+      raw.state !== 'archived' &&
+      raw.state !== 'trash'
+    )
+      return null
     if (typeof raw.archived !== 'boolean') return null
     if (
       !Array.isArray(raw.folder) ||
       raw.folder.length > LIMITS.folderDepthMax ||
       raw.folder.some((name) => !isBackupFolderName(name))
-    ) return null
+    )
+      return null
     if (
       !Array.isArray(raw.attachmentHashes) ||
-      raw.attachmentHashes.some((hash) => typeof hash !== 'string' || !HASH_RE.test(hash)) ||
+      raw.attachmentHashes.some(
+        (hash) => typeof hash !== 'string' || !HASH_RE.test(hash),
+      ) ||
       new Set(raw.attachmentHashes).size !== raw.attachmentHashes.length
-    ) return null
+    )
+      return null
     if (raw.state === 'archived' && !raw.archived) return null
     if (raw.state === 'notes' && raw.archived) return null
-    const notePrefix = value.version === 2
-      ? `${backupSnapshotDir(value.snapshot)}/${raw.state}/`
-      : `${raw.state}/`
+    const notePrefix =
+      value.version === 2
+        ? `${backupSnapshotDir(value.snapshot)}/${raw.state}/`
+        : `${raw.state}/`
     if (!raw.path.startsWith(notePrefix)) return null
     if (typeof raw.title !== 'string' || raw.title.length > 512) return null
     if (
@@ -129,7 +161,8 @@ export function parseMarkdownBackupManifest(value: unknown): MarkdownBackupManif
       raw.bytes > LIMITS.importUploadMaxBytes ||
       typeof raw.sha256 !== 'string' ||
       !HASH_RE.test(raw.sha256)
-    ) return null
+    )
+      return null
     if (!isTimestamp(raw.createdAt) || !isTimestamp(raw.updatedAt)) return null
     if (raw.deletedAt !== null && !isTimestamp(raw.deletedAt)) return null
     if (raw.state === 'trash' && raw.deletedAt === null) return null
@@ -157,17 +190,34 @@ export function parseMarkdownBackupManifest(value: unknown): MarkdownBackupManif
   const hashes = new Set<string>()
   for (const raw of value.attachments) {
     if (!isRecord(raw)) return null
-    if (typeof raw.sha256 !== 'string' || !HASH_RE.test(raw.sha256) || hashes.has(raw.sha256)) return null
-    if (!isSafeBackupPath(raw.path) || paths.has(raw.path.toLowerCase())) return null
+    if (
+      typeof raw.sha256 !== 'string' ||
+      !HASH_RE.test(raw.sha256) ||
+      hashes.has(raw.sha256)
+    )
+      return null
+    if (!isSafeBackupPath(raw.path) || paths.has(raw.path.toLowerCase()))
+      return null
     const attachmentPrefix = `attachments/${raw.sha256}--`
-    if (!raw.path.startsWith(attachmentPrefix) || raw.path.length === attachmentPrefix.length) return null
-    if (typeof raw.filename !== 'string' || !raw.filename || raw.filename.length > 180) return null
-    if (typeof raw.mime !== 'string' || !raw.mime || raw.mime.length > 255) return null
+    if (
+      !raw.path.startsWith(attachmentPrefix) ||
+      raw.path.length === attachmentPrefix.length
+    )
+      return null
+    if (
+      typeof raw.filename !== 'string' ||
+      !raw.filename ||
+      raw.filename.length > 180
+    )
+      return null
+    if (typeof raw.mime !== 'string' || !raw.mime || raw.mime.length > 255)
+      return null
     if (
       !isSafeSize(raw.size) ||
       raw.size > LIMITS.attachmentMaxBytes ||
       !isTimestamp(raw.createdAt)
-    ) return null
+    )
+      return null
 
     hashes.add(raw.sha256)
     paths.add(raw.path.toLowerCase())
@@ -180,7 +230,12 @@ export function parseMarkdownBackupManifest(value: unknown): MarkdownBackupManif
       createdAt: raw.createdAt,
     })
   }
-  if (notes.some((note) => note.attachmentHashes.some((hash) => !hashes.has(hash)))) return null
+  if (
+    notes.some((note) =>
+      note.attachmentHashes.some((hash) => !hashes.has(hash)),
+    )
+  )
+    return null
 
   return {
     format: MARKDOWN_BACKUP_FORMAT,
@@ -194,11 +249,18 @@ export function parseMarkdownBackupManifest(value: unknown): MarkdownBackupManif
 }
 
 export function isSafeBackupPath(value: unknown): value is string {
-  if (typeof value !== 'string' || !value || value.length > 2048 || value.includes('\\')) return false
+  if (
+    typeof value !== 'string' ||
+    !value ||
+    value.length > 2048 ||
+    value.includes('\\')
+  )
+    return false
   if (value.startsWith('/') || value.endsWith('/')) return false
   const parts = value.split('/')
   return parts.every(
-    (part) => part && part !== '.' && part !== '..' && !/[\u0000-\u001f]/.test(part),
+    (part) =>
+      part && part !== '.' && part !== '..' && !/[\u0000-\u001f]/.test(part),
   )
 }
 
@@ -211,11 +273,13 @@ function isTimestamp(value: unknown): value is number {
 }
 
 function isBackupFolderName(value: unknown): value is string {
-  return typeof value === 'string' &&
+  return (
+    typeof value === 'string' &&
     value.length > 0 &&
     value.length <= LIMITS.folderNameMaxLength &&
     value.trim() === value &&
     !/[\u0000-\u001f/\\]/.test(value)
+  )
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

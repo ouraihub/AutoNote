@@ -1,3 +1,6 @@
+import { crc32, normalizeZipPath } from './zip-path'
+export { crc32 } from './zip-path'
+
 export interface ZipEntry {
   path: string
   data: Uint8Array
@@ -10,48 +13,41 @@ export interface ZipEntrySize {
   byteLength: number
 }
 
-const CRC_TABLE = (() => {
-  const table = new Uint32Array(256)
-  for (let i = 0; i < 256; i++) {
-    let c = i
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
-    table[i] = c >>> 0
-  }
-  return table
-})()
-
-export function crc32(data: Uint8Array): number {
-  let crc = 0xffffffff
-  for (let i = 0; i < data.length; i++) {
-    crc = CRC_TABLE[(crc ^ data[i]!) & 0xff]! ^ (crc >>> 8)
-  }
-  return (crc ^ 0xffffffff) >>> 0
-}
-
-
 export function estimateZipSize(entries: readonly ZipEntry[]): number {
   return estimateZipSizeFromSizes(
-    entries.map((entry) => ({ path: entry.path, byteLength: entry.data.byteLength })),
+    entries.map((entry) => ({
+      path: entry.path,
+      byteLength: entry.data.byteLength,
+    })),
   )
 }
 
-
-export function estimateZipSizeFromSizes(entries: readonly ZipEntrySize[]): number {
-  if (entries.length > 0xffff) throw new Error('The ZIP contains too many entries')
+export function estimateZipSizeFromSizes(
+  entries: readonly ZipEntrySize[],
+): number {
+  if (entries.length > 0xffff)
+    throw new Error('The ZIP contains too many entries')
   const encoder = new TextEncoder()
   const paths = new Set<string>()
   let total = 22
 
   for (const entry of entries) {
     const path = normalizeZipPath(entry.path)
-    if (!path || path.endsWith('/')) throw new Error('The ZIP filename is invalid')
+    if (!path || path.endsWith('/'))
+      throw new Error('The ZIP filename is invalid')
     const nameBytes = encoder.encode(path)
-    if (!nameBytes.length || nameBytes.length > 0xffff) throw new Error('The ZIP filename is invalid or too long')
-    if (!Number.isSafeInteger(entry.byteLength) || entry.byteLength < 0 || entry.byteLength > 0xffffffff) {
+    if (!nameBytes.length || nameBytes.length > 0xffff)
+      throw new Error('The ZIP filename is invalid or too long')
+    if (
+      !Number.isSafeInteger(entry.byteLength) ||
+      entry.byteLength < 0 ||
+      entry.byteLength > 0xffffffff
+    ) {
       throw new Error(`ZIP file is too large: ${entry.path}`)
     }
     const key = path.toLowerCase()
-    if (paths.has(key)) throw new Error(`The ZIP contains a duplicate path: ${entry.path}`)
+    if (paths.has(key))
+      throw new Error(`The ZIP contains a duplicate path: ${entry.path}`)
     paths.add(key)
     total += 76 + nameBytes.byteLength * 2 + entry.byteLength
     if (!Number.isSafeInteger(total) || total > 0xffffffff) {
@@ -66,12 +62,16 @@ function dosDateTime(ms: number): { date: number; time: number } {
   const year = Math.min(2107, Math.max(1980, d.getUTCFullYear()))
   return {
     date: ((year - 1980) << 9) | ((d.getUTCMonth() + 1) << 5) | d.getUTCDate(),
-    time: (d.getUTCHours() << 11) | (d.getUTCMinutes() << 5) | (d.getUTCSeconds() >> 1),
+    time:
+      (d.getUTCHours() << 11) |
+      (d.getUTCMinutes() << 5) |
+      (d.getUTCSeconds() >> 1),
   }
 }
 
 export function createZip(entries: ZipEntry[]): Uint8Array {
-  if (entries.length > 0xffff) throw new Error('The ZIP contains too many entries')
+  if (entries.length > 0xffff)
+    throw new Error('The ZIP contains too many entries')
 
   const encoder = new TextEncoder()
   const now = Date.now()
@@ -79,12 +79,16 @@ export function createZip(entries: ZipEntry[]): Uint8Array {
 
   const prepared = entries.map((entry) => {
     const path = normalizeZipPath(entry.path)
-    if (!path || path.endsWith('/')) throw new Error('The ZIP filename is invalid')
+    if (!path || path.endsWith('/'))
+      throw new Error('The ZIP filename is invalid')
     const nameBytes = encoder.encode(path)
-    if (!nameBytes.length || nameBytes.length > 0xffff) throw new Error('The ZIP filename is invalid or too long')
-    if (entry.data.byteLength > 0xffffffff) throw new Error(`ZIP file is too large: ${entry.path}`)
+    if (!nameBytes.length || nameBytes.length > 0xffff)
+      throw new Error('The ZIP filename is invalid or too long')
+    if (entry.data.byteLength > 0xffffffff)
+      throw new Error(`ZIP file is too large: ${entry.path}`)
     const key = path.toLowerCase()
-    if (paths.has(key)) throw new Error(`The ZIP contains a duplicate path: ${entry.path}`)
+    if (paths.has(key))
+      throw new Error(`The ZIP contains a duplicate path: ${entry.path}`)
     paths.add(key)
     return {
       nameBytes,
@@ -94,8 +98,14 @@ export function createZip(entries: ZipEntry[]): Uint8Array {
     }
   })
 
-  const localSize = prepared.reduce((sum, e) => sum + 30 + e.nameBytes.length + e.data.length, 0)
-  const centralSize = prepared.reduce((sum, e) => sum + 46 + e.nameBytes.length, 0)
+  const localSize = prepared.reduce(
+    (sum, e) => sum + 30 + e.nameBytes.length + e.data.length,
+    0,
+  )
+  const centralSize = prepared.reduce(
+    (sum, e) => sum + 46 + e.nameBytes.length,
+    0,
+  )
   const totalSize = localSize + centralSize + 22
   if (!Number.isSafeInteger(totalSize) || totalSize > 0xffffffff) {
     throw new Error('The ZIP exceeds ZIP32 limits')
@@ -163,7 +173,6 @@ export function createZip(entries: ZipEntry[]): Uint8Array {
   return out
 }
 
-
 export interface UnzippedEntry {
   path: string
   data: Uint8Array
@@ -213,8 +222,16 @@ export async function readZip(
 
   requireRange(buffer, eocd, 22, 'The ZIP end record is incomplete')
   const commentLength = dv.getUint16(eocd + 20, true)
-  requireRange(buffer, eocd + 22, commentLength, 'The ZIP comment is incomplete')
-  if (dv.getUint16(eocd + 4, true) !== 0 || dv.getUint16(eocd + 6, true) !== 0) {
+  requireRange(
+    buffer,
+    eocd + 22,
+    commentLength,
+    'The ZIP comment is incomplete',
+  )
+  if (
+    dv.getUint16(eocd + 4, true) !== 0 ||
+    dv.getUint16(eocd + 6, true) !== 0
+  ) {
     throw new Error('Split ZIP archives are not supported')
   }
   const diskCount = dv.getUint16(eocd + 8, true)
@@ -229,9 +246,16 @@ export async function readZip(
     throw new Error('ZIP64 archives are not supported')
   }
   if (diskCount !== count) throw new Error('ZIP entry counts do not match')
-  if (count > maxEntries) throw new Error(`ZIP entries exceed the limit of ${maxEntries}`)
-  requireRange(buffer, centralOffset, centralSize, 'The ZIP central directory is out of bounds')
-  if (centralOffset + centralSize > eocd) throw new Error('The ZIP central directory location is invalid')
+  if (count > maxEntries)
+    throw new Error(`ZIP entries exceed the limit of ${maxEntries}`)
+  requireRange(
+    buffer,
+    centralOffset,
+    centralSize,
+    'The ZIP central directory is out of bounds',
+  )
+  if (centralOffset + centralSize > eocd)
+    throw new Error('The ZIP central directory location is invalid')
 
   let pointer = centralOffset
   const entries: CentralEntry[] = []
@@ -244,7 +268,8 @@ export async function readZip(
     const disk = dv.getUint16(pointer + 34, true)
     if (disk !== 0) throw new Error('Split ZIP archives are not supported')
     const flags = dv.getUint16(pointer + 8, true)
-    if (flags & 0x0001) throw new Error('Encrypted ZIP archives are not supported')
+    if (flags & 0x0001)
+      throw new Error('Encrypted ZIP archives are not supported')
     const method = dv.getUint16(pointer + 10, true)
     const crc = dv.getUint32(pointer + 16, true)
     const compressedSize = dv.getUint32(pointer + 20, true)
@@ -254,11 +279,18 @@ export async function readZip(
     const commentLen = dv.getUint16(pointer + 32, true)
     const localOffset = dv.getUint32(pointer + 42, true)
     const recordSize = 46 + nameLen + extraLen + commentLen
-    requireRange(buffer, pointer, recordSize, 'A ZIP central directory entry is out of bounds')
+    requireRange(
+      buffer,
+      pointer,
+      recordSize,
+      'A ZIP central directory entry is out of bounds',
+    )
 
     let decodedPath: string
     try {
-      decodedPath = decoder.decode(buffer.subarray(pointer + 46, pointer + 46 + nameLen))
+      decodedPath = decoder.decode(
+        buffer.subarray(pointer + 46, pointer + 46 + nameLen),
+      )
     } catch {
       throw new Error('A ZIP filename is not valid UTF-8')
     }
@@ -267,7 +299,8 @@ export async function readZip(
 
     if (!path || path.endsWith('/')) continue
     const pathKey = path.toLowerCase()
-    if (seenPaths.has(pathKey)) throw new Error(`The ZIP contains a duplicate path: ${path}`)
+    if (seenPaths.has(pathKey))
+      throw new Error(`The ZIP contains a duplicate path: ${path}`)
     seenPaths.add(pathKey)
     entries.push({
       path,
@@ -279,49 +312,83 @@ export async function readZip(
       localOffset,
     })
   }
-  if (pointer !== centralOffset + centralSize) throw new Error('The ZIP central directory length does not match')
+  if (pointer !== centralOffset + centralSize)
+    throw new Error('The ZIP central directory length does not match')
 
-  const selected = options.include ? entries.filter((entry) => options.include!(entry.path)) : entries
-  const declaredTotal = selected.reduce((sum, entry) => sum + entry.uncompressedSize, 0)
+  const selected = options.include
+    ? entries.filter((entry) => options.include!(entry.path))
+    : entries
+  const declaredTotal = selected.reduce(
+    (sum, entry) => sum + entry.uncompressedSize,
+    0,
+  )
   if (!Number.isSafeInteger(declaredTotal) || declaredTotal > maxTotalBytes) {
-    throw new Error(`Expanded ZIP data exceeds the ${formatBytes(maxTotalBytes)} limit`)
+    throw new Error(
+      `Expanded ZIP data exceeds the ${formatBytes(maxTotalBytes)} limit`,
+    )
   }
 
   const out: UnzippedEntry[] = []
   let totalBytes = 0
   for (const entry of selected) {
     if (entry.method !== 0 && entry.method !== 8) {
-      throw new Error(`ZIP entry uses an unsupported compression method: ${entry.path}`)
+      throw new Error(
+        `ZIP entry uses an unsupported compression method: ${entry.path}`,
+      )
     }
     if (entry.uncompressedSize > maxEntryBytes) {
       throw new Error(`ZIP entry is too large: ${entry.path}`)
     }
 
-    requireRange(buffer, entry.localOffset, 30, `ZIP local entry is corrupt: ${entry.path}`)
+    requireRange(
+      buffer,
+      entry.localOffset,
+      30,
+      `ZIP local entry is corrupt: ${entry.path}`,
+    )
     if (dv.getUint32(entry.localOffset, true) !== 0x04034b50) {
       throw new Error(`ZIP local entry signature is invalid: ${entry.path}`)
     }
     const localFlags = dv.getUint16(entry.localOffset + 6, true)
     const localMethod = dv.getUint16(entry.localOffset + 8, true)
-    if ((localFlags & 0x0001) || localMethod !== entry.method) {
-      throw new Error(`ZIP local entry does not match the central directory: ${entry.path}`)
+    if (localFlags & 0x0001 || localMethod !== entry.method) {
+      throw new Error(
+        `ZIP local entry does not match the central directory: ${entry.path}`,
+      )
     }
     const localNameLen = dv.getUint16(entry.localOffset + 26, true)
     const localExtraLen = dv.getUint16(entry.localOffset + 28, true)
-    requireRange(buffer, entry.localOffset + 30, localNameLen, `ZIP local filename is corrupt: ${entry.path}`)
+    requireRange(
+      buffer,
+      entry.localOffset + 30,
+      localNameLen,
+      `ZIP local filename is corrupt: ${entry.path}`,
+    )
     let localPath: string
     try {
       localPath = normalizeZipPath(
-        decoder.decode(buffer.subarray(entry.localOffset + 30, entry.localOffset + 30 + localNameLen)),
+        decoder.decode(
+          buffer.subarray(
+            entry.localOffset + 30,
+            entry.localOffset + 30 + localNameLen,
+          ),
+        ),
       )
     } catch {
       throw new Error(`ZIP local filename is invalid: ${entry.path}`)
     }
     if (localPath !== entry.path) {
-      throw new Error(`ZIP local filename does not match the central directory: ${entry.path}`)
+      throw new Error(
+        `ZIP local filename does not match the central directory: ${entry.path}`,
+      )
     }
     const dataStart = entry.localOffset + 30 + localNameLen + localExtraLen
-    requireRange(buffer, dataStart, entry.compressedSize, `ZIP data is out of bounds: ${entry.path}`)
+    requireRange(
+      buffer,
+      dataStart,
+      entry.compressedSize,
+      `ZIP data is out of bounds: ${entry.path}`,
+    )
     const raw = buffer.subarray(dataStart, dataStart + entry.compressedSize)
 
     let data: Uint8Array
@@ -331,26 +398,36 @@ export async function readZip(
       }
       data = raw
     } else {
-      data = await inflateRaw(raw, Math.min(maxEntryBytes, maxTotalBytes - totalBytes))
+      data = await inflateRaw(
+        raw,
+        Math.min(maxEntryBytes, maxTotalBytes - totalBytes),
+      )
     }
     if (data.byteLength !== entry.uncompressedSize) {
       throw new Error(`Expanded ZIP entry length does not match: ${entry.path}`)
     }
     totalBytes += data.byteLength
     if (totalBytes > maxTotalBytes) {
-      throw new Error(`Expanded ZIP data exceeds the ${formatBytes(maxTotalBytes)} limit`)
+      throw new Error(
+        `Expanded ZIP data exceeds the ${formatBytes(maxTotalBytes)} limit`,
+      )
     }
-    if (crc32(data) !== entry.crc) throw new Error(`ZIP entry checksum failed: ${entry.path}`)
+    if (crc32(data) !== entry.crc)
+      throw new Error(`ZIP entry checksum failed: ${entry.path}`)
     out.push({ path: entry.path, data })
   }
 
   return out
 }
 
-async function inflateRaw(data: Uint8Array, maxBytes: number): Promise<Uint8Array> {
+async function inflateRaw(
+  data: Uint8Array,
+  maxBytes: number,
+): Promise<Uint8Array> {
   if (maxBytes < 0) throw new Error('Expanded ZIP data exceeds the limit')
   const source = new Response(data as unknown as BodyInit).body
-  if (!source) throw new Error('ZIP decompression is unavailable in this environment')
+  if (!source)
+    throw new Error('ZIP decompression is unavailable in this environment')
 
   const reader = source
     .pipeThrough(new DecompressionStream('deflate-raw'))
@@ -364,7 +441,9 @@ async function inflateRaw(data: Uint8Array, maxBytes: number): Promise<Uint8Arra
       length += value.byteLength
       if (length > maxBytes) {
         await reader.cancel()
-        throw new Error(`Expanded ZIP entry exceeds the ${formatBytes(maxBytes)} limit`)
+        throw new Error(
+          `Expanded ZIP entry exceeds the ${formatBytes(maxBytes)} limit`,
+        )
       }
       chunks.push(value)
     }
@@ -396,21 +475,6 @@ function requireRange(
   ) {
     throw new Error(message)
   }
-}
-
-function normalizeZipPath(input: string): string {
-  if (!input || input.includes('\0')) throw new Error('The ZIP filename is invalid')
-  const path = input.replace(/\\/g, '/')
-  if (path.startsWith('/') || /^[a-z]:\//i.test(path)) throw new Error('The ZIP contains an absolute path')
-
-  const segments = path.split('/')
-  const normalized: string[] = []
-  for (const segment of segments) {
-    if (!segment || segment === '.') continue
-    if (segment === '..') throw new Error('The ZIP contains a parent traversal path')
-    normalized.push(segment)
-  }
-  return normalized.join('/') + (path.endsWith('/') ? '/' : '')
 }
 
 function positiveLimit(value: number | undefined, fallback: number): number {

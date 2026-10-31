@@ -5,7 +5,12 @@ export {
   type ChangeListener,
   type Unsubscribe,
 } from './change-feed'
-export { BackendError, backendErrorFromPayload, isBackendError, type BackendErrorDetails } from './errors'
+export {
+  BackendError,
+  backendErrorFromPayload,
+  isBackendError,
+  type BackendErrorDetails,
+} from './errors'
 export type {
   AiHostPort,
   AiRole,

@@ -30,10 +30,17 @@
   }
   const usedBy = (endpointId: string, modelId: string): string[] =>
     roles
-      .filter((role) => role.binding?.endpointId === endpointId && role.binding.modelId === modelId)
+      .filter(
+        (role) =>
+          role.binding?.endpointId === endpointId &&
+          role.binding.modelId === modelId,
+      )
       .map((role) => i18n.t(roleNames[role.role]))
 
-  async function attempt(event: string, action: () => Promise<void>): Promise<void> {
+  async function attempt(
+    event: string,
+    action: () => Promise<void>,
+  ): Promise<void> {
     busy = true
     error = null
     try {
@@ -66,14 +73,24 @@
 
 {#if aiHost}
   <div class="space-y-6">
-    <ProvidersSettings onchanged={providersChanged} presets={PROVIDER_PRESETS} {usedBy} />
+    <ProvidersSettings
+      onchanged={providersChanged}
+      presets={PROVIDER_PRESETS}
+      {usedBy}
+    />
 
     {#key providerRevision}
       <section aria-labelledby={`${uid}-roles`}>
-        <h3 id={`${uid}-roles`} class="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+        <h3
+          id={`${uid}-roles`}
+          class="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]"
+        >
           {i18n.t('ai.roles')}
         </h3>
-        <SettingRow title={i18n.t('ai.role_chat')} description={i18n.t('ai.role_chat_desc')}>
+        <SettingRow
+          title={i18n.t('ai.role_chat')}
+          description={i18n.t('ai.role_chat_desc')}
+        >
           <div class="w-[260px]">
             <ModelSelect
               value={chatRole?.binding ?? null}
@@ -83,24 +100,38 @@
             />
           </div>
         </SettingRow>
-        <SettingRow title={i18n.t('ai.role_writing')} description={i18n.t('ai.role_writing_desc')}>
+        <SettingRow
+          title={i18n.t('ai.role_writing')}
+          description={i18n.t('ai.role_writing_desc')}
+        >
           <div class="flex w-[260px] flex-col items-stretch gap-1">
             <ModelSelect
-              value={writingRole?.isFallback ? null : (writingRole?.binding ?? null)}
+              value={writingRole?.isFallback
+                ? null
+                : (writingRole?.binding ?? null)}
               filter={{ modelType: 'chat' }}
               placeholder={writingRole?.isFallback && writingRole.binding
-                ? i18n.t('ai.role_follow_chat_current', { label: writingRole.binding.label })
+                ? i18n.t('ai.role_follow_chat_current', {
+                    label: writingRole.binding.label,
+                  })
                 : i18n.t('ai.role_follow_chat')}
               onchange={(model) => void setRole('writing', model)}
             />
             {#if writingRole?.binding && !writingRole.isFallback}
-              <Button size="sm" variant="ghost" disabled={busy} onclick={() => void setRole('writing', null)}
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={busy}
+                onclick={() => void setRole('writing', null)}
                 >{i18n.t('ai.role_follow_chat')}</Button
               >
             {/if}
           </div>
         </SettingRow>
-        <SettingRow title={i18n.t('ai.role_painting')} description={i18n.t('ai.role_painting_desc')}>
+        <SettingRow
+          title={i18n.t('ai.role_painting')}
+          description={i18n.t('ai.role_painting_desc')}
+        >
           <div class="flex w-[260px] flex-col items-stretch gap-1">
             <ModelSelect
               value={paintingRole?.binding ?? null}
@@ -109,7 +140,11 @@
               onchange={(model) => void setRole('painting', model)}
             />
             {#if paintingRole?.binding}
-              <Button size="sm" variant="ghost" disabled={busy} onclick={() => void setRole('painting', null)}
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={busy}
+                onclick={() => void setRole('painting', null)}
                 >{i18n.t('ai.role_clear')}</Button
               >
             {/if}
@@ -118,6 +153,8 @@
       </section>
     {/key}
 
-    {#if errorText}<p role="alert" class="text-[11px] text-[var(--danger)]">{errorText}</p>{/if}
+    {#if errorText}<p role="alert" class="text-[11px] text-[var(--danger)]">
+        {errorText}
+      </p>{/if}
   </div>
 {/if}

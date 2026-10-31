@@ -14,17 +14,27 @@ interface IndexableNote {
 
 const FTS_DRAIN_CURSOR_META_KEY = 'fts-index-drain-user-v1'
 
-export const FTS_NOTE_MATCH_SQL = `notes_fts MATCH ('note_id : "' || replace(?1, '"', '""') || '"')`
+export const FTS_NOTE_MATCH_SQL =
+  `notes_fts MATCH ('note_id : "' || replace(?1, '"', '""') || ` +
+  `'"')`
 
-
-export async function rebuildFtsIndex(db: D1Database, userId: string): Promise<number> {
+export async function rebuildFtsIndex(
+  db: D1Database,
+  userId: string,
+): Promise<number> {
   const boundary = await db
-    .prepare(`SELECT MAX(id) AS id FROM notes WHERE user_id = ?1 AND deleted_at IS NULL`)
+    .prepare(
+      `SELECT MAX(id) AS id FROM notes ` +
+        `WHERE user_id = ?1 AND deleted_at IS NULL`,
+    )
     .bind(userId)
     .first<{ id: string | null }>()
   const lastId = boundary?.id
   if (!lastId) {
-    await db.prepare(`DELETE FROM notes_fts WHERE user_id = ?1`).bind(userId).run()
+    await db
+      .prepare(`DELETE FROM notes_fts WHERE user_id = ?1`)
+      .bind(userId)
+      .run()
     return 0
   }
 
@@ -49,10 +59,20 @@ export async function rebuildFtsIndex(db: D1Database, userId: string): Promise<n
       statements.push(
         db
           .prepare(
-            `DELETE FROM notes_fts WHERE ${FTS_NOTE_MATCH_SQL} AND note_id = ?1 AND user_id = ?2
-              AND ${shiftPlaceholders(guard, 2)}`,
+            `DELETE FROM notes_fts WHERE ${FTS_NOTE_MATCH_SQL} ` +
+              `AND note_id = ?1 AND user_id = ?2 ` +
+              `${shiftPlaceholders(guard, 2)}`,
           )
-          .bind(row.id, userId, row.id, userId, row.rev, row.content_hash, row.title, row.updated_at),
+          .bind(
+            row.id,
+            userId,
+            row.id,
+            userId,
+            row.rev,
+            row.content_hash,
+            row.title,
+            row.updated_at,
+          ),
         db
           .prepare(
             `INSERT INTO notes_fts (note_id, user_id, title, body)
@@ -71,8 +91,18 @@ export async function rebuildFtsIndex(db: D1Database, userId: string): Promise<n
             row.updated_at,
           ),
         db
-          .prepare(`DELETE FROM fts_index_queue WHERE note_id = ?1 AND user_id = ?2 AND ${guard}`)
-          .bind(row.id, userId, row.rev, row.content_hash, row.title, row.updated_at),
+          .prepare(
+            `DELETE FROM fts_index_queue WHERE note_id = ?1 AND user_id = ?2 ` +
+              `AND ${guard}`,
+          )
+          .bind(
+            row.id,
+            userId,
+            row.rev,
+            row.content_hash,
+            row.title,
+            row.updated_at,
+          ),
       )
     }
     const batch = await db.batch(statements)
@@ -83,18 +113,23 @@ export async function rebuildFtsIndex(db: D1Database, userId: string): Promise<n
   }
 
   await db.batch([
-    db.prepare(
-      `DELETE FROM notes_fts WHERE user_id = ?1 AND NOT EXISTS (
-         SELECT 1 FROM notes n WHERE n.id = notes_fts.note_id AND n.user_id = ?1 AND n.deleted_at IS NULL)`,
-    ).bind(userId),
-    db.prepare(
-      `DELETE FROM fts_index_queue WHERE user_id = ?1 AND NOT EXISTS (
-         SELECT 1 FROM notes n WHERE n.id = fts_index_queue.note_id AND n.user_id = ?1 AND n.deleted_at IS NULL)`,
-    ).bind(userId),
+    db
+      .prepare(
+        `DELETE FROM notes_fts WHERE user_id = ?1 AND NOT EXISTS (` +
+          `SELECT 1 FROM notes n WHERE n.id = notes_fts.note_id ` +
+          `AND n.user_id = ?1 AND n.deleted_at IS NULL)`,
+      )
+      .bind(userId),
+    db
+      .prepare(
+        `DELETE FROM fts_index_queue WHERE user_id = ?1 AND NOT EXISTS (` +
+          `SELECT 1 FROM notes n WHERE n.id = fts_index_queue.note_id ` +
+          `AND n.user_id = ?1 AND n.deleted_at IS NULL)`,
+      )
+      .bind(userId),
   ])
   return indexed
 }
-
 
 export const FTS_DRAIN_DELAY_MS = 10_000
 const FTS_DRAIN_BATCH = 5
@@ -119,26 +154,47 @@ function buildFtsQueueItemStatements(
     const queueGuard = `EXISTS (SELECT 1 FROM fts_index_queue
       WHERE user_id = ?3 AND note_id = ?4 AND kind = ?5 AND created_at = ?6)`
     return [
-      db.prepare(
-        `DELETE FROM notes_fts WHERE ${FTS_NOTE_MATCH_SQL} AND note_id = ?1 AND user_id = ?2 AND ${queueGuard}`,
-      ).bind(noteId, userId, userId, noteId, kind, queueVersion),
-      db.prepare(
-        `DELETE FROM fts_index_queue
-          WHERE user_id = ?1 AND note_id = ?2 AND kind = ?3 AND created_at = ?4`,
-      ).bind(userId, noteId, kind, queueVersion),
+      db
+        .prepare(
+          `DELETE FROM notes_fts WHERE ${FTS_NOTE_MATCH_SQL} ` +
+            `AND note_id = ?1 AND user_id = ?2 ${queueGuard}`,
+        )
+        .bind(noteId, userId, userId, noteId, kind, queueVersion),
+      db
+        .prepare(
+          `DELETE FROM fts_index_queue WHERE user_id = ?1 AND note_id = ?2 ` +
+            `AND kind = ?3 AND created_at = ?4`,
+        )
+        .bind(userId, noteId, kind, queueVersion),
     ]
   }
   const guard = `EXISTS (SELECT 1 FROM notes
     WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL
       AND rev = ?3 AND content_hash = ?4 AND title = ?5 AND updated_at = ?6)`
-  const guardValues = [noteId, userId, note.rev, note.content_hash, note.title, note.updated_at] as const
+  const guardValues = [
+    noteId,
+    userId,
+    note.rev,
+    note.content_hash,
+    note.title,
+    note.updated_at,
+  ] as const
   const queueGuard = `EXISTS (SELECT 1 FROM fts_index_queue
     WHERE user_id = ?7 AND note_id = ?8 AND kind = ?9 AND created_at = ?10)`
   const processGuard = `${guard} AND ${queueGuard}`
-  const processGuardValues = [...guardValues, userId, noteId, kind, queueVersion] as const
+  const processGuardValues = [
+    ...guardValues,
+    userId,
+    noteId,
+    kind,
+    queueVersion,
+  ] as const
   return [
     db
-      .prepare(`DELETE FROM notes_fts WHERE ${FTS_NOTE_MATCH_SQL} AND note_id = ?1 AND user_id = ?2 AND ${shiftPlaceholders(processGuard, 2)}`)
+      .prepare(
+        `DELETE FROM notes_fts WHERE ${FTS_NOTE_MATCH_SQL} AND note_id = ?1 ` +
+          `AND user_id = ?2 AND ${shiftPlaceholders(processGuard, 2)}`,
+      )
       .bind(noteId, userId, ...processGuardValues),
     db
       .prepare(
@@ -152,11 +208,13 @@ function buildFtsQueueItemStatements(
         segmentCJK(truncateText(note.content, LIMITS.ftsContentChars)),
         ...processGuardValues,
       ),
-    db.prepare(
-      `DELETE FROM fts_index_queue
+    db
+      .prepare(
+        `DELETE FROM fts_index_queue
         WHERE user_id = ?1 AND note_id = ?2 AND kind = ?3 AND created_at = ?4
           AND ${shiftPlaceholders(guard, 4)}`,
-    ).bind(userId, noteId, kind, queueVersion, ...guardValues),
+      )
+      .bind(userId, noteId, kind, queueVersion, ...guardValues),
   ]
 }
 
@@ -195,8 +253,16 @@ export async function drainFtsQueue(
 
   let statements: D1PreparedStatement[] = []
   for (const item of results) {
-    const itemStatements = buildFtsQueueItemStatements(db, userId, item, notes.get(item.note_id))
-    if (statements.length && statements.length + itemStatements.length > FTS_STATEMENT_BATCH) {
+    const itemStatements = buildFtsQueueItemStatements(
+      db,
+      userId,
+      item,
+      notes.get(item.note_id),
+    )
+    if (
+      statements.length &&
+      statements.length + itemStatements.length > FTS_STATEMENT_BATCH
+    ) {
       await db.batch(statements)
       statements = []
     }
@@ -206,15 +272,23 @@ export async function drainFtsQueue(
   return results.length
 }
 
-export async function hasPendingFtsWork(db: D1Database, userId: string): Promise<boolean> {
+export async function hasPendingFtsWork(
+  db: D1Database,
+  userId: string,
+): Promise<boolean> {
   const row = await db
-    .prepare(`SELECT 1 AS pending FROM fts_index_queue WHERE user_id = ?1 LIMIT 1`)
+    .prepare(
+      `SELECT 1 AS pending FROM fts_index_queue WHERE user_id = ?1 LIMIT 1`,
+    )
     .bind(userId)
     .first<{ pending: number }>()
   return row?.pending === 1
 }
 
-export async function drainAllFtsQueues(db: D1Database, maxUsers = 20): Promise<number> {
+export async function drainAllFtsQueues(
+  db: D1Database,
+  maxUsers = 20,
+): Promise<number> {
   const users = await selectQueueUsersRoundRobin(
     db,
     'fts_index_queue',
@@ -229,5 +303,8 @@ export async function drainAllFtsQueues(db: D1Database, maxUsers = 20): Promise<
 }
 
 function shiftPlaceholders(sql: string, offset: number): string {
-  return sql.replace(/\?(\d+)/g, (_match, value: string) => `?${Number(value) + offset}`)
+  return sql.replace(
+    /\?(\d+)/g,
+    (_match, value: string) => `?${Number(value) + offset}`,
+  )
 }

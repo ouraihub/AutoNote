@@ -11,7 +11,9 @@ export async function* readSseData(
     while (true) {
       const chunk = await reader.read()
       if (signal?.aborted) return
-      buffer = (buffer + decoder.decode(chunk.value, { stream: !chunk.done })).replaceAll('\r\n', '\n')
+      buffer = (
+        buffer + decoder.decode(chunk.value, { stream: !chunk.done })
+      ).replaceAll('\r\n', '\n')
       let boundary: number
       while ((boundary = buffer.indexOf('\n\n')) >= 0) {
         const lines = buffer
@@ -19,7 +21,8 @@ export async function* readSseData(
           .split('\n')
           .filter((line) => line.startsWith('data:'))
         buffer = buffer.slice(boundary + 2)
-        if (lines.length > 0) yield lines.map((line) => line.slice(5).trimStart()).join('\n')
+        if (lines.length > 0)
+          yield lines.map((line) => line.slice(5).trimStart()).join('\n')
       }
       if (chunk.done) return
     }

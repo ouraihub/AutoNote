@@ -27,12 +27,21 @@ it('blocks every destructive route while an offline write is pending, including 
     },
     clock: { now: () => Date.now() },
     logger: { debug() {}, info() {}, warn() {}, error() {} },
-    timers: { setTimeout: () => 1, clearTimeout() {}, setInterval: () => 1, clearInterval() {} },
+    timers: {
+      setTimeout: () => 1,
+      clearTimeout() {},
+      setInterval: () => 1,
+      clearInterval() {},
+    },
     emitChange() {},
     getAutoSaveDelay: () => 100,
   })
   try {
-    const enrolled = notes.patch('note', { rev: 1, content: '不可丢失' }, { writeId: 'latest' })
+    const enrolled = notes.patch(
+      'note',
+      { rev: 1, content: '不可丢失' },
+      { writeId: 'latest' },
+    )
     for (const mutate of [
       () => notes.remove('note'),
       () => notes.restore('note'),
@@ -45,7 +54,9 @@ it('blocks every destructive route while an offline write is pending, including 
     }
     await enrolled
     expect(calls.every((call) => call.method === 'PATCH')).toBe(true)
-    expect(await db.getOutbox()).toMatchObject([{ writeId: 'latest', payload: { content: '不可丢失' } }])
+    expect(await db.getOutbox()).toMatchObject([
+      { writeId: 'latest', payload: { content: '不可丢失' } },
+    ])
   } finally {
     notes.dispose()
   }

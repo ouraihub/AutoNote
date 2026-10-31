@@ -38,7 +38,12 @@ describe('ThemeController', () => {
 
     dark.change(true)
     motion.change(true)
-    expect(root.dataset).toMatchObject({ theme: 'dark', accent: 'cinnabar', background: 'paper', motion: 'reduced' })
+    expect(root.dataset).toMatchObject({
+      theme: 'dark',
+      accent: 'cinnabar',
+      background: 'paper',
+      motion: 'reduced',
+    })
 
     controller.dispose()
     dark.change(false)

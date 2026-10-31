@@ -1,80 +1,20 @@
 import { describe, expect, test } from 'vitest'
 import { isBackendError } from '@app/backend'
-import type { Folder, NoteSummary, SyncResponse, Tag } from '@shared/types'
+import type { LocalNoteStates, NoteTombstones, SyncShell } from './merge'
 import {
-  EMPTY_SYNC_SHELL,
   consolidateFullSync,
   mergeSync,
   nextFullSyncPage,
-  type LocalNoteStates,
-  type NoteTombstones,
-  type SyncShell,
 } from './merge'
-
-const NO_DIRTY: LocalNoteStates = new Map()
-const NO_TOMBSTONES: NoteTombstones = new Map()
-
-function note(id: string, overrides: Partial<NoteSummary> = {}): NoteSummary {
-  return {
-    id,
-    title: `Title ${id}`,
-    excerpt: '',
-    folderId: null,
-    tags: [],
-    isPinned: false,
-    isStarred: false,
-    isArchived: false,
-    wordCount: 0,
-    charCount: 0,
-    rev: 1,
-    position: 0,
-    createdAt: 1,
-    updatedAt: 1,
-    deletedAt: null,
-    ...overrides,
-  }
-}
-
-function folder(id: string, overrides: Partial<Folder> = {}): Folder {
-  return {
-    id,
-    parentId: null,
-    name: id,
-    icon: null,
-    color: null,
-    position: 0,
-    createdAt: 1,
-    updatedAt: 1,
-    ...overrides,
-  }
-}
-
-function tag(id: string, overrides: Partial<Tag> = {}): Tag {
-  return { id, name: id, color: null, count: 0, createdAt: 1, ...overrides }
-}
-
-function payload(overrides: Partial<SyncResponse> = {}): SyncResponse {
-  return {
-    cursor: 1,
-    full: false,
-    hasMore: false,
-    nextKey: null,
-    facetsFull: false,
-    settingsChanged: false,
-    profileChanged: false,
-    siteChanged: false,
-    notes: [],
-    folders: [],
-    tags: [],
-    deletions: [],
-    serverTime: 1,
-    ...overrides,
-  }
-}
-
-function shellOf(notes: NoteSummary[], extra: Partial<SyncShell> = {}): SyncShell {
-  return { ...EMPTY_SYNC_SHELL, notes: Object.fromEntries(notes.map((item) => [item.id, item])), ...extra }
-}
+import {
+  NO_DIRTY,
+  NO_TOMBSTONES,
+  folder,
+  note,
+  payload,
+  shellOf,
+  tag,
+} from './merge-fixtures'
 
 function expectInvalidResponse(action: () => unknown): void {
   try {
@@ -86,10 +26,16 @@ function expectInvalidResponse(action: () => unknown): void {
   throw new Error('Expected invalid_response')
 }
 
+
 describe('mergeSync summaries', () => {
   test('ignores an incremental response older than the applied cursor', () => {
     const shell = shellOf([note('a', { rev: 3 })], { cursor: 10 })
-    const result = mergeSync(shell, payload({ cursor: 7, notes: [note('a', { rev: 5 })] }), NO_DIRTY, NO_TOMBSTONES)
+    const result = mergeSync(
+      shell,
+      payload({ cursor: 7, notes: [note('a', { rev: 5 })] }),
+      NO_DIRTY,
+      NO_TOMBSTONES,
+    )
 
     expect(result.shell).toBe(shell)
     expect(result.refetchIds).toEqual([])
@@ -110,7 +56,12 @@ describe('mergeSync summaries', () => {
   })
 
   test('is idempotent when the same response is applied twice', () => {
-    const response = payload({ cursor: 5, notes: [note('a', { rev: 2 })], folders: [folder('f')], tags: [tag('t')] })
+    const response = payload({
+      cursor: 5,
+      notes: [note('a', { rev: 2 })],
+      folders: [folder('f')],
+      tags: [tag('t')],
+    })
     const first = mergeSync(EMPTY_SYNC_SHELL, response, NO_DIRTY, NO_TOMBSTONES)
     const second = mergeSync(first.shell, response, NO_DIRTY, NO_TOMBSTONES)
 
@@ -122,7 +73,12 @@ describe('mergeSync summaries', () => {
   test('keeps the highest rev when a note appears twice in one response', () => {
     const result = mergeSync(
       EMPTY_SYNC_SHELL,
-      payload({ notes: [note('a', { rev: 3, title: 'Three' }), note('a', { rev: 2, title: 'Two' })] }),
+      payload({
+        notes: [
+          note('a', { rev: 3, title: 'Three' }),
+          note('a', { rev: 2, title: 'Two' }),
+        ],
+      }),
       NO_DIRTY,
       NO_TOMBSTONES,
     )
@@ -145,7 +101,14 @@ describe('mergeSync summaries', () => {
   test('requests content only for known notes whose remote rev advanced', () => {
     const result = mergeSync(
       shellOf([note('a', { rev: 1 }), note('b', { rev: 1 })]),
-      payload({ cursor: 2, notes: [note('a', { rev: 2 }), note('b', { rev: 1, isStarred: true }), note('c')] }),
+      payload({
+        cursor: 2,
+        notes: [
+          note('a', { rev: 2 }),
+          note('b', { rev: 1, isStarred: true }),
+          note('c'),
+        ],
+      }),
       NO_DIRTY,
       NO_TOMBSTONES,
     )
@@ -154,11 +117,24 @@ describe('mergeSync summaries', () => {
   })
 
   test('preserves dirty content-derived fields while adopting remote metadata and keeping the write base', () => {
-    const local = note('a', { rev: 2, title: 'Local', excerpt: 'local body', wordCount: 9, updatedAt: 50 })
-    const dirty: LocalNoteStates = new Map([['a', { kind: 'content', baseRev: 2 }]])
+    const local = note('a', {
+      rev: 2,
+      title: 'Local',
+      excerpt: 'local body',
+      wordCount: 9,
+      updatedAt: 50,
+    })
+    const dirty: LocalNoteStates = new Map([
+      ['a', { kind: 'content', baseRev: 2 }],
+    ])
     const result = mergeSync(
       shellOf([local]),
-      payload({ cursor: 2, notes: [note('a', { rev: 3, title: 'Remote', isPinned: true, updatedAt: 40 })] }),
+      payload({
+        cursor: 2,
+        notes: [
+          note('a', { rev: 3, title: 'Remote', isPinned: true, updatedAt: 40 }),
+        ],
+      }),
       dirty,
       NO_TOMBSTONES,
     )
@@ -197,7 +173,12 @@ describe('mergeSync summaries', () => {
 describe('mergeSync full snapshots', () => {
   test('rejects a full page that still has more pages', () => {
     expectInvalidResponse(() =>
-      mergeSync(shellOf([note('a')]), payload({ full: true, hasMore: true, nextKey: 'a' }), NO_DIRTY, NO_TOMBSTONES),
+      mergeSync(
+        shellOf([note('a')]),
+        payload({ full: true, hasMore: true, nextKey: 'a' }),
+        NO_DIRTY,
+        NO_TOMBSTONES,
+      ),
     )
   })
 
@@ -208,19 +189,33 @@ describe('mergeSync full snapshots', () => {
     ])
     const result = mergeSync(
       shellOf([note('gone'), note('created'), note('edited'), note('kept')]),
-      payload({ cursor: 9, full: true, facetsFull: true, notes: [note('kept')] }),
+      payload({
+        cursor: 9,
+        full: true,
+        facetsFull: true,
+        notes: [note('kept')],
+      }),
       dirty,
       NO_TOMBSTONES,
     )
 
-    expect(Object.keys(result.shell.notes).sort()).toEqual(['created', 'edited', 'kept'])
+    expect(Object.keys(result.shell.notes).sort()).toEqual([
+      'created',
+      'edited',
+      'kept',
+    ])
     expect(result.removedIds).toEqual(['gone'])
   })
 
   test('applies a completed full snapshot even when its cursor is lower after a server reset', () => {
     const result = mergeSync(
       shellOf([note('old')], { cursor: 50 }),
-      payload({ cursor: 3, full: true, facetsFull: true, notes: [note('fresh')] }),
+      payload({
+        cursor: 3,
+        full: true,
+        facetsFull: true,
+        notes: [note('fresh')],
+      }),
       NO_DIRTY,
       NO_TOMBSTONES,
     )
@@ -233,7 +228,12 @@ describe('mergeSync full snapshots', () => {
 describe('mergeSync tombstones', () => {
   test('an older response cannot resurrect a purged note', () => {
     const tombstones: NoteTombstones = new Map([['a', 20]])
-    const stale = payload({ cursor: 20, full: true, facetsFull: true, notes: [note('a', { rev: 9 })] })
+    const stale = payload({
+      cursor: 20,
+      full: true,
+      facetsFull: true,
+      notes: [note('a', { rev: 9 })],
+    })
     const result = mergeSync(EMPTY_SYNC_SHELL, stale, NO_DIRTY, tombstones)
 
     expect(result.shell.notes).toEqual({})
@@ -243,7 +243,12 @@ describe('mergeSync tombstones', () => {
   test('a purged note stays hidden even while it has local changes', () => {
     const dirty: LocalNoteStates = new Map([['a', { kind: 'pending' }]])
     const tombstones: NoteTombstones = new Map([['a', 20]])
-    const result = mergeSync(shellOf([note('a')], { cursor: 10 }), payload({ cursor: 12 }), dirty, tombstones)
+    const result = mergeSync(
+      shellOf([note('a')], { cursor: 10 }),
+      payload({ cursor: 12 }),
+      dirty,
+      tombstones,
+    )
 
     expect(result.shell.notes).toEqual({})
     expect(result.removedIds).toEqual(['a'])
@@ -264,7 +269,12 @@ describe('mergeSync tombstones', () => {
 
   test('a purge without a known cursor is anchored by the first response that confirms it', () => {
     const tombstones: NoteTombstones = new Map([['a', null]])
-    const unconfirmed = mergeSync(EMPTY_SYNC_SHELL, payload({ cursor: 30, notes: [note('a')] }), NO_DIRTY, tombstones)
+    const unconfirmed = mergeSync(
+      EMPTY_SYNC_SHELL,
+      payload({ cursor: 30, notes: [note('a')] }),
+      NO_DIRTY,
+      tombstones,
+    )
     expect(unconfirmed.shell.notes).toEqual({})
     expect(unconfirmed.tombstones.get('a')).toBeNull()
 
@@ -276,14 +286,23 @@ describe('mergeSync tombstones', () => {
     )
     expect(confirmed.tombstones.get('a')).toBe(31)
 
-    const later = mergeSync(confirmed.shell, payload({ cursor: 32 }), NO_DIRTY, confirmed.tombstones)
+    const later = mergeSync(
+      confirmed.shell,
+      payload({ cursor: 32 }),
+      NO_DIRTY,
+      confirmed.tombstones,
+    )
     expect(later.tombstones.has('a')).toBe(false)
   })
 })
 
 describe('mergeSync folders and tags', () => {
   test('incremental facets merge by id and apply their deletions', () => {
-    const shell: SyncShell = { ...EMPTY_SYNC_SHELL, folders: [folder('a'), folder('b')], tags: [tag('x'), tag('y')] }
+    const shell: SyncShell = {
+      ...EMPTY_SYNC_SHELL,
+      folders: [folder('a'), folder('b')],
+      tags: [tag('x'), tag('y')],
+    }
     const result = mergeSync(
       shell,
       payload({
@@ -298,12 +317,18 @@ describe('mergeSync folders and tags', () => {
       NO_TOMBSTONES,
     )
 
-    expect(result.shell.folders.map((item) => [item.id, item.name])).toEqual([['a', 'Renamed']])
+    expect(result.shell.folders.map((item) => [item.id, item.name])).toEqual([
+      ['a', 'Renamed'],
+    ])
     expect(result.shell.tags.map((item) => item.id)).toEqual(['y', 'z'])
   })
 
   test('facetsFull replaces both collections with the complete server set', () => {
-    const shell: SyncShell = { ...EMPTY_SYNC_SHELL, folders: [folder('a'), folder('b')], tags: [tag('x')] }
+    const shell: SyncShell = {
+      ...EMPTY_SYNC_SHELL,
+      folders: [folder('a'), folder('b')],
+      tags: [tag('x')],
+    }
     const result = mergeSync(
       shell,
       payload({ facetsFull: true, folders: [folder('b')], tags: [] }),
@@ -328,7 +353,13 @@ describe('full sync staging', () => {
     folders: [folder('f')],
     tags: [tag('t')],
   })
-  const last = payload({ cursor: 8, full: true, facetsFull: true, notes: [note('c')], serverTime: 9 })
+  const last = payload({
+    cursor: 8,
+    full: true,
+    facetsFull: true,
+    notes: [note('c')],
+    serverTime: 9,
+  })
 
   test('requests the next page with a fixed snapshot cursor', () => {
     expect(nextFullSyncPage([first])).toEqual({ after: 'b', snapshot: 8 })
@@ -341,34 +372,67 @@ describe('full sync staging', () => {
     expect(consolidated.notes.map((item) => item.id)).toEqual(['a', 'b', 'c'])
     expect(consolidated.folders.map((item) => item.id)).toEqual(['f'])
     expect(consolidated.tags.map((item) => item.id)).toEqual(['t'])
-    expect(consolidated).toMatchObject({ full: true, hasMore: false, nextKey: null, cursor: 8, serverTime: 9 })
+    expect(consolidated).toMatchObject({
+      full: true,
+      hasMore: false,
+      nextKey: null,
+      cursor: 8,
+      serverTime: 9,
+    })
   })
 
   test('applies catch-up increments in order, including deletions and facet replacement', () => {
     const consolidated = consolidateFullSync(
       [first, last],
       [
-        payload({ cursor: 9, notes: [note('d')], deletions: [{ entity: 'note', id: 'a' }], settingsChanged: true }),
-        payload({ cursor: 10, facetsFull: true, folders: [folder('g')], tags: [], serverTime: 12 }),
+        payload({
+          cursor: 9,
+          notes: [note('d')],
+          deletions: [{ entity: 'note', id: 'a' }],
+          settingsChanged: true,
+        }),
+        payload({
+          cursor: 10,
+          facetsFull: true,
+          folders: [folder('g')],
+          tags: [],
+          serverTime: 12,
+        }),
       ],
     )
 
-    expect(consolidated.notes.map((item) => item.id).sort()).toEqual(['b', 'c', 'd'])
+    expect(consolidated.notes.map((item) => item.id).sort()).toEqual([
+      'b',
+      'c',
+      'd',
+    ])
     expect(consolidated.folders.map((item) => item.id)).toEqual(['g'])
     expect(consolidated.tags).toEqual([])
-    expect(consolidated).toMatchObject({ cursor: 10, serverTime: 12, settingsChanged: true })
+    expect(consolidated).toMatchObject({
+      cursor: 10,
+      serverTime: 12,
+      settingsChanged: true,
+    })
   })
 
   test('rejects an unfinished, expired or repeating page chain', () => {
     expectInvalidResponse(() => consolidateFullSync([first], []))
-    expectInvalidResponse(() => consolidateFullSync([first, { ...last, cursor: 9 }], []))
-    expectInvalidResponse(() => nextFullSyncPage([first, { ...last, hasMore: true, nextKey: 'b' }]))
+    expectInvalidResponse(() =>
+      consolidateFullSync([first, { ...last, cursor: 9 }], []),
+    )
+    expectInvalidResponse(() =>
+      nextFullSyncPage([first, { ...last, hasMore: true, nextKey: 'b' }]),
+    )
     expectInvalidResponse(() => nextFullSyncPage([{ ...first, nextKey: null }]))
     expectInvalidResponse(() => consolidateFullSync([], []))
   })
 
   test('rejects catch-up increments that go backwards or switch to full', () => {
-    expectInvalidResponse(() => consolidateFullSync([first, last], [payload({ cursor: 7 })]))
-    expectInvalidResponse(() => consolidateFullSync([first, last], [payload({ cursor: 9, full: true })]))
+    expectInvalidResponse(() =>
+      consolidateFullSync([first, last], [payload({ cursor: 7 })]),
+    )
+    expectInvalidResponse(() =>
+      consolidateFullSync([first, last], [payload({ cursor: 9, full: true })]),
+    )
   })
 })

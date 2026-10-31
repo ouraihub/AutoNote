@@ -1,7 +1,13 @@
 import { slugifyHeading } from '@shared/markdown-utils'
 import { sliceText, truncateText } from '@shared/text-utils'
 import type { Note } from '@shared/types'
-import { NOTE_COLUMNS, NOTE_COLUMNS_FULL, toNote, toNoteSummary, type NoteRow } from '../db/rows'
+import {
+  NOTE_COLUMNS,
+  NOTE_COLUMNS_FULL,
+  toNote,
+  toNoteSummary,
+  type NoteRow,
+} from '../db/rows'
 import type { Env } from '../env'
 import { ApiError } from '../lib/errors'
 import { isValidId } from '../lib/id'
@@ -65,7 +71,11 @@ export async function searchMcpNotes(
   const mode = options.mode ?? 'auto'
   const lexicalQuery = composeLexicalQuery(options)
   const { results: lexical } = await searchUserNotes(
-    env.DB, userId, lexicalQuery, SEARCH_CANDIDATES, ftsEnabled,
+    env.DB,
+    userId,
+    lexicalQuery,
+    SEARCH_CANDIDATES,
+    ftsEnabled,
   )
   const lexicalHits: LexicalHit[] = lexical.map((hit) => ({
     id: hit.note.id,
@@ -78,33 +88,47 @@ export async function searchMcpNotes(
     excerpt: hit.note.excerpt,
   }))
 
-  const wantsSemantic = mode === 'auto' || mode === 'hybrid' || mode === 'semantic'
+  const wantsSemantic =
+    mode === 'auto' || mode === 'hybrid' || mode === 'semantic'
   let semanticHits: SemanticSearchHit[] | null = null
   if (wantsSemantic) {
     try {
-      semanticHits = await searchSemanticNotes(env, env.DB, userId, options.query, {
-        tags: options.tags,
-        folder: options.folder,
-        starred: options.starred,
-        archived: options.archived,
-      })
+      semanticHits = await searchSemanticNotes(
+        env,
+        env.DB,
+        userId,
+        options.query,
+        {
+          tags: options.tags,
+          folder: options.folder,
+          starred: options.starred,
+          archived: options.archived,
+        },
+      )
     } catch (error) {
       // AI unavailable, rate-limited, or malformed response: degrade to lexical.
-      console.warn('[autonote] Semantic search unavailable; using lexical:', error instanceof Error ? error.message : error)
+      console.warn(
+        '[autonote] Semantic search unavailable; using lexical:',
+        error instanceof Error ? error.message : error,
+      )
       semanticHits = null
     }
   }
   if (!semanticHits || !semanticHits.length) {
     return {
-      results: lexicalHits.slice(0, limit).map((hit) => ({ ...hit, source: 'lexical' as const })),
+      results: lexicalHits
+        .slice(0, limit)
+        .map((hit) => ({ ...hit, source: 'lexical' as const })),
       mode: 'lexical',
     }
   }
 
-  const semanticCandidates: SemanticHit[] = semanticHits.slice(0, HYBRID_CANDIDATES).map((hit) => ({
-    ...hit,
-    url: noteUrl(origin, hit.id),
-  }))
+  const semanticCandidates: SemanticHit[] = semanticHits
+    .slice(0, HYBRID_CANDIDATES)
+    .map((hit) => ({
+      ...hit,
+      url: noteUrl(origin, hit.id),
+    }))
   if (mode === 'semantic') {
     return {
       results: semanticCandidates.slice(0, limit).map((hit) => ({
@@ -121,20 +145,31 @@ export async function searchMcpNotes(
     }
   }
   const fused = fuseByRrf(lexicalHits, semanticCandidates)
-  const results: McpSearchHit[] = fused.slice(0, limit).map(({ item, sources }) => {
-    const lexicalHit = sources.has('lexical') && isLexicalHit(item) ? item : null
-    const semanticHit = sources.has('semantic') && !isLexicalHit(item) ? item : null
-    return {
-      id: item.id,
-      title: item.title,
-      url: noteUrl(origin, item.id),
-      snippet: lexicalHit?.snippet ?? (semanticHit ? semanticSnippet(semanticHit.excerpt) : ''),
-      score: lexicalHit?.score ?? semanticHit?.score ?? item.score,
-      rev: item.rev,
-      updatedAt: item.updatedAt,
-      source: sources.size > 1 ? 'both' : sources.has('semantic') ? 'semantic' : 'lexical',
-    }
-  })
+  const results: McpSearchHit[] = fused
+    .slice(0, limit)
+    .map(({ item, sources }) => {
+      const lexicalHit =
+        sources.has('lexical') && isLexicalHit(item) ? item : null
+      const semanticHit =
+        sources.has('semantic') && !isLexicalHit(item) ? item : null
+      return {
+        id: item.id,
+        title: item.title,
+        url: noteUrl(origin, item.id),
+        snippet:
+          lexicalHit?.snippet ??
+          (semanticHit ? semanticSnippet(semanticHit.excerpt) : ''),
+        score: lexicalHit?.score ?? semanticHit?.score ?? item.score,
+        rev: item.rev,
+        updatedAt: item.updatedAt,
+        source:
+          sources.size > 1
+            ? 'both'
+            : sources.has('semantic')
+              ? 'semantic'
+              : 'lexical',
+      }
+    })
   return {
     results,
     mode: lexicalHits.length && semanticHits.length ? 'hybrid' : 'semantic',
@@ -158,12 +193,19 @@ function isLexicalHit(hit: LexicalHit | SemanticHit): hit is LexicalHit {
   return 'snippet' in hit
 }
 
-export async function loadMcpNote(db: D1Database, userId: string, id: string): Promise<Note> {
+export async function loadMcpNote(
+  db: D1Database,
+  userId: string,
+  id: string,
+): Promise<Note> {
   const noteId = normalizeNoteId(id)
-  const row = await db.prepare(
-    `SELECT ${NOTE_COLUMNS_FULL} FROM notes n
+  const row = await db
+    .prepare(
+      `SELECT ${NOTE_COLUMNS_FULL} FROM notes n
       WHERE n.id = ?1 AND n.user_id = ?2 AND n.deleted_at IS NULL`,
-  ).bind(noteId, userId).first<NoteRow>()
+    )
+    .bind(noteId, userId)
+    .first<NoteRow>()
   if (!row) throw ApiError.notFound('Note not found')
   return toNote(row)
 }
@@ -225,25 +267,38 @@ export async function readMcpNote(
 
   if (input.section) {
     const wanted = input.section.trim().toLowerCase()
-    const headingIndex = outline.findIndex((item) =>
-      item.slug === wanted || item.title.toLowerCase() === wanted,
+    const headingIndex = outline.findIndex(
+      (item) => item.slug === wanted || item.title.toLowerCase() === wanted,
     )
-    if (headingIndex < 0) throw ApiError.notFound(`Section not found: ${input.section}`)
+    if (headingIndex < 0)
+      throw ApiError.notFound(`Section not found: ${input.section}`)
     selectedSection = outline[headingIndex]
     const lines = lineOffsets(note.content)
     const sectionStart = lines[selectedSection.line - 1] ?? 0
-    const next = outline.slice(headingIndex + 1).find((item) => item.level <= selectedSection!.level)
-    end = next ? (lines[next.line - 1] ?? note.content.length) : note.content.length
+    const next = outline
+      .slice(headingIndex + 1)
+      .find((item) => item.level <= selectedSection!.level)
+    end = next
+      ? (lines[next.line - 1] ?? note.content.length)
+      : note.content.length
     start = input.cursor ? clampInteger(start, sectionStart, end) : sectionStart
   } else if (input.startLine !== undefined || input.endLine !== undefined) {
     const lines = lineOffsets(note.content)
     const startLine = clampInteger(input.startLine ?? 1, 1, lines.length)
-    const endLine = clampInteger(input.endLine ?? lines.length, startLine, lines.length)
+    const endLine = clampInteger(
+      input.endLine ?? lines.length,
+      startLine,
+      lines.length,
+    )
     start = lines[startLine - 1] ?? 0
     end = lines[endLine] ?? note.content.length
   }
 
-  const maxChars = clampInteger(input.maxChars ?? READ_DEFAULT_CHARS, 1_000, READ_MAX_CHARS)
+  const maxChars = clampInteger(
+    input.maxChars ?? READ_DEFAULT_CHARS,
+    1_000,
+    READ_MAX_CHARS,
+  )
   const pageEnd = Math.min(end, start + maxChars)
   return {
     note_id: note.id,
@@ -270,31 +325,37 @@ export async function getMcpNoteContext(
 ): Promise<Record<string, unknown>> {
   const note = await loadMcpNote(db, userId, noteId)
   const capped = Math.max(1, Math.min(30, limit))
-  const { results: outgoing } = await db.prepare(
-    `SELECT l.target_title AS referenced_title, n.id, n.title, n.excerpt, n.updated_at
+  const { results: outgoing } = await db
+    .prepare(
+      `SELECT l.target_title AS referenced_title, n.id, n.title, n.excerpt, n.updated_at
        FROM links l LEFT JOIN notes n
          ON n.id = l.target_note_id AND n.user_id = ?1 AND n.deleted_at IS NULL
       WHERE l.user_id = ?1 AND l.source_note_id = ?2
       ORDER BY n.updated_at DESC, l.target_title COLLATE NOCASE ASC LIMIT ?3`,
-  ).bind(userId, note.id, capped).all<{
-    referenced_title: string
-    id: string | null
-    title: string | null
-    excerpt: string | null
-    updated_at: number | null
-  }>()
-  const { results: backlinks } = await db.prepare(
-    `SELECT n.id, n.title, n.excerpt, n.updated_at
+    )
+    .bind(userId, note.id, capped)
+    .all<{
+      referenced_title: string
+      id: string | null
+      title: string | null
+      excerpt: string | null
+      updated_at: number | null
+    }>()
+  const { results: backlinks } = await db
+    .prepare(
+      `SELECT n.id, n.title, n.excerpt, n.updated_at
        FROM links l JOIN notes n ON n.id = l.source_note_id
       WHERE l.user_id = ?1 AND l.target_note_id = ?2
         AND n.user_id = ?1 AND n.deleted_at IS NULL
       ORDER BY n.updated_at DESC, n.id ASC LIMIT ?3`,
-  ).bind(userId, note.id, capped).all<{
-    id: string
-    title: string
-    excerpt: string
-    updated_at: number
-  }>()
+    )
+    .bind(userId, note.id, capped)
+    .all<{
+      id: string
+      title: string
+      excerpt: string
+      updated_at: number
+    }>()
 
   return {
     note: {
@@ -345,16 +406,21 @@ export async function listMcpNotes(
     else where += ' AND n.is_archived = 0'
   }
   if (view === 'starred') where += ' AND n.is_starred = 1'
-  const query = cursor.kind === 'key'
-    ? db.prepare(
-      `SELECT ${NOTE_COLUMNS} FROM notes n WHERE ${where}
+  const query =
+    cursor.kind === 'key'
+      ? db
+          .prepare(
+            `SELECT ${NOTE_COLUMNS} FROM notes n WHERE ${where}
         AND (n.updated_at < ?2 OR (n.updated_at = ?2 AND n.id > ?3))
         ORDER BY n.updated_at DESC, n.id ASC LIMIT ?4`,
-    ).bind(userId, cursor.updatedAt, cursor.id, limit + 1)
-    : db.prepare(
-      `SELECT ${NOTE_COLUMNS} FROM notes n WHERE ${where}
+          )
+          .bind(userId, cursor.updatedAt, cursor.id, limit + 1)
+      : db
+          .prepare(
+            `SELECT ${NOTE_COLUMNS} FROM notes n WHERE ${where}
         ORDER BY n.updated_at DESC, n.id ASC LIMIT ?2 OFFSET ?3`,
-    ).bind(userId, limit + 1, cursor.offset)
+          )
+          .bind(userId, limit + 1, cursor.offset)
   const { results } = await query.all<NoteRow>()
   const hasMore = results.length > limit
   const page = results.slice(0, limit)
@@ -371,28 +437,37 @@ export async function listMcpNotes(
         rev: note.rev,
         starred: note.isStarred,
         archived: note.isArchived,
-        deleted_at: note.deletedAt ? new Date(note.deletedAt).toISOString() : null,
+        deleted_at: note.deletedAt
+          ? new Date(note.deletedAt).toISOString()
+          : null,
         updated_at: new Date(note.updatedAt).toISOString(),
       }
     }),
-    next_cursor: hasMore && last ? encodeListCursor(last.updated_at, last.id) : null,
+    next_cursor:
+      hasMore && last ? encodeListCursor(last.updated_at, last.id) : null,
   }
 }
 
-export async function listMcpFolders(db: D1Database, userId: string): Promise<Record<string, unknown>> {
-  const { results } = await db.prepare(
-    `SELECT f.id, f.parent_id, f.name, f.position,
+export async function listMcpFolders(
+  db: D1Database,
+  userId: string,
+): Promise<Record<string, unknown>> {
+  const { results } = await db
+    .prepare(
+      `SELECT f.id, f.parent_id, f.name, f.position,
             (SELECT COUNT(*) FROM notes n
               WHERE n.user_id = f.user_id AND n.folder_id = f.id AND n.deleted_at IS NULL) AS note_count
        FROM folders f WHERE f.user_id = ?1 AND f.deleted_at IS NULL
       ORDER BY f.position ASC, f.name COLLATE NOCASE ASC`,
-  ).bind(userId).all<{
-    id: string
-    parent_id: string | null
-    name: string
-    position: number
-    note_count: number
-  }>()
+    )
+    .bind(userId)
+    .all<{
+      id: string
+      parent_id: string | null
+      name: string
+      position: number
+      note_count: number
+    }>()
   const byId = new Map(results.map((folder) => [folder.id, folder]))
   const pathFor = (folder: (typeof results)[number]): string => {
     const names = [folder.name]
@@ -416,20 +491,27 @@ export async function listMcpFolders(db: D1Database, userId: string): Promise<Re
   }
 }
 
-export async function listMcpTags(db: D1Database, userId: string, limit = 100): Promise<Record<string, unknown>> {
-  const { results } = await db.prepare(
-    `SELECT t.id, t.name, t.color, COUNT(n.id) AS note_count
+export async function listMcpTags(
+  db: D1Database,
+  userId: string,
+  limit = 100,
+): Promise<Record<string, unknown>> {
+  const { results } = await db
+    .prepare(
+      `SELECT t.id, t.name, t.color, COUNT(n.id) AS note_count
        FROM tags t LEFT JOIN note_tags nt ON nt.tag_id = t.id
        LEFT JOIN notes n ON n.id = nt.note_id AND n.user_id = t.user_id AND n.deleted_at IS NULL
       WHERE t.user_id = ?1
       GROUP BY t.id, t.name, t.color
       ORDER BY note_count DESC, t.name COLLATE NOCASE ASC LIMIT ?2`,
-  ).bind(userId, Math.max(1, Math.min(200, limit))).all<{
-    id: string
-    name: string
-    color: string | null
-    note_count: number
-  }>()
+    )
+    .bind(userId, Math.max(1, Math.min(200, limit)))
+    .all<{
+      id: string
+      name: string
+      color: string | null
+      note_count: number
+    }>()
   return { tags: results }
 }
 
@@ -485,7 +567,8 @@ function normalizeNoteId(id: string): string {
 function parseCursor(value: string | undefined): number {
   if (!value) return 0
   const parsed = Number(value)
-  if (!Number.isSafeInteger(parsed) || parsed < 0) throw ApiError.badRequest('Invalid cursor')
+  if (!Number.isSafeInteger(parsed) || parsed < 0)
+    throw ApiError.badRequest('Invalid cursor')
   return parsed
 }
 
@@ -495,11 +578,15 @@ type ListCursor =
 
 function parseListCursor(value: string | undefined): ListCursor {
   if (!value) return { kind: 'offset', offset: 0 }
-  if (!value.startsWith('k1.')) return { kind: 'offset', offset: parseCursor(value) }
+  if (!value.startsWith('k1.'))
+    return { kind: 'offset', offset: parseCursor(value) }
   const separator = value.indexOf('.', 3)
   const encodedTime = separator >= 0 ? value.slice(3, separator) : ''
-  const updatedAt = /^[0-9a-z]+$/.test(encodedTime) ? Number.parseInt(encodedTime, 36) : Number.NaN
-  const id = separator >= 0 ? decodeURIComponentSafe(value.slice(separator + 1)) : ''
+  const updatedAt = /^[0-9a-z]+$/.test(encodedTime)
+    ? Number.parseInt(encodedTime, 36)
+    : Number.NaN
+  const id =
+    separator >= 0 ? decodeURIComponentSafe(value.slice(separator + 1)) : ''
   if (!Number.isSafeInteger(updatedAt) || updatedAt < 0 || !isValidId(id)) {
     throw ApiError.badRequest('Invalid cursor')
   }

@@ -1,4 +1,3 @@
-
 declare module 'node:crypto' {
   interface AutoNoteScryptOptions {
     N: number

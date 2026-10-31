@@ -19,7 +19,11 @@ export interface PreviewServiceOptions {
   onNavigate?(target: WikiTarget, id: string): void
 }
 
-export function updateTaskAtSourceLine(source: string, line: number, checked: boolean): string | null {
+export function updateTaskAtSourceLine(
+  source: string,
+  line: number,
+  checked: boolean,
+): string | null {
   if (!Number.isInteger(line) || line < 0) return null
   let from = 0
   for (let index = 0; index < line; index += 1) {
@@ -28,28 +32,47 @@ export function updateTaskAtSourceLine(source: string, line: number, checked: bo
     from = newline + 1
   }
   const end = source.indexOf('\n', from)
-  const match = /^((?:[ \t]*>[ \t]?)*[ \t]*(?:[-*+]|\d+[.)])[ \t]+\[)([ xX])(\])/.exec(source.slice(from, end < 0 ? source.length : end))
+  const match =
+    /^((?:[ \t]*>[ \t]?)*[ \t]*(?:[-*+]|\d+[.)])[ \t]+\[)([ xX])(\])/.exec(
+      source.slice(from, end < 0 ? source.length : end),
+    )
   if (!match?.[1]) return null
   const marker = from + match[1].length
-  return source.slice(0, marker) + (checked ? 'x' : ' ') + source.slice(marker + 1)
+  return (
+    source.slice(0, marker) + (checked ? 'x' : ' ') + source.slice(marker + 1)
+  )
 }
 
-export function createRenderServices(options: PreviewServiceOptions): RenderServices {
+export function createRenderServices(
+  options: PreviewServiceOptions,
+): RenderServices {
   let navigation = 0
-  async function resolveNote(target: string, signal: AbortSignal): Promise<ResolvedNote | null> {
+  async function resolveNote(
+    target: string,
+    signal: AbortSignal,
+  ): Promise<ResolvedNote | null> {
     const parsed = parseWikiTarget(target)
     const title = parsed.noteTitle
-    const known = title ? Object.values(options.notes.summaries).find((note) => !note.deletedAt && (note.id === title || note.title === title)) : options.notes.summaries[options.noteId()]
+    const known = title
+      ? Object.values(options.notes.summaries).find(
+          (note) =>
+            !note.deletedAt && (note.id === title || note.title === title),
+        )
+      : options.notes.summaries[options.noteId()]
     let id = known?.id
     if (!id && title) {
       const found = await options.backend.search.query(title, 100, { signal })
       if (signal.aborted) return null
-      id = found.results.find(({ note }) => !note.deletedAt && note.title === title)?.note.id
+      id = found.results.find(
+        ({ note }) => !note.deletedAt && note.title === title,
+      )?.note.id
     }
     if (!id || signal.aborted) return null
-    if (id === options.noteId()) return { id, title: known?.title ?? title, content: options.source() }
+    if (id === options.noteId())
+      return { id, title: known?.title ?? title, content: options.source() }
     const content = options.notes.contents[id]
-    if (known && content !== undefined) return { id, title: known.title, content }
+    if (known && content !== undefined)
+      return { id, title: known.title, content }
     return options.backend.notes.get(id, { signal })
   }
   return {
@@ -64,21 +87,33 @@ export function createRenderServices(options: PreviewServiceOptions): RenderServ
       void (async () => {
         let note = await resolveNote(target, controller.signal)
         if (epoch !== navigation || origin !== options.noteId()) return
-        if (!note && parsed.noteTitle) note = await options.notes.create({ title: parsed.noteTitle, content: '' })
+        if (!note && parsed.noteTitle)
+          note = await options.notes.create({
+            title: parsed.noteTitle,
+            content: '',
+          })
         if (!note || epoch !== navigation || origin !== options.noteId()) return
         if (note.id !== origin) {
           options.ui.openNote(note.id, { pane })
           await options.notes.open(note.id, pane)
         }
-        if (epoch !== navigation || options.ui.panes[pane].noteId !== note.id || options.notes.loadErrors[note.id]) return
+        if (
+          epoch !== navigation ||
+          options.ui.panes[pane].noteId !== note.id ||
+          options.notes.loadErrors[note.id]
+        )
+          return
         options.extensions.onNoteOpened?.(note.id)
         options.onNavigate?.(parsed, note.id)
-      })().catch(() => options.notifier.toast({ key: 'common.action_failed', tone: 'error' }))
+      })().catch(() =>
+        options.notifier.toast({ key: 'common.action_failed', tone: 'error' }),
+      )
     },
     async toggleTask(line, checked) {
       const id = options.noteId()
       const source = options.source()
-      if (options.notes.contents[id] !== source) throw new Error('Stale preview source')
+      if (options.notes.contents[id] !== source)
+        throw new Error('Stale preview source')
       const next = updateTaskAtSourceLine(source, line, checked)
       if (next === null) throw new Error('Invalid task source line')
       options.notes.editContent(id, next)

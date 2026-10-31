@@ -14,7 +14,9 @@ export class IpcChangeFeed extends ChangeFeedEmitter {
   #starting: Promise<void> | null = null
   #release: (() => void) | undefined
   #onFocus = () => {
-    void this.reconcile().catch(() => this.emit({ kind: 'connectivity', online: false }))
+    void this.reconcile().catch(() =>
+      this.emit({ kind: 'connectivity', online: false }),
+    )
   }
   constructor(private readonly transport: IpcTransport) {
     super()
@@ -38,7 +40,11 @@ export class IpcChangeFeed extends ChangeFeedEmitter {
       await this.start()
       this.#ready = false
       await this.#running
-      const snapshot = await this.transport.invoke('notes_snapshot', undefined, options)
+      const snapshot = await this.transport.invoke(
+        'notes_snapshot',
+        undefined,
+        options,
+      )
       if (this.#disposed) throw cancelled()
       this.#cursor = snapshot.cursor
       this.#ready = true
@@ -62,7 +68,8 @@ export class IpcChangeFeed extends ChangeFeedEmitter {
           const before = this.#cursor
           const payload = await this.transport.changesSince(before)
           if (this.#disposed) return
-          if (payload.hasMore && payload.cursor <= before) throw invalidResponse()
+          if (payload.hasMore && payload.cursor <= before)
+            throw invalidResponse()
           if (payload.cursor > before || payload.full) {
             this.#cursor = payload.cursor
             this.emit({ kind: 'library', payload })

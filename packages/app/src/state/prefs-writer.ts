@@ -18,7 +18,12 @@ export class CoalescingPrefsWriter {
   }
 
   schedule(key: string, value: PrefValue): void {
-    const write = this.#writes.get(key) ?? { value, isDirty: false, running: null, error: null }
+    const write = this.#writes.get(key) ?? {
+      value,
+      isDirty: false,
+      running: null,
+      error: null,
+    }
     write.value = value
     write.isDirty = true
     write.error = null
@@ -31,7 +36,9 @@ export class CoalescingPrefsWriter {
       if (write.isDirty) write.running ??= this.#drain(key, write)
     }
     await Promise.all([...this.#writes.values()].map((write) => write.running))
-    const failed = [...this.#writes.values()].find((write) => write.error !== null)
+    const failed = [...this.#writes.values()].find(
+      (write) => write.error !== null,
+    )
     if (failed) throw failed.error
   }
 

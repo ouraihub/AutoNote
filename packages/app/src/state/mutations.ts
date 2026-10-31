@@ -1,5 +1,17 @@
-import { countText, deriveExcerpt, extractTags, replaceTagInContent, sortTagNames } from '@shared/markdown-utils'
-import type { FolderCreate, FolderPatch, TagCreate, TagPatch, TagPatchResult } from '@shared/backend-types'
+import {
+  countText,
+  deriveExcerpt,
+  extractTags,
+  replaceTagInContent,
+  sortTagNames,
+} from '@shared/markdown-utils'
+import type {
+  FolderCreate,
+  FolderPatch,
+  TagCreate,
+  TagPatch,
+  TagPatchResult,
+} from '@shared/backend-types'
 import type { Folder, NoteSummary, Tag } from '@shared/types'
 import type { Backend } from '../backend'
 import type { Notifier } from '../platform'
@@ -33,7 +45,10 @@ export interface OrganizeMutation {
   readonly patch: object
 }
 
-export function folderSubtreeIds(folders: readonly Folder[], rootId: string): Set<string> {
+export function folderSubtreeIds(
+  folders: readonly Folder[],
+  rootId: string,
+): Set<string> {
   const children = new Map<string, string[]>()
   for (const folder of folders) {
     if (folder.parentId === null) continue
@@ -52,25 +67,48 @@ export function folderSubtreeIds(folders: readonly Folder[], rootId: string): Se
   return result
 }
 
-export function removeFolderAndPromoteChildren(folders: readonly Folder[], id: string, now: number): Folder[] {
+export function removeFolderAndPromoteChildren(
+  folders: readonly Folder[],
+  id: string,
+  now: number,
+): Folder[] {
   const removed = folders.find((folder) => folder.id === id)
   if (!removed) return [...folders]
   const compare = (left: Folder, right: Folder) =>
-    left.position - right.position || left.createdAt - right.createdAt || left.id.localeCompare(right.id)
-  const siblings = folders.filter((folder) => folder.parentId === removed.parentId).sort(compare)
-  const children = folders.filter((folder) => folder.parentId === id).sort(compare)
+    left.position - right.position ||
+    left.createdAt - right.createdAt ||
+    left.id.localeCompare(right.id)
+  const siblings = folders
+    .filter((folder) => folder.parentId === removed.parentId)
+    .sort(compare)
+  const children = folders
+    .filter((folder) => folder.parentId === id)
+    .sort(compare)
   const index = siblings.findIndex((folder) => folder.id === id)
   siblings.splice(index, 1, ...children)
-  const positions = new Map(siblings.map((folder, position) => [folder.id, (position + 1) * 1000]))
+  const positions = new Map(
+    siblings.map((folder, position) => [folder.id, (position + 1) * 1000]),
+  )
   return folders.flatMap((folder) => {
     if (folder.id === id) return []
     const position = positions.get(folder.id)
     if (position === undefined) return [folder]
-    return [{ ...folder, position, ...(folder.parentId === id ? { parentId: removed.parentId, updatedAt: now } : {}) }]
+    return [
+      {
+        ...folder,
+        position,
+        ...(folder.parentId === id
+          ? { parentId: removed.parentId, updatedAt: now }
+          : {}),
+      },
+    ]
   })
 }
 
-function replaceById<T extends { id: string }>(items: readonly T[], item: T): T[] {
+function replaceById<T extends { id: string }>(
+  items: readonly T[],
+  item: T,
+): T[] {
   const index = items.findIndex((value) => value.id === item.id)
   if (index < 0) return [...items, item]
   const next = [...items]
@@ -85,7 +123,12 @@ function idFromCrypto(): string {
   return [...numbers].map((number) => chars[number & 31]).join('')
 }
 
-function rollbackFields<T extends object>(current: T, before: T, patch: object, expected: T): T {
+function rollbackFields<T extends object>(
+  current: T,
+  before: T,
+  patch: object,
+  expected: T,
+): T {
   const result = { ...current } as Record<string, unknown>
   const previous = before as Record<string, unknown>
   const optimistic = expected as Record<string, unknown>
@@ -110,7 +153,11 @@ function rewriteTags(
     if (content === undefined) {
       notes[id] = {
         ...note,
-        tags: sortTagNames(note.tags.flatMap((name) => (name === from ? (to === null ? [] : [to]) : [name]))),
+        tags: sortTagNames(
+          note.tags.flatMap((name) =>
+            name === from ? (to === null ? [] : [to]) : [name],
+          ),
+        ),
       }
       continue
     }
@@ -153,7 +200,10 @@ export class OrganizeActions {
     this.#now = options.now ?? Date.now
   }
 
-  get mutationsByEntity(): ReadonlyMap<OrganizeMutationEntity, readonly OrganizeMutation[]> {
+  get mutationsByEntity(): ReadonlyMap<
+    OrganizeMutationEntity,
+    readonly OrganizeMutation[]
+  > {
     return this.#pending
   }
 
@@ -161,7 +211,10 @@ export class OrganizeActions {
     const id = body.id ?? this.#makeId()
     const before = this.#state.read()
     const parentId = body.parentId ?? null
-    if (parentId !== null && !before.folders.some((folder) => folder.id === parentId))
+    if (
+      parentId !== null &&
+      !before.folders.some((folder) => folder.id === parentId)
+    )
       throw new Error('Folder parent does not exist')
     const now = this.#now()
     const optimistic: Folder = {
@@ -180,7 +233,9 @@ export class OrganizeActions {
       {},
       { ...body, id },
       (state) => ({ folders: replaceById(state.folders, optimistic) }),
-      (state) => ({ folders: state.folders.filter((folder) => folder.id !== id) }),
+      (state) => ({
+        folders: state.folders.filter((folder) => folder.id !== id),
+      }),
     )
     return this.#enqueue(
       mutation,
@@ -207,10 +262,16 @@ export class OrganizeActions {
       `folder:${id}`,
       before,
       fields,
-      (state) => ({ folders: state.folders.map((folder) => (folder.id === id ? { ...folder, ...fields } : folder)) }),
       (state) => ({
         folders: state.folders.map((folder) =>
-          folder.id === id ? rollbackFields(folder, before, fields, optimistic) : folder,
+          folder.id === id ? { ...folder, ...fields } : folder,
+        ),
+      }),
+      (state) => ({
+        folders: state.folders.map((folder) =>
+          folder.id === id
+            ? rollbackFields(folder, before, fields, optimistic)
+            : folder,
         ),
       }),
     )
@@ -221,17 +282,27 @@ export class OrganizeActions {
     )
   }
 
-  async removeFolder(id: string, strategy: 'move-up' | 'delete' = 'move-up'): Promise<boolean> {
+  async removeFolder(
+    id: string,
+    strategy: 'move-up' | 'delete' = 'move-up',
+  ): Promise<boolean> {
     const snapshot = this.#state.read()
     const folder = snapshot.folders.find((item) => item.id === id)
     if (!folder) return false
     const subtreeIds = folderSubtreeIds(snapshot.folders, id)
     const approved = await this.#notifier.confirm({
       titleKey: 'folders.delete_title',
-      bodyKey: strategy === 'move-up' ? 'folders.delete_contents_move_up' : 'folders.delete_contents_trash',
+      bodyKey:
+        strategy === 'move-up'
+          ? 'folders.delete_contents_move_up'
+          : 'folders.delete_contents_trash',
       params: {
         name: folder.name,
-        value0: Object.values(snapshot.notes).filter((note) => strategy === 'move-up' ? note.folderId === id : subtreeIds.has(note.folderId ?? '') && note.deletedAt === null).length,
+        value0: Object.values(snapshot.notes).filter((note) =>
+          strategy === 'move-up'
+            ? note.folderId === id
+            : subtreeIds.has(note.folderId ?? '') && note.deletedAt === null,
+        ).length,
         value1: snapshot.folders.filter((item) => item.parentId === id).length,
       },
       danger: true,
@@ -252,9 +323,18 @@ export class OrganizeActions {
     const nextNotes: Record<string, NoteSummary> = { ...before.notes }
     for (const note of Object.values(before.notes)) {
       if (strategy === 'move-up' && note.folderId === id)
-        nextNotes[note.id] = { ...note, folderId: folder.parentId, updatedAt: now }
+        nextNotes[note.id] = {
+          ...note,
+          folderId: folder.parentId,
+          updatedAt: now,
+        }
       if (strategy === 'delete' && subtree.has(note.folderId ?? ''))
-        nextNotes[note.id] = { ...note, folderId: null, deletedAt: note.deletedAt ?? now, updatedAt: now }
+        nextNotes[note.id] = {
+          ...note,
+          folderId: null,
+          deletedAt: note.deletedAt ?? now,
+          updatedAt: now,
+        }
     }
     const mutation = this.#begin(
       `folder:${id}`,
@@ -264,7 +344,8 @@ export class OrganizeActions {
       (state) => {
         const folders = [...state.folders]
         for (const old of before.folders) {
-          if (!folders.some((current) => current.id === old.id)) folders.push(old)
+          if (!folders.some((current) => current.id === old.id))
+            folders.push(old)
         }
         const notes = { ...state.notes }
         for (const [noteId, old] of Object.entries(before.notes)) {
@@ -273,7 +354,11 @@ export class OrganizeActions {
           if (current && expected) {
             const fields =
               strategy === 'delete'
-                ? { folderId: null, deletedAt: expected.deletedAt, updatedAt: expected.updatedAt }
+                ? {
+                    folderId: null,
+                    deletedAt: expected.deletedAt,
+                    updatedAt: expected.updatedAt,
+                  }
                 : { folderId: expected.folderId, updatedAt: expected.updatedAt }
             notes[noteId] = rollbackFields(current, old, fields, expected)
           }
@@ -294,7 +379,13 @@ export class OrganizeActions {
 
   async createTag(body: TagCreate): Promise<Tag> {
     const id = body.id ?? this.#makeId()
-    const optimistic: Tag = { id, name: body.name, color: body.color ?? null, count: 0, createdAt: this.#now() }
+    const optimistic: Tag = {
+      id,
+      name: body.name,
+      color: body.color ?? null,
+      count: 0,
+      createdAt: this.#now(),
+    }
     const mutation = this.#begin(
       `tag:${id}`,
       {},
@@ -321,17 +412,29 @@ export class OrganizeActions {
       )
     const optimistic = { ...tag, ...patch }
     const rewritten =
-      patch.name === undefined || patch.name === tag.name ? null : rewriteTags(before, tag.name, patch.name)
+      patch.name === undefined || patch.name === tag.name
+        ? null
+        : rewriteTags(before, tag.name, patch.name)
     const mutation = this.#begin(
       `tag:${id}`,
       tag,
       patch,
-      (state) => ({ tags: replaceById(state.tags, optimistic), ...(rewritten ?? {}) }),
+      (state) => ({
+        tags: replaceById(state.tags, optimistic),
+        ...(rewritten ?? {}),
+      }),
       (state) => {
         const current = state.tags.find((item) => item.id === id)
         return {
-          tags: current ? replaceById(state.tags, rollbackFields(current, tag, patch, optimistic)) : state.tags,
-          ...(rewritten ? this.#restoreRewrittenNotes(state, before, rewritten) : {}),
+          tags: current
+            ? replaceById(
+                state.tags,
+                rollbackFields(current, tag, patch, optimistic),
+              )
+            : state.tags,
+          ...(rewritten
+            ? this.#restoreRewrittenNotes(state, before, rewritten)
+            : {}),
         }
       },
     )
@@ -357,7 +460,15 @@ export class OrganizeActions {
       !(await this.#notifier.confirm({
         titleKey: 'tags.delete_title',
         bodyKey: 'tags.delete_description_value0',
-        params: { name: tag.name, value0: Object.values(this.#state.read().notes).filter((note) => note.tags.includes(tag.name) && note.deletedAt === null && !note.isArchived).length },
+        params: {
+          name: tag.name,
+          value0: Object.values(this.#state.read().notes).filter(
+            (note) =>
+              note.tags.includes(tag.name) &&
+              note.deletedAt === null &&
+              !note.isArchived,
+          ).length,
+        },
         danger: true,
       }))
     )
@@ -373,8 +484,14 @@ export class OrganizeActions {
       `tag:${id}`,
       before,
       { remove: true },
-      (state) => ({ tags: state.tags.filter((item) => item.id !== id), ...rewritten }),
-      (state) => ({ tags: replaceById(state.tags, tag), ...this.#restoreRewrittenNotes(state, before, rewritten) }),
+      (state) => ({
+        tags: state.tags.filter((item) => item.id !== id),
+        ...rewritten,
+      }),
+      (state) => ({
+        tags: replaceById(state.tags, tag),
+        ...this.#restoreRewrittenNotes(state, before, rewritten),
+      }),
     )
     await this.#enqueue(
       mutation,
@@ -409,7 +526,10 @@ export class OrganizeActions {
         },
         optimistic,
       )
-      if (contents[id] === expected.contents[id] && before.contents[id] !== undefined)
+      if (
+        contents[id] === expected.contents[id] &&
+        before.contents[id] !== undefined
+      )
         contents[id] = before.contents[id]
     }
     return { notes, contents }
@@ -422,7 +542,14 @@ export class OrganizeActions {
     apply: ActiveMutation['apply'],
     rollback: ActiveMutation['rollback'],
   ): ActiveMutation {
-    const mutation: ActiveMutation = { mutationId: this.#makeId(), entity, before, patch, apply, rollback }
+    const mutation: ActiveMutation = {
+      mutationId: this.#makeId(),
+      entity,
+      before,
+      patch,
+      apply,
+      rollback,
+    }
     this.#pending.set(entity, [...(this.#pending.get(entity) ?? []), mutation])
     this.#state.write(apply(this.#state.read()))
     return mutation
@@ -430,7 +557,8 @@ export class OrganizeActions {
 
   #projectPending(): void {
     for (const group of this.#pending.values())
-      for (const mutation of group) this.#state.write(mutation.apply(this.#state.read()))
+      for (const mutation of group)
+        this.#state.write(mutation.apply(this.#state.read()))
   }
 
   async #enqueue<T>(
@@ -472,26 +600,48 @@ export class OrganizeActions {
     )
     this.#tails.set(mutation.entity, tail)
     void tail.then(() => {
-      if (this.#tails.get(mutation.entity) === tail) this.#tails.delete(mutation.entity)
+      if (this.#tails.get(mutation.entity) === tail)
+        this.#tails.delete(mutation.entity)
     })
     return run
   }
 
   async #adoptFolder(saved: Folder): Promise<void> {
-    const current = this.#state.read().folders.find((folder) => folder.id === saved.id)
+    const current = this.#state
+      .read()
+      .folders.find((folder) => folder.id === saved.id)
     const later = this.#pending.get(`folder:${saved.id}`) ?? []
-    const fields = new Set(later.flatMap((mutation) => Object.keys(mutation.patch)))
-    const retained = current ? Object.fromEntries([...fields].map((key) => [key, current[key as keyof Folder]])) : {}
-    this.#state.write({ folders: replaceById(this.#state.read().folders, { ...saved, ...retained }) })
+    const fields = new Set(
+      later.flatMap((mutation) => Object.keys(mutation.patch)),
+    )
+    const retained = current
+      ? Object.fromEntries(
+          [...fields].map((key) => [key, current[key as keyof Folder]]),
+        )
+      : {}
+    this.#state.write({
+      folders: replaceById(this.#state.read().folders, {
+        ...saved,
+        ...retained,
+      }),
+    })
     await this.#refreshFolders()
   }
 
   async #adoptTag(saved: Tag): Promise<void> {
     const current = this.#state.read().tags.find((tag) => tag.id === saved.id)
     const later = this.#pending.get(`tag:${saved.id}`) ?? []
-    const fields = new Set(later.flatMap((mutation) => Object.keys(mutation.patch)))
-    const retained = current ? Object.fromEntries([...fields].map((key) => [key, current[key as keyof Tag]])) : {}
-    this.#state.write({ tags: replaceById(this.#state.read().tags, { ...saved, ...retained }) })
+    const fields = new Set(
+      later.flatMap((mutation) => Object.keys(mutation.patch)),
+    )
+    const retained = current
+      ? Object.fromEntries(
+          [...fields].map((key) => [key, current[key as keyof Tag]]),
+        )
+      : {}
+    this.#state.write({
+      tags: replaceById(this.#state.read().tags, { ...saved, ...retained }),
+    })
   }
 
   async #refreshFolders(): Promise<void> {
@@ -522,7 +672,8 @@ export class OrganizeActions {
   async #flush(ids: readonly string[]): Promise<void> {
     for (const id of ids) {
       const result = await this.#backend.notes.flush(id)
-      if (result.pending !== 0 || result.failed !== 0) throw new Error('Note body is not safely persisted')
+      if (result.pending !== 0 || result.failed !== 0)
+        throw new Error('Note body is not safely persisted')
     }
   }
 }

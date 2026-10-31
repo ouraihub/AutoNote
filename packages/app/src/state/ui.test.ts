@@ -1,7 +1,12 @@
 import { describe, expect, test } from 'vitest'
 import { BackendError } from '@app/backend'
 import type { LogFields, Logger } from '@app/log/logger'
-import type { NotificationRequest, Notifier, PrefValue, PrefsStore } from '@app/platform'
+import type {
+  NotificationRequest,
+  Notifier,
+  PrefValue,
+  PrefsStore,
+} from '@app/platform'
 import { PANEL_WIDTHS, workspacePrefKey } from './layout-prefs'
 import { UiState } from './ui.svelte'
 
@@ -18,7 +23,8 @@ class MemoryPrefsStore implements PrefsStore {
 
   async save(key: string, value: PrefValue): Promise<void> {
     this.saves += 1
-    if (this.failSaves) throw new BackendError('internal', 0, 'Preference write failed')
+    if (this.failSaves)
+      throw new BackendError('internal', 0, 'Preference write failed')
     this.values.set(key, structuredClone(value))
   }
 
@@ -56,13 +62,22 @@ class RecordingNotifier implements Notifier {
 function createUi(prefs = new MemoryPrefsStore()) {
   const logger = new RecordingLogger()
   const notifier = new RecordingNotifier()
-  return { ui: new UiState({ prefs, logger, notifier }), prefs, logger, notifier }
+  return {
+    ui: new UiState({ prefs, logger, notifier }),
+    prefs,
+    logger,
+    notifier,
+  }
 }
 
 describe('UiState layout', () => {
   test('restores a hostile saved width as a visible panel', async () => {
     const prefs = new MemoryPrefsStore()
-    prefs.values.set('layout', { navWidth: -9000, listWidth: 0, navCollapsed: 'yes' })
+    prefs.values.set('layout', {
+      navWidth: -9000,
+      listWidth: 0,
+      navCollapsed: 'yes',
+    })
     const { ui } = createUi(prefs)
 
     await ui.load('user-a')
@@ -90,7 +105,8 @@ describe('UiState layout', () => {
     const { ui, prefs } = createUi()
     await ui.load('user-a')
 
-    for (let width = 200; width <= 300; width += 10) ui.resize({ navWidth: width })
+    for (let width = 200; width <= 300; width += 10)
+      ui.resize({ navWidth: width })
     await ui.flush()
 
     expect(prefs.saves).toBeLessThanOrEqual(2)
@@ -123,19 +139,32 @@ describe('UiState layout', () => {
     await expect(ui.flush()).rejects.toMatchObject({ code: 'internal' })
 
     expect(ui.layout).toMatchObject({ navCollapsed: true, listCollapsed: true })
-    expect(logger.warnings.map((entry) => entry.event)).toEqual(['ui.prefs.save_failed', 'ui.prefs.save_failed'])
+    expect(logger.warnings.map((entry) => entry.event)).toEqual([
+      'ui.prefs.save_failed',
+      'ui.prefs.save_failed',
+    ])
     expect(notifier.toasts).toHaveLength(1)
-    expect(notifier.toasts[0]).toMatchObject({ key: 'shell.layout_preferences_not_saved', tone: 'warning' })
+    expect(notifier.toasts[0]).toMatchObject({
+      key: 'shell.layout_preferences_not_saved',
+      tone: 'warning',
+    })
     prefs.failSaves = false
     await ui.flush()
-    expect(prefs.values.get('layout')).toMatchObject({ navCollapsed: true, listCollapsed: true })
+    expect(prefs.values.get('layout')).toMatchObject({
+      navCollapsed: true,
+      listCollapsed: true,
+    })
   })
 
   test('mirrors appearance for first paint under the layout key', async () => {
     const { ui, prefs } = createUi()
     await ui.load('user-a')
 
-    ui.applyAppearance({ theme: 'dark', accent: 'wisteria', background: 'white' })
+    ui.applyAppearance({
+      theme: 'dark',
+      accent: 'wisteria',
+      background: 'white',
+    })
     await ui.flush()
 
     expect(prefs.values.get('layout')).toMatchObject({
@@ -303,7 +332,9 @@ describe('UiState account isolation', () => {
 
     expect(ui.recent).toEqual(['note-a'])
     expect(ui.activeNoteId).toBe('note-a')
-    expect(prefs.values.get(workspacePrefKey('user-b'))).toMatchObject({ recentNoteIds: ['note-z'] })
+    expect(prefs.values.get(workspacePrefKey('user-b'))).toMatchObject({
+      recentNoteIds: ['note-z'],
+    })
   })
 
   test('a slow load for the previous account never overwrites the new account', async () => {

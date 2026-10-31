@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/svelte'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { EN_US_MESSAGES } from '@shared/locales/en-US'
 import type { TotpLoginChallenge } from '@shared/types'
@@ -8,7 +14,9 @@ const i18n = {
   locale: 'en-US' as const,
   t(
     key: keyof typeof EN_US_MESSAGES,
-    params?: Readonly<Record<string, boolean | number | string | null | undefined>>,
+    params?: Readonly<
+      Record<string, boolean | number | string | null | undefined>
+    >,
   ): string {
     const template = EN_US_MESSAGES[key]
     return template.replace(/\{([A-Za-z0-9_]+)\}/g, (whole, name: string) => {
@@ -46,7 +54,9 @@ afterEach(cleanup)
 
 describe('LoginPage', () => {
   test('does not render an account form when accounts are unavailable', () => {
-    render(LoginPage, { props: { session: session({ canSignIn: false }), i18n } })
+    render(LoginPage, {
+      props: { session: session({ canSignIn: false }), i18n },
+    })
 
     expect(screen.queryByRole('textbox')).toBeNull()
     expect(screen.queryByRole('button')).toBeNull()
@@ -63,14 +73,21 @@ describe('LoginPage', () => {
     const state = session({ login })
     render(LoginPage, { props: { session: state, i18n } })
 
-    await fireEvent.input(screen.getByLabelText('Username'), { target: { value: 'alice' } })
-    await fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'password' } })
+    await fireEvent.input(screen.getByLabelText('Username'), {
+      target: { value: 'alice' },
+    })
+    await fireEvent.input(screen.getByLabelText('Password'), {
+      target: { value: 'password' },
+    })
     const form = screen.getByRole('button', { name: 'Sign in' }).closest('form')
     if (!form) throw new Error('Expected login form')
 
     void fireEvent.submit(form)
     await waitFor(() => expect(login).toHaveBeenCalledTimes(1))
-    expect((screen.getByRole('button', { name: 'Sign in' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(
+      (screen.getByRole('button', { name: 'Sign in' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true)
     void fireEvent.submit(form)
     expect(login).toHaveBeenCalledTimes(1)
 
@@ -88,12 +105,16 @@ describe('LoginPage', () => {
     render(LoginPage, { props: { session: state, i18n } })
 
     expect(screen.getByLabelText('Authenticator code')).toBeTruthy()
-    await fireEvent.click(screen.getByRole('button', { name: 'Use recovery code' }))
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Use recovery code' }),
+    )
     const code = screen.getByLabelText('Recovery code')
     await fireEvent.input(code, { target: { value: 'abcd efgh' } })
     expect((code as HTMLInputElement).value).toBe('ABCDEFGH')
     await fireEvent.submit(
-      screen.getByRole('button', { name: 'Verify and sign in' }).closest('form') as HTMLFormElement,
+      screen
+        .getByRole('button', { name: 'Verify and sign in' })
+        .closest('form') as HTMLFormElement,
     )
 
     await waitFor(() =>
@@ -107,15 +128,29 @@ describe('LoginPage', () => {
   test('aborts an in-flight submission when unmounted', async () => {
     let capturedSignal: AbortSignal | undefined
     const pending = Promise.withResolvers<'authed'>()
-    const login = vi.fn((_username: string, _password: string, options?: { signal?: AbortSignal }) => {
-      capturedSignal = options?.signal
-      return pending.promise
-    })
+    const login = vi.fn(
+      (
+        _username: string,
+        _password: string,
+        options?: { signal?: AbortSignal },
+      ) => {
+        capturedSignal = options?.signal
+        return pending.promise
+      },
+    )
     const state = session({ login })
     const { unmount } = render(LoginPage, { props: { session: state, i18n } })
-    await fireEvent.input(screen.getByLabelText('Username'), { target: { value: 'alice' } })
-    await fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'password' } })
-    void fireEvent.submit(screen.getByRole('button', { name: 'Sign in' }).closest('form') as HTMLFormElement)
+    await fireEvent.input(screen.getByLabelText('Username'), {
+      target: { value: 'alice' },
+    })
+    await fireEvent.input(screen.getByLabelText('Password'), {
+      target: { value: 'password' },
+    })
+    void fireEvent.submit(
+      screen
+        .getByRole('button', { name: 'Sign in' })
+        .closest('form') as HTMLFormElement,
+    )
     await waitFor(() => expect(capturedSignal).toBeDefined())
     unmount()
     expect(capturedSignal?.aborted).toBe(true)

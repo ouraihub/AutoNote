@@ -13,7 +13,9 @@ test('keeps locale keys and interpolation placeholders aligned', () => {
   for (const key of englishKeys) {
     const english = EN_US_MESSAGES[key as keyof typeof EN_US_MESSAGES]
     const chinese = ZH_CN_MESSAGES[key as keyof typeof ZH_CN_MESSAGES]
-    expect([...english.matchAll(PLACEHOLDER)].map((match) => match[1]).sort()).toEqual(
+    expect(
+      [...english.matchAll(PLACEHOLDER)].map((match) => match[1]).sort(),
+    ).toEqual(
       [...chinese.matchAll(PLACEHOLDER)].map((match) => match[1]).sort(),
     )
   }

@@ -1,5 +1,11 @@
 import { LIMITS, mergeSettings } from '@shared/constants'
-import { countText, deriveExcerpt, deriveTitle, extractTags, sortTagNames } from '@shared/markdown-utils'
+import {
+  countText,
+  deriveExcerpt,
+  deriveTitle,
+  extractTags,
+  sortTagNames,
+} from '@shared/markdown-utils'
 import { truncateText } from '@shared/text-utils'
 import { welcomeNoteTemplates } from '@shared/welcome-notes'
 import type {
@@ -56,15 +62,21 @@ export function createDemoState(): DemoState {
   const now = Date.now()
   const folders: Folder[] = []
   const notes = welcomeNoteTemplates('zh-CN').map(({ content }, index) =>
-    note(seedId(20 + index), content, null, now - index, { isPinned: true, isStarred: true }),
+    note(seedId(20 + index), content, null, now - index, {
+      isPinned: true,
+      isStarred: true,
+    }),
   )
   const firstNote = notes[0]
   if (!firstNote) throw new Error('Welcome notes are unavailable')
   const tagIds = new Map<string, string>()
   for (const item of notes) {
-    for (const name of item.tags) if (!tagIds.has(name)) tagIds.set(name, newDemoId())
+    for (const name of item.tags)
+      if (!tagIds.has(name)) tagIds.set(name, newDemoId())
   }
-  const tagColors = new Map<string, string | null>([['getting-started', '#6366f1']])
+  const tagColors = new Map<string, string | null>([
+    ['getting-started', '#6366f1'],
+  ])
   const preferredLocaleTag = notes[0]?.tags.find((name) => name !== 'AutoNote')
   if (preferredLocaleTag) tagColors.set(preferredLocaleTag, '#b5482e')
   const welcomeSlug = seedId(20).slice(-20)
@@ -92,21 +104,27 @@ export function createDemoState(): DemoState {
       role: 'owner',
       createdAt: now - 86_400_000 * 30,
     },
-    settings: mergeSettings({ sync: { realtime: false, pollIntervalMs: 300_000 } }),
+    settings: mergeSettings({
+      sync: { realtime: false, pollIntervalMs: 300_000 },
+    }),
     notes: new Map(notes.map((item) => [item.id, item])),
     folders: new Map(folders.map((item) => [item.id, item])),
     tagIds,
     tagColors,
     versions: new Map(),
     attachments: new Map(),
-    shares: new Map([[welcomeShare.noteId, { info: welcomeShare, password: null }]]),
+    shares: new Map([
+      [welcomeShare.noteId, { info: welcomeShare, password: null }],
+    ]),
     backupTargets: new Map(),
     backupRuns: [],
   }
 }
 
 export function summarize(note: Note): NoteSummary {
-  return Object.fromEntries(Object.entries(note).filter(([key]) => key !== 'content')) as NoteSummary
+  return Object.fromEntries(
+    Object.entries(note).filter(([key]) => key !== 'content'),
+  ) as NoteSummary
 }
 
 export function refreshNote(note: Note, content: string, title?: string): Note {
@@ -114,7 +132,10 @@ export function refreshNote(note: Note, content: string, title?: string): Note {
   return {
     ...note,
     content,
-    title: title === undefined ? note.title : truncateText(title.trim(), LIMITS.titleMaxLength),
+    title:
+      title === undefined
+        ? note.title
+        : truncateText(title.trim(), LIMITS.titleMaxLength),
     excerpt: deriveExcerpt(content),
     tags: sortTagNames(extractTags(content)),
     wordCount: counted.words,
@@ -126,12 +147,15 @@ export function listFolders(state: DemoState): Folder[] {
   return [...state.folders.values()]
     .map((item) => ({
       ...item,
-      noteCount: [...state.notes.values()].filter((note) => note.folderId === item.id && note.deletedAt === null)
-        .length,
+      noteCount: [...state.notes.values()].filter(
+        (note) => note.folderId === item.id && note.deletedAt === null,
+      ).length,
     }))
     .sort(
       (left, right) =>
-        left.position - right.position || left.createdAt - right.createdAt || left.id.localeCompare(right.id),
+        left.position - right.position ||
+        left.createdAt - right.createdAt ||
+        left.id.localeCompare(right.id),
     )
 }
 
@@ -163,7 +187,9 @@ function note(
   content: string,
   folderId: string | null,
   createdAt: number,
-  flags: Partial<Pick<Note, 'isPinned' | 'isStarred' | 'isArchived' | 'deletedAt'>> = {},
+  flags: Partial<
+    Pick<Note, 'isPinned' | 'isStarred' | 'isArchived' | 'deletedAt'>
+  > = {},
 ): Note {
   const counted = countText(content)
   return {

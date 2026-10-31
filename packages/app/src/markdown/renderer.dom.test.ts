@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'vitest'
 import { decodeDataValue } from './data-attr'
-import { parseFenceInfo, parseWikiTarget, renderMarkdown, renderMarkdownBlocks } from './renderer'
+import {
+  parseFenceInfo,
+  parseWikiTarget,
+  renderMarkdown,
+  renderMarkdownBlocks,
+} from './renderer'
 
 describe('renderMarkdown', () => {
   test('renders front matter, GFM tasks, wiki links, tags, callouts, tabs, and live Markdown examples', () => {
@@ -28,7 +33,9 @@ Second panel
 ~~~~`)
 
     expect(rendered.frontMatter).toEqual({ title: 'Renderer fixture' })
-    expect(rendered.headings).toEqual([{ level: 1, text: 'Heading', slug: 'heading', line: 3 }])
+    expect(rendered.headings).toEqual([
+      { level: 1, text: 'Heading', slug: 'heading', line: 3 },
+    ])
     expect(rendered.html).toContain('data-task-line')
     expect(rendered.html).toContain('data-wikilink')
     expect(rendered.html).toContain('data-tag')
@@ -72,7 +79,9 @@ test('parses Wiki targets and code-fence metadata without executing it', () => {
     blockId: 'block',
     alias: 'Alias',
   })
-  expect(parseFenceInfo('ts title="example.ts" line-numbers start=4 {2-3}')).toEqual({
+  expect(
+    parseFenceInfo('ts title="example.ts" line-numbers start=4 {2-3}'),
+  ).toEqual({
     language: 'ts',
     title: 'example.ts',
     lineNumbers: true,

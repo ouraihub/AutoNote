@@ -1,9 +1,20 @@
 import { BackendError } from '@app/backend'
 import type { BackendSession } from '@shared/backend-types'
 import { browserTimers, type Timers } from '../platform'
-import { isCachedNoteContent, isOutboxList, isSessionInfo, isShellData } from './guards'
+import {
+  isCachedNoteContent,
+  isOutboxList,
+  isSessionInfo,
+  isShellData,
+} from './guards'
 import type { KvStore } from './kv-store'
-import type { CachedNoteContent, LocalDb, LocalDbOptions, OutboxItem, ShellData } from './types'
+import type {
+  CachedNoteContent,
+  LocalDb,
+  LocalDbOptions,
+  OutboxItem,
+  ShellData,
+} from './types'
 
 const KEY = {
   userId: 'userId',
@@ -17,7 +28,14 @@ const KEY = {
   content: (id: string) => `note:${id}`,
 } as const
 
-const LEGACY_KEYS = new Set<string>([KEY.notes, KEY.folders, KEY.tags, KEY.cursor, KEY.outbox, KEY.lease])
+const LEGACY_KEYS = new Set<string>([
+  KEY.notes,
+  KEY.folders,
+  KEY.tags,
+  KEY.cursor,
+  KEY.outbox,
+  KEY.lease,
+])
 
 const defaultTimers: Timers = browserTimers
 
@@ -41,10 +59,18 @@ function mergeOutboxValues(scoped: unknown, legacy: unknown): unknown {
   return merged
 }
 
-function advanceItem(item: OutboxItem, rev: number, preserveVersion: boolean): OutboxItem {
+function advanceItem(
+  item: OutboxItem,
+  rev: number,
+  preserveVersion: boolean,
+): OutboxItem {
   const next: OutboxItem = {
     ...item,
-    payload: { ...item.payload, rev, ...(preserveVersion ? { preserveVersion: true } : {}) },
+    payload: {
+      ...item.payload,
+      rev,
+      ...(preserveVersion ? { preserveVersion: true } : {}),
+    },
   }
   delete next.dependsOnWriteId
   return next
@@ -85,7 +111,8 @@ export class LocalDbImpl implements LocalDb {
     try {
       const storedUser = await this.#kv.get<string>(this.#userIdKey)
       if (typeof storedUser === 'string') await this.#migrateLegacy(storedUser)
-      else if ((await this.#kv.get(KEY.outbox)) !== undefined) throw localError()
+      else if ((await this.#kv.get(KEY.outbox)) !== undefined)
+        throw localError()
       await this.#kv.set(this.#userIdKey, userId)
       this.#activeUser = userId
     } catch {
@@ -141,7 +168,10 @@ export class LocalDbImpl implements LocalDb {
     }
   }
 
-  async saveShell(data: ShellData, userId = this.#requireUser()): Promise<void> {
+  async saveShell(
+    data: ShellData,
+    userId = this.#requireUser(),
+  ): Promise<void> {
     if (!isShellData(data)) throw localError()
     try {
       await this.#kv.setMany([
@@ -163,7 +193,10 @@ export class LocalDbImpl implements LocalDb {
         const pending = this.#pendingShell
         this.#pendingShell = null
         this.#shellTimer = null
-        if (pending) void this.saveShell(pending.data, pending.userId).catch(() => undefined)
+        if (pending)
+          void this.saveShell(pending.data, pending.userId).catch(
+            () => undefined,
+          )
       }, 80) ?? null
   }
 
@@ -179,7 +212,11 @@ export class LocalDbImpl implements LocalDb {
     }
   }
 
-  async setContent(id: string, value: CachedNoteContent, userId = this.#requireUser()): Promise<void> {
+  async setContent(
+    id: string,
+    value: CachedNoteContent,
+    userId = this.#requireUser(),
+  ): Promise<void> {
     if (!isCachedNoteContent(value)) throw localError()
     try {
       await this.#kv.set(this.#scoped(KEY.content(id), userId), value)
@@ -201,7 +238,8 @@ export class LocalDbImpl implements LocalDb {
     try {
       const value = await this.#kv.get(key)
       if (value === undefined) return []
-      if (!isOutboxList(value)) throw new BackendError('internal', 0, 'Local outbox is invalid')
+      if (!isOutboxList(value))
+        throw new BackendError('internal', 0, 'Local outbox is invalid')
       return value.map(copyItem)
     } catch (error) {
       this.#onReadFailure(key, error)
@@ -211,11 +249,14 @@ export class LocalDbImpl implements LocalDb {
   async getAllOutbox(): Promise<OutboxItem[]> {
     try {
       const entries = await this.#kv.entries()
-      const outboxEntries = entries.filter(([key]) => key.startsWith('user:') && key.endsWith(`:${KEY.outbox}`))
+      const outboxEntries = entries.filter(
+        ([key]) => key.startsWith('user:') && key.endsWith(`:${KEY.outbox}`),
+      )
       const values = outboxEntries.map(([, value]) => value)
       const all: OutboxItem[] = []
       for (const value of values) {
-        if (!isOutboxList(value)) throw new BackendError('internal', 0, 'Local outbox is invalid')
+        if (!isOutboxList(value))
+          throw new BackendError('internal', 0, 'Local outbox is invalid')
         all.push(...value.map(copyItem))
       }
       return all
@@ -236,22 +277,37 @@ export class LocalDbImpl implements LocalDb {
   }
 
   async completeOutboxItem(id: string, writeId: string): Promise<void> {
-    await this.#updateOutbox((items) => items.filter((item) => item.id !== id || item.writeId !== writeId))
+    await this.#updateOutbox((items) =>
+      items.filter((item) => item.id !== id || item.writeId !== writeId),
+    )
   }
 
-  async updateOutboxRevision(id: string, writeId: string, rev: number, preserveVersion = false): Promise<void> {
+  async updateOutboxRevision(
+    id: string,
+    writeId: string,
+    rev: number,
+    preserveVersion = false,
+  ): Promise<void> {
     if (!Number.isSafeInteger(rev) || rev < 1) throw localError()
     await this.#updateOutbox((items) =>
       items.map((item) =>
-        item.id === id && item.writeId === writeId ? advanceItem(item, rev, preserveVersion) : item,
+        item.id === id && item.writeId === writeId
+          ? advanceItem(item, rev, preserveVersion)
+          : item,
       ),
     )
   }
 
-  async setOutboxRecoveryId(id: string, writeId: string, recoveryId: string): Promise<void> {
+  async setOutboxRecoveryId(
+    id: string,
+    writeId: string,
+    recoveryId: string,
+  ): Promise<void> {
     await this.#updateOutbox((items) =>
       items.map((item) =>
-        item.id === id && item.writeId === writeId ? { ...item, payload: { ...item.payload, recoveryId } } : item,
+        item.id === id && item.writeId === writeId
+          ? { ...item, payload: { ...item.payload, recoveryId } }
+          : item,
       ),
     )
   }
@@ -264,14 +320,22 @@ export class LocalDbImpl implements LocalDb {
   ): Promise<void> {
     await this.#updateOutbox((items) =>
       items.map((item) => {
-        if (item.noteId !== noteId || item.dependsOnWriteId !== sourceWriteId || item.payload.rev !== expectedRev)
+        if (
+          item.noteId !== noteId ||
+          item.dependsOnWriteId !== sourceWriteId ||
+          item.payload.rev !== expectedRev
+        )
           return item
         return advanceItem(item, nextRev, false)
       }),
     )
   }
 
-  async markOutboxFailure(id: string, writeId: string, message: string): Promise<void> {
+  async markOutboxFailure(
+    id: string,
+    writeId: string,
+    message: string,
+  ): Promise<void> {
     await this.#updateOutbox((items) =>
       items.map((item) =>
         item.id === id && item.writeId === writeId
@@ -293,12 +357,15 @@ export class LocalDbImpl implements LocalDb {
     }
   }
 
-  async #updateOutbox(updater: (items: OutboxItem[]) => OutboxItem[]): Promise<void> {
+  async #updateOutbox(
+    updater: (items: OutboxItem[]) => OutboxItem[],
+  ): Promise<void> {
     const key = this.#scoped(KEY.outbox, this.#requireUser())
     try {
       await this.#kv.update<unknown>(key, (current) => {
         if (current === undefined) return updater([])
-        if (!isOutboxList(current)) throw new BackendError('internal', 0, 'Local outbox is invalid')
+        if (!isOutboxList(current))
+          throw new BackendError('internal', 0, 'Local outbox is invalid')
         return updater(current)
       })
     } catch (error) {
@@ -317,8 +384,15 @@ export class LocalDbImpl implements LocalDb {
       const targetValue = existing[index]
       if (targetValue !== undefined) {
         if (legacyKey === KEY.outbox) {
-          if (!isOutboxList(targetValue) || !isOutboxList(legacyValue)) throw localError()
-          if (legacyValue.some((old) => targetValue.some((item) => item.id === old.id && item.writeId !== old.writeId)))
+          if (!isOutboxList(targetValue) || !isOutboxList(legacyValue))
+            throw localError()
+          if (
+            legacyValue.some((old) =>
+              targetValue.some(
+                (item) => item.id === old.id && item.writeId !== old.writeId,
+              ),
+            )
+          )
             throw localError()
           const merged = mergeOutboxValues(targetValue, legacyValue)
           if (merged !== targetValue) {
@@ -336,7 +410,8 @@ export class LocalDbImpl implements LocalDb {
   }
 
   #requireUser(): string {
-    if (this.#activeUser === null) throw new BackendError('internal', 0, 'No local user is bound')
+    if (this.#activeUser === null)
+      throw new BackendError('internal', 0, 'No local user is bound')
     return this.#activeUser
   }
 
@@ -345,7 +420,9 @@ export class LocalDbImpl implements LocalDb {
   }
 
   #shellKeys(userId: string): string[] {
-    return [KEY.notes, KEY.folders, KEY.tags, KEY.cursor].map((key) => this.#scoped(key, userId))
+    return [KEY.notes, KEY.folders, KEY.tags, KEY.cursor].map((key) =>
+      this.#scoped(key, userId),
+    )
   }
 }
 

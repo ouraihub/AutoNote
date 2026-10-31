@@ -1,5 +1,11 @@
 import { BackendError } from '@app/backend'
-import type { Folder, NoteSummary, SyncDeletion, SyncResponse, Tag } from '@shared/types'
+import type {
+  Folder,
+  NoteSummary,
+  SyncDeletion,
+  SyncResponse,
+  Tag,
+} from '@shared/types'
 
 type NoteRecord = Readonly<Record<string, NoteSummary>>
 
@@ -10,9 +16,16 @@ export interface SyncShell {
   readonly cursor: number
 }
 
-export const EMPTY_SYNC_SHELL: SyncShell = { notes: {}, folders: [], tags: [], cursor: 0 }
+export const EMPTY_SYNC_SHELL: SyncShell = {
+  notes: {},
+  folders: [],
+  tags: [],
+  cursor: 0,
+}
 
-export type LocalNoteState = { readonly kind: 'content'; readonly baseRev: number } | { readonly kind: 'pending' }
+export type LocalNoteState =
+  | { readonly kind: 'content'; readonly baseRev: number }
+  | { readonly kind: 'pending' }
 
 export type LocalNoteStates = ReadonlyMap<string, LocalNoteState>
 
@@ -36,25 +49,45 @@ export function mergeSync(
   dirty: LocalNoteStates,
   tombstones: NoteTombstones,
 ): SyncMergeResult {
-  if (payload.full && payload.hasMore) throw invalidResponse('A partial full sync page cannot be merged')
-  if (!payload.full && payload.cursor < shell.cursor) return { shell, tombstones, refetchIds: [], removedIds: [] }
+  if (payload.full && payload.hasMore)
+    throw invalidResponse('A partial full sync page cannot be merged')
+  if (!payload.full && payload.cursor < shell.cursor)
+    return { shell, tombstones, refetchIds: [], removedIds: [] }
 
   const nextTombstones = advanceTombstones(tombstones, payload)
   const refetchIds = new Set<string>()
   const notes = payload.full
-    ? replaceNotes(shell.notes, payload.notes, dirty, nextTombstones, refetchIds)
+    ? replaceNotes(
+        shell.notes,
+        payload.notes,
+        dirty,
+        nextTombstones,
+        refetchIds,
+      )
     : mergeNotes(shell.notes, payload, dirty, nextTombstones, refetchIds)
   const replaceFacets = payload.full || payload.facetsFull
   const folders = replaceFacets
     ? replaceList(shell.folders, payload.folders, folderEqual)
-    : mergeList(shell.folders, payload.folders, payload.deletions, 'folder', folderEqual)
+    : mergeList(
+        shell.folders,
+        payload.folders,
+        payload.deletions,
+        'folder',
+        folderEqual,
+      )
   const tags = replaceFacets
     ? replaceList(shell.tags, payload.tags, tagEqual)
     : mergeList(shell.tags, payload.tags, payload.deletions, 'tag', tagEqual)
 
   const unchanged =
-    notes === shell.notes && folders === shell.folders && tags === shell.tags && payload.cursor === shell.cursor
-  const removedIds = notes === shell.notes ? [] : Object.keys(shell.notes).filter((id) => !Object.hasOwn(notes, id))
+    notes === shell.notes &&
+    folders === shell.folders &&
+    tags === shell.tags &&
+    payload.cursor === shell.cursor
+  const removedIds =
+    notes === shell.notes
+      ? []
+      : Object.keys(shell.notes).filter((id) => !Object.hasOwn(notes, id))
   return {
     shell: unchanged ? shell : { notes, folders, tags, cursor: payload.cursor },
     tombstones: nextTombstones,
@@ -63,7 +96,9 @@ export function mergeSync(
   }
 }
 
-export function nextFullSyncPage(pages: readonly SyncResponse[]): FullSyncPageRequest | null {
+export function nextFullSyncPage(
+  pages: readonly SyncResponse[],
+): FullSyncPageRequest | null {
   const { first, last, requestedKeys } = validateFullPages(pages)
   if (!last.hasMore) return null
   if (last.nextKey === null || requestedKeys.has(last.nextKey)) {
@@ -72,12 +107,16 @@ export function nextFullSyncPage(pages: readonly SyncResponse[]): FullSyncPageRe
   return { after: last.nextKey, snapshot: first.cursor }
 }
 
-export function consolidateFullSync(pages: readonly SyncResponse[], increments: readonly SyncResponse[]): SyncResponse {
+export function consolidateFullSync(
+  pages: readonly SyncResponse[],
+  increments: readonly SyncResponse[],
+): SyncResponse {
   const { first, last } = validateFullPages(pages)
   if (last.hasMore) throw invalidResponse('Full sync pagination is incomplete')
 
   const notes = new Map<string, NoteSummary>()
-  for (const page of pages) for (const note of page.notes) notes.set(note.id, note)
+  for (const page of pages)
+    for (const note of page.notes) notes.set(note.id, note)
   let folders = new Map(first.folders.map((folder) => [folder.id, folder]))
   let tags = new Map(first.tags.map((tag) => [tag.id, tag]))
   let cursor = first.cursor
@@ -87,7 +126,8 @@ export function consolidateFullSync(pages: readonly SyncResponse[], increments: 
   let siteChanged = pages.some((page) => page.siteChanged === true)
 
   for (const update of increments) {
-    if (update.full || update.cursor < cursor) throw invalidResponse('Full sync catch-up is out of order')
+    if (update.full || update.cursor < cursor)
+      throw invalidResponse('Full sync catch-up is out of order')
     settingsChanged ||= update.settingsChanged
     profileChanged ||= update.profileChanged === true
     siteChanged ||= update.siteChanged === true
@@ -135,10 +175,15 @@ function validateFullPages(pages: readonly SyncResponse[]): {
   const requestedKeys = new Set<string>()
   let last = first
   for (const [index, page] of pages.entries()) {
-    if (!page.full || page.cursor !== first.cursor) throw invalidResponse('Full sync snapshot expired')
+    if (!page.full || page.cursor !== first.cursor)
+      throw invalidResponse('Full sync snapshot expired')
     last = page
     if (index === pages.length - 1) break
-    if (!page.hasMore || page.nextKey === null || requestedKeys.has(page.nextKey)) {
+    if (
+      !page.hasMore ||
+      page.nextKey === null ||
+      requestedKeys.has(page.nextKey)
+    ) {
       throw invalidResponse('Full sync pagination is incomplete')
     }
     requestedKeys.add(page.nextKey)
@@ -146,16 +191,28 @@ function validateFullPages(pages: readonly SyncResponse[]): {
   return { first, last, requestedKeys }
 }
 
-function advanceTombstones(tombstones: NoteTombstones, payload: SyncResponse): NoteTombstones {
+function advanceTombstones(
+  tombstones: NoteTombstones,
+  payload: SyncResponse,
+): NoteTombstones {
   if (tombstones.size === 0) return tombstones
-  const deleted = new Set(payload.deletions.filter((item) => item.entity === 'note').map((item) => item.id))
-  const present = payload.full ? new Set(payload.notes.map((note) => note.id)) : null
+  const deleted = new Set(
+    payload.deletions
+      .filter((item) => item.entity === 'note')
+      .map((item) => item.id),
+  )
+  const present = payload.full
+    ? new Set(payload.notes.map((note) => note.id))
+    : null
   let next: Map<string, number | null> | null = null
   for (const [id, cursor] of tombstones) {
     if (cursor !== null && payload.cursor > cursor) {
       next ??= new Map(tombstones)
       next.delete(id)
-    } else if (cursor === null && (deleted.has(id) || (present !== null && !present.has(id)))) {
+    } else if (
+      cursor === null &&
+      (deleted.has(id) || (present !== null && !present.has(id)))
+    ) {
       next ??= new Map(tombstones)
       next.set(id, payload.cursor)
     }
@@ -175,15 +232,23 @@ function replaceNotes(
     if (tombstones.has(remote.id)) continue
     const existing = ownNote(current, remote.id)
     const local = dirty.get(remote.id)
-    const candidate = reconcileSummary(ownNote(next, remote.id) ?? existing, remote, local)
-    next[remote.id] = existing && summaryEqual(existing, candidate) ? existing : candidate
+    const candidate = reconcileSummary(
+      ownNote(next, remote.id) ?? existing,
+      remote,
+      local,
+    )
+    next[remote.id] =
+      existing && summaryEqual(existing, candidate) ? existing : candidate
     if (needsContent(existing, remote, local)) refetchIds.add(remote.id)
   }
   for (const [id, note] of Object.entries(current)) {
-    if (dirty.has(id) && !tombstones.has(id) && !Object.hasOwn(next, id)) next[id] = note
+    if (dirty.has(id) && !tombstones.has(id) && !Object.hasOwn(next, id))
+      next[id] = note
   }
   const ids = Object.keys(next)
-  const unchanged = ids.length === Object.keys(current).length && ids.every((id) => next[id] === current[id])
+  const unchanged =
+    ids.length === Object.keys(current).length &&
+    ids.every((id) => next[id] === current[id])
   return unchanged ? current : next
 }
 
@@ -206,7 +271,12 @@ function mergeNotes(
     next[remote.id] = candidate
   }
   for (const deletion of payload.deletions) {
-    if (deletion.entity !== 'note' || dirty.has(deletion.id) || !Object.hasOwn(next ?? current, deletion.id)) continue
+    if (
+      deletion.entity !== 'note' ||
+      dirty.has(deletion.id) ||
+      !Object.hasOwn(next ?? current, deletion.id)
+    )
+      continue
     next ??= { ...current }
     delete next[deletion.id]
   }
@@ -242,7 +312,11 @@ function needsContent(
   incoming: NoteSummary,
   local: LocalNoteState | undefined,
 ): boolean {
-  return current !== undefined && incoming.rev > current.rev && local?.kind !== 'content'
+  return (
+    current !== undefined &&
+    incoming.rev > current.rev &&
+    local?.kind !== 'content'
+  )
 }
 
 function ownNote(notes: NoteRecord, id: string): NoteSummary | undefined {
@@ -259,7 +333,10 @@ function replaceList<T extends { id: string }>(
     const existing = byId.get(item.id)
     return existing && equal(existing, item) ? existing : item
   })
-  return next.length === current.length && next.every((item, index) => item === current[index]) ? current : next
+  return next.length === current.length &&
+    next.every((item, index) => item === current[index])
+    ? current
+    : next
 }
 
 function mergeList<T extends { id: string }>(
@@ -321,7 +398,13 @@ function folderEqual(a: Folder, b: Folder): boolean {
 }
 
 function tagEqual(a: Tag, b: Tag): boolean {
-  return a.id === b.id && a.name === b.name && a.color === b.color && a.count === b.count && a.createdAt === b.createdAt
+  return (
+    a.id === b.id &&
+    a.name === b.name &&
+    a.color === b.color &&
+    a.count === b.count &&
+    a.createdAt === b.createdAt
+  )
 }
 
 function invalidResponse(message: string): BackendError {

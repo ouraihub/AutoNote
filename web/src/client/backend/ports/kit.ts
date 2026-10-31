@@ -1,6 +1,9 @@
 import { z } from 'zod'
 import type { Logger } from '@app/log/logger'
-import { validateRunEvent, validateRunSnapshot } from '@ouraihub/aether-contracts'
+import {
+  validateRunEvent,
+  validateRunSnapshot,
+} from '@ouraihub/aether-contracts'
 import { BackendError } from '@app/backend/errors'
 import { KitClientError } from '@ouraihub/aether-ui/ports'
 import type {
@@ -45,7 +48,11 @@ const KIT_CODES = [
 
 const KitCode = z.enum(KIT_CODES)
 const ErrorBody = z.object({
-  error: z.object({ code: KitCode, message: z.string(), details: z.record(z.string(), z.unknown()).optional() }),
+  error: z.object({
+    code: KitCode,
+    message: z.string(),
+    details: z.record(z.string(), z.unknown()).optional(),
+  }),
 })
 const Accepted = z.object({
   kind: z.literal('accepted'),
@@ -64,22 +71,40 @@ const AUTONOTE_CODES: Readonly<Record<string, KitErrorCode>> = {
 
 const BASE = '/api/ai/kit'
 
-function kitError(code: KitErrorCode, message: string, details?: Details): KitClientError {
-  return new KitClientError(details ? { code, message, details } : { code, message })
+function kitError(
+  code: KitErrorCode,
+  message: string,
+  details?: Details,
+): KitClientError {
+  return new KitClientError(
+    details ? { code, message, details } : { code, message },
+  )
 }
 
 function toKitError(error: unknown): KitClientError {
   if (error instanceof KitClientError) return error
   if (error instanceof BackendError) {
     const known = KitCode.safeParse(error.code)
-    const code = known.success ? known.data : (AUTONOTE_CODES[error.code] ?? 'internal')
-    return kitError(code, error.message, error.code === 'payload_too_large' ? { reason: 'too_large' } : undefined)
+    const code = known.success
+      ? known.data
+      : (AUTONOTE_CODES[error.code] ?? 'internal')
+    return kitError(
+      code,
+      error.message,
+      error.code === 'payload_too_large' ? { reason: 'too_large' } : undefined,
+    )
   }
   if (isAbortError(error)) return kitError('cancelled', 'Request cancelled')
-  return kitError('internal', error instanceof Error ? error.message : String(error))
+  return kitError(
+    'internal',
+    error instanceof Error ? error.message : String(error),
+  )
 }
 
-async function send(transport: Transport, spec: RequestSpec): Promise<Response> {
+async function send(
+  transport: Transport,
+  spec: RequestSpec,
+): Promise<Response> {
   let response: Response
   try {
     response = await transport.raw({ ...spec, allowErrorStatus: true })
@@ -115,18 +140,28 @@ async function run(
 ): Promise<RunAccepted> {
   if (signal?.aborted) throw kitError('cancelled', 'Request cancelled')
   const controller = new AbortController()
-  const lifetime = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
-  const response = await send(transport, { method: 'POST', path: `${BASE}/runs`, body: request, signal: lifetime })
+  const lifetime = signal
+    ? AbortSignal.any([signal, controller.signal])
+    : controller.signal
+  const response = await send(transport, {
+    method: 'POST',
+    path: `${BASE}/runs`,
+    body: request,
+    signal: lifetime,
+  })
   if (!response.body) throw kitError('internal', 'Expected event stream')
   const frames = readSseData(response.body, lifetime)[Symbol.asyncIterator]()
   let accepted: z.infer<typeof Accepted>
   try {
     const first = await frames.next()
-    if (first.done) throw kitError('network', 'Run stream ended before acceptance')
+    if (first.done)
+      throw kitError('network', 'Run stream ended before acceptance')
     accepted = Accepted.parse(JSON.parse(first.value))
   } catch (error) {
     await frames.return?.()
-    throw lifetime.aborted ? kitError('cancelled', 'Request cancelled') : toKitError(error)
+    throw lifetime.aborted
+      ? kitError('cancelled', 'Request cancelled')
+      : toKitError(error)
   }
   const { runId, conversationId, turnId } = accepted
   active.set(runId, controller)
@@ -135,7 +170,8 @@ async function run(
     try {
       for await (const frame of { [Symbol.asyncIterator]: () => frames }) {
         const event: unknown = JSON.parse(frame)
-        if (!validateRunEvent(event)) throw kitError('upstream', 'Invalid run event')
+        if (!validateRunEvent(event))
+          throw kitError('upstream', 'Invalid run event')
         onEvent(event)
         if (event.kind === 'end') {
           ended = true
@@ -153,11 +189,16 @@ async function run(
             kind: 'end',
             status: snapshot.status,
             ...(snapshot.error ? { error: snapshot.error } : {}),
-            ...(snapshot.exhausted === undefined ? {} : { exhausted: snapshot.exhausted }),
+            ...(snapshot.exhausted === undefined
+              ? {}
+              : { exhausted: snapshot.exhausted }),
           })
         }
       } catch (error) {
-        logger.warn('ai.run.snapshot.failed', { runId, code: toKitError(error).code })
+        logger.warn('ai.run.snapshot.failed', {
+          runId,
+          code: toKitError(error).code,
+        })
       }
       if (!ended) {
         logger.warn('ai.run.stream.disconnected', { runId })
@@ -176,20 +217,32 @@ async function run(
       try {
         await frames.return?.()
       } catch (error) {
-        logger.warn('ai.run.stream.cleanup.failed', { runId, code: toKitError(error).code })
+        logger.warn('ai.run.stream.cleanup.failed', {
+          runId,
+          code: toKitError(error).code,
+        })
       }
     }
   })()
   return { runId, conversationId, turnId }
 }
 
-async function getSnapshot(transport: Transport, runId: string): Promise<RunSnapshot> {
-  const value = await call<unknown>(transport, { path: `${BASE}/runs/${encodeURIComponent(runId)}` })
-  if (!validateRunSnapshot(value)) throw kitError('upstream', 'Invalid run snapshot')
+async function getSnapshot(
+  transport: Transport,
+  runId: string,
+): Promise<RunSnapshot> {
+  const value = await call<unknown>(transport, {
+    path: `${BASE}/runs/${encodeURIComponent(runId)}`,
+  })
+  if (!validateRunSnapshot(value))
+    throw kitError('upstream', 'Invalid run snapshot')
   return value
 }
 
-export function createHttpKitPorts(transport: Transport, logger: Logger): KitPorts {
+export function createHttpKitPorts(
+  transport: Transport,
+  logger: Logger,
+): KitPorts {
   const active = new Map<string, AbortController>()
   return {
     search: {
@@ -276,7 +329,12 @@ export function createHttpKitPorts(transport: Transport, logger: Logger): KitPor
           path: `${BASE}/endpoint-keys/${encodeURIComponent(keyId)}/reveal`,
           body: { currentPassword },
         }).then((result) => result.key),
-      saveKey: (input) => call<Provider[]>(transport, { method: 'PUT', path: `${BASE}/endpoint-keys`, body: input }),
+      saveKey: (input) =>
+        call<Provider[]>(transport, {
+          method: 'PUT',
+          path: `${BASE}/endpoint-keys`,
+          body: input,
+        }),
       removeKey: (endpointId: string, keyId: string) =>
         call<Provider[]>(transport, {
           method: 'DELETE',
@@ -290,15 +348,26 @@ export function createHttpKitPorts(transport: Transport, logger: Logger): KitPor
           body: { enabled },
         }),
       list: () => call<Provider[]>(transport, { path: `${BASE}/providers` }),
-      save: (provider) => call<Provider[]>(transport, { method: 'PUT', path: `${BASE}/providers`, body: provider }),
+      save: (provider) =>
+        call<Provider[]>(transport, {
+          method: 'PUT',
+          path: `${BASE}/providers`,
+          body: provider,
+        }),
       remove: (id) =>
-        call<Provider[]>(transport, { method: 'DELETE', path: `${BASE}/providers/${encodeURIComponent(id)}` }),
+        call<Provider[]>(transport, {
+          method: 'DELETE',
+          path: `${BASE}/providers/${encodeURIComponent(id)}`,
+        }),
       modelOptions: (filter = {}) =>
         call<ModelOption[]>(transport, {
           path: `${BASE}/model-options`,
           query: {
             modelType: filter.modelType,
-            supportsTools: filter.supportsTools === undefined ? undefined : String(filter.supportsTools),
+            supportsTools:
+              filter.supportsTools === undefined
+                ? undefined
+                : String(filter.supportsTools),
           },
         }),
       probe: (target, options) =>
@@ -312,7 +381,8 @@ export function createHttpKitPorts(transport: Transport, logger: Logger): KitPor
             }),
     },
     chat: {
-      start: (request, onEvent, options) => run(transport, request, onEvent, options?.signal, active, logger),
+      start: (request, onEvent, options) =>
+        run(transport, request, onEvent, options?.signal, active, logger),
       cancel: async (runId) => {
         // The server aborts the run and waits for its terminal snapshot before we drop the stream,
         // so the stream's fallback snapshot read sees the final state instead of `running`.
@@ -320,18 +390,33 @@ export function createHttpKitPorts(transport: Transport, logger: Logger): KitPor
           method: 'POST',
           path: `${BASE}/runs/${encodeURIComponent(runId)}/cancel`,
         })
-        if (!validateRunSnapshot(snapshot)) throw kitError('upstream', 'Invalid run snapshot')
+        if (!validateRunSnapshot(snapshot))
+          throw kitError('upstream', 'Invalid run snapshot')
         active.get(runId)?.abort()
-        if (snapshot.status === 'running') throw kitError('conflict', 'Run is not attached to this server')
+        if (snapshot.status === 'running')
+          throw kitError('conflict', 'Run is not attached to this server')
       },
       getSnapshot: (runId) => getSnapshot(transport, runId),
-      approve: () => Promise.reject(kitError('unsupported', 'Tool approval is not available on the web')),
+      approve: () =>
+        Promise.reject(
+          kitError('unsupported', 'Tool approval is not available on the web'),
+        ),
     },
     conversations: {
-      list: (scope) => call<ConversationSummary[]>(transport, { path: `${BASE}/conversations`, query: { scope } }),
-      get: (id) => call<Conversation>(transport, { path: `${BASE}/conversations/${encodeURIComponent(id)}` }),
+      list: (scope) =>
+        call<ConversationSummary[]>(transport, {
+          path: `${BASE}/conversations`,
+          query: { scope },
+        }),
+      get: (id) =>
+        call<Conversation>(transport, {
+          path: `${BASE}/conversations/${encodeURIComponent(id)}`,
+        }),
       remove: async (id) => {
-        await call<unknown>(transport, { method: 'DELETE', path: `${BASE}/conversations/${encodeURIComponent(id)}` })
+        await call<unknown>(transport, {
+          method: 'DELETE',
+          path: `${BASE}/conversations/${encodeURIComponent(id)}`,
+        })
       },
       rename: (id, title) =>
         call<ConversationSummary>(transport, {

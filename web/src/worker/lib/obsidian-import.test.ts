@@ -48,7 +48,8 @@ describe('collectObsidianReferences', () => {
   })
 
   it('skips remote, data, and managed URLs', () => {
-    const content = '![x](https://example.com/a.png) ![y](data:image/png;base64,AA==) ![z](/api/files/123)'
+    const content =
+      '![x](https://example.com/a.png) ![y](data:image/png;base64,AA==) ![z](/api/files/123)'
     expect(collectObsidianReferences(content)).toEqual([])
   })
 
@@ -60,28 +61,40 @@ describe('collectObsidianReferences', () => {
 
 describe('rewriteObsidianReferences', () => {
   it('rewrites markdown image references', () => {
-    const rewritten = rewriteObsidianReferences('![alt](pic.png)', () => '/api/files/1')
+    const rewritten = rewriteObsidianReferences(
+      '![alt](pic.png)',
+      () => '/api/files/1',
+    )
     expect(rewritten).toBe('![alt](/api/files/1)')
   })
 
   it('rewrites wiki image embeds with alias support', () => {
-    const rewritten = rewriteObsidianReferences('![[pic.png]] and ![[pic.png|300]]', () => '/api/files/2')
+    const rewritten = rewriteObsidianReferences(
+      '![[pic.png]] and ![[pic.png|300]]',
+      () => '/api/files/2',
+    )
     expect(rewritten).toBe('![pic](/api/files/2) and ![300](/api/files/2)')
   })
 
   it('leaves note embeds and remote images untouched', () => {
     const content = '![[my note]] ![x](https://e.com/a.png)'
-    expect(rewriteObsidianReferences(content, () => '/api/files/9')).toBe(content)
+    expect(rewriteObsidianReferences(content, () => '/api/files/9')).toBe(
+      content,
+    )
   })
 
   it('keeps references that cannot be resolved', () => {
-    expect(rewriteObsidianReferences('![alt](missing.png)', () => null)).toBe('![alt](missing.png)')
+    expect(rewriteObsidianReferences('![alt](missing.png)', () => null)).toBe(
+      '![alt](missing.png)',
+    )
   })
 })
 
 describe('stripObsidianComments', () => {
   it('converts %% comments to HTML comments', () => {
-    expect(stripObsidianComments('before %%hidden%% after')).toBe('before <!--hidden--> after')
+    expect(stripObsidianComments('before %%hidden%% after')).toBe(
+      'before <!--hidden--> after',
+    )
   })
 
   it('sanitizes dashes inside comments', () => {

@@ -38,12 +38,24 @@ const API_ERROR_CODES = [
   'two_factor_unavailable',
 ] as const satisfies readonly ApiErrorCode[]
 
-const CLIENT_ERROR_CODES = ['offline', 'cancelled', 'request_timeout', 'invalid_response'] as const
-const NON_NEGATIVE_SAFE_INTEGER = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
+const CLIENT_ERROR_CODES = [
+  'offline',
+  'cancelled',
+  'request_timeout',
+  'invalid_response',
+] as const
+const NON_NEGATIVE_SAFE_INTEGER = z
+  .number()
+  .int()
+  .nonnegative()
+  .max(Number.MAX_SAFE_INTEGER)
 const UNIX_MILLISECONDS = NON_NEGATIVE_SAFE_INTEGER
 const ID = z.string().regex(/^[0-9a-hjkmnp-tv-z]{26}$/)
 
-export const ErrorCodeSchema = z.enum([...API_ERROR_CODES, ...CLIENT_ERROR_CODES])
+export const ErrorCodeSchema = z.enum([
+  ...API_ERROR_CODES,
+  ...CLIENT_ERROR_CODES,
+])
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>
 
 export interface BackendSession extends Omit<SessionInfo, 'site'> {
@@ -103,7 +115,8 @@ export interface AttachmentPage {
   nextCursor: string | null
 }
 
-export type ProgressPhase = 'validating' | 'reading' | 'writing' | 'uploading' | 'finalizing'
+export type ProgressPhase =
+  'validating' | 'reading' | 'writing' | 'uploading' | 'finalizing'
 
 export interface ProgressEvent {
   jobId: string
@@ -134,13 +147,26 @@ export interface AccentPreview {
 }
 
 export type NoteWriteResult =
-  { queued: false; writeId: string; note: Note } | { queued: true; writeId: string; noteId: string; rev: number }
+  | { queued: false; writeId: string; note: Note }
+  | { queued: true; writeId: string; noteId: string; rev: number }
 
 export type WriteQueueEvent =
   | { kind: 'pending'; count: number }
   | { kind: 'settled'; writeId: string; noteId: string; note: Note }
-  | { kind: 'recovered'; writeId: string; noteId: string; copy: Note; reason: 'deleted' }
-  | { kind: 'failed'; writeId: string; noteId: string; code: ErrorCode; retained: boolean }
+  | {
+      kind: 'recovered'
+      writeId: string
+      noteId: string
+      copy: Note
+      reason: 'deleted'
+    }
+  | {
+      kind: 'failed'
+      writeId: string
+      noteId: string
+      code: ErrorCode
+      retained: boolean
+    }
 
 const PublicUserSchema = z.object({
   id: ID,
@@ -186,7 +212,15 @@ const SettingsSchema: z.ZodType<UserSettings> = z.object({
   appearance: z.object({
     language: z.enum(['zh-CN', 'en-US']),
     theme: z.enum(['light', 'dark', 'system']),
-    accent: z.enum(['cinnabar', 'indigo', 'celadon', 'amber', 'terracotta', 'wisteria', 'graphite']),
+    accent: z.enum([
+      'cinnabar',
+      'indigo',
+      'celadon',
+      'amber',
+      'terracotta',
+      'wisteria',
+      'graphite',
+    ]),
     background: z.enum(['paper', 'white']),
     density: z.enum(['comfortable', 'compact']),
     proseFont: z.enum(['sans', 'serif']),
@@ -214,8 +248,13 @@ const SettingsSchema: z.ZodType<UserSettings> = z.object({
     codeBlockCollapse: z.boolean(),
     codeBlockCollapseLines: z.number().finite(),
   }),
-  backup: z.object({ schedule: z.enum(['off', 'hourly', 'sixHourly', 'daily']) }),
-  sync: z.object({ realtime: z.boolean(), pollIntervalMs: z.number().finite() }),
+  backup: z.object({
+    schedule: z.enum(['off', 'hourly', 'sixHourly', 'daily']),
+  }),
+  sync: z.object({
+    realtime: z.boolean(),
+    pollIntervalMs: z.number().finite(),
+  }),
 })
 
 export const BackendSessionSchema: z.ZodType<BackendSession> = z.object({
@@ -224,33 +263,55 @@ export const BackendSessionSchema: z.ZodType<BackendSession> = z.object({
   settings: SettingsSchema.nullable(),
 })
 
-export const NoteWriteResultSchema: z.ZodType<NoteWriteResult> = z.discriminatedUnion('queued', [
-  z.object({ queued: z.literal(false), writeId: z.string().min(1), note: NoteSchema }),
-  z.object({ queued: z.literal(true), writeId: z.string().min(1), noteId: ID, rev: NON_NEGATIVE_SAFE_INTEGER }),
-])
+export const NoteWriteResultSchema: z.ZodType<NoteWriteResult> =
+  z.discriminatedUnion('queued', [
+    z.object({
+      queued: z.literal(false),
+      writeId: z.string().min(1),
+      note: NoteSchema,
+    }),
+    z.object({
+      queued: z.literal(true),
+      writeId: z.string().min(1),
+      noteId: ID,
+      rev: NON_NEGATIVE_SAFE_INTEGER,
+    }),
+  ])
 
-export const WriteQueueEventSchema: z.ZodType<WriteQueueEvent> = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('pending'), count: NON_NEGATIVE_SAFE_INTEGER }),
-  z.object({ kind: z.literal('settled'), writeId: z.string().min(1), noteId: ID, note: NoteSchema }),
-  z.object({
-    kind: z.literal('recovered'),
-    writeId: z.string().min(1),
-    noteId: ID,
-    copy: NoteSchema,
-    reason: z.literal('deleted'),
-  }),
-  z.object({
-    kind: z.literal('failed'),
-    writeId: z.string().min(1),
-    noteId: ID,
-    code: ErrorCodeSchema,
-    retained: z.boolean(),
-  }),
-])
+export const WriteQueueEventSchema: z.ZodType<WriteQueueEvent> =
+  z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('pending'), count: NON_NEGATIVE_SAFE_INTEGER }),
+    z.object({
+      kind: z.literal('settled'),
+      writeId: z.string().min(1),
+      noteId: ID,
+      note: NoteSchema,
+    }),
+    z.object({
+      kind: z.literal('recovered'),
+      writeId: z.string().min(1),
+      noteId: ID,
+      copy: NoteSchema,
+      reason: z.literal('deleted'),
+    }),
+    z.object({
+      kind: z.literal('failed'),
+      writeId: z.string().min(1),
+      noteId: ID,
+      code: ErrorCodeSchema,
+      retained: z.boolean(),
+    }),
+  ])
 
 export const ProgressEventSchema: z.ZodType<ProgressEvent> = z.object({
   jobId: z.string().min(1),
-  phase: z.enum(['validating', 'reading', 'writing', 'uploading', 'finalizing']),
+  phase: z.enum([
+    'validating',
+    'reading',
+    'writing',
+    'uploading',
+    'finalizing',
+  ]),
   completed: NON_NEGATIVE_SAFE_INTEGER,
   total: NON_NEGATIVE_SAFE_INTEGER.nullable(),
   terminal: z.boolean(),

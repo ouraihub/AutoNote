@@ -10,25 +10,40 @@
   const backend = getBackend()
   const session = getSession()
   const i18n = getI18n()
-  const update = backend.kind === 'web' && backend.capabilities.updateCheck && session.user?.role === 'owner' ? backend.update : undefined
+  const update =
+    backend.kind === 'web' &&
+    backend.capabilities.updateCheck &&
+    session.user?.role === 'owner'
+      ? backend.update
+      : undefined
   let check = $state<UpdateCheckResponse | null>(null)
   let busy = $state(false)
   let error = $state('')
-  const available = $derived(Boolean(check?.latestVersion && check.latestVersion !== check.currentVersion))
+  const available = $derived(
+    Boolean(
+      check?.latestVersion && check.latestVersion !== check.currentVersion,
+    ),
+  )
 
   async function refresh(): Promise<void> {
     if (!update || busy) return
     busy = true
     error = ''
-    try { check = await update.check({ signal: session.epochSignal }) }
-    catch (cause) { if (!session.epochSignal.aborted) error = i18n.t(cloudError(cause)) }
-    finally { busy = false }
+    try {
+      check = await update.check({ signal: session.epochSignal })
+    } catch (cause) {
+      if (!session.epochSignal.aborted) error = i18n.t(cloudError(cause))
+    } finally {
+      busy = false
+    }
   }
 </script>
 
 {#if update && session.status === 'authed' && session.user?.role === 'owner'}
   <section class="mt-6">
-    <h3 class="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+    <h3
+      class="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]"
+    >
       {i18n.t('settings.deployment_updates')}
     </h3>
     <SettingRow title={i18n.t('settings.current_version')}>
@@ -40,27 +55,51 @@
         ? `${i18n.t('settings.checked_at')} ${i18n.formatDate(check.checkedAt, { dateStyle: 'medium', timeStyle: 'short' })}`
         : undefined}
     >
-      <Badge tone={available ? 'warning' : check?.status === 'unavailable' || !check ? 'neutral' : 'success'}>
+      <Badge
+        tone={available
+          ? 'warning'
+          : check?.status === 'unavailable' || !check
+            ? 'neutral'
+            : 'success'}
+      >
         {busy
           ? i18n.t('settings.checking_for_updates')
           : !check
             ? '—'
-            : (check.latestVersion ?? i18n.t('settings.update_check_unavailable'))}
+            : (check.latestVersion ??
+              i18n.t('settings.update_check_unavailable'))}
       </Badge>
     </SettingRow>
-    {#if !available && check?.latestVersion}<p class="mt-2 px-1 text-[11.5px] text-[var(--text-quaternary)]">
+    {#if !available && check?.latestVersion}<p
+        class="mt-2 px-1 text-[11.5px] text-[var(--text-quaternary)]"
+      >
         {i18n.t('settings.up_to_date')}
       </p>{/if}
     {#if available}
-      <div class="mt-3 flex items-start gap-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3">
+      <div
+        class="mt-3 flex items-start gap-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] p-3"
+      >
         <GitFork size={17} class="mt-0.5 shrink-0 text-[var(--accent)]" />
-        <p class="text-[12px] leading-relaxed text-[var(--text-secondary)]">{i18n.t('settings.update_manual_fork_hint')}</p>
+        <p class="text-[12px] leading-relaxed text-[var(--text-secondary)]">
+          {i18n.t('settings.update_manual_fork_hint')}
+        </p>
       </div>
     {/if}
-    {#if error}<p role="alert" class="mt-2 px-1 text-[11.5px] text-[var(--danger)]">{error}</p>{/if}
+    {#if error}<p
+        role="alert"
+        class="mt-2 px-1 text-[11.5px] text-[var(--danger)]"
+      >
+        {error}
+      </p>{/if}
     <div class="mt-3 flex flex-wrap justify-end gap-2">
-      <Button size="sm" variant="secondary" loading={busy} onclick={() => void refresh()}
-        >{#if !busy}<RefreshCw size={13} />{/if}{i18n.t('settings.recheck_updates')}</Button
+      <Button
+        size="sm"
+        variant="secondary"
+        loading={busy}
+        onclick={() => void refresh()}
+        >{#if !busy}<RefreshCw size={13} />{/if}{i18n.t(
+          'settings.recheck_updates',
+        )}</Button
       >
       {#if available && check?.updateUrl}<a
           href={check.updateUrl}

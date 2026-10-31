@@ -34,23 +34,75 @@ export async function checkI18n(options = {}) {
 }
 
 async function readLocale(file) {
-  const source = await readFile(file, 'utf8')
-  const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
-  const declaration = parsed.statements.find(
-    (statement) =>
-      ts.isVariableStatement(statement) && statement.declarationList.declarations.some((item) => item.name.getText(parsed).endsWith('MESSAGES')),
-  )
-  if (!declaration || !ts.isVariableStatement(declaration)) throw new Error(`Missing locale message object: ${file}`)
-  const object = unwrapLocaleObject(declaration.declarationList.declarations[0]?.initializer)
-  if (!object) throw new Error(`Unsupported locale message object: ${file}`)
-  const values = new Map()
-  for (const property of object.properties) {
-    if (!ts.isPropertyAssignment(property) || !ts.isStringLiteralLike(property.name) || !ts.isStringLiteralLike(property.initializer)) {
-      throw new Error(`Locale entries must be static strings: ${formatPosition(file, source, property.getStart(parsed))}`)
+  const modules = new Map()
+  const visiting = new Set()
+  const rootDirectory = path.dirname(file)
+  async function load(modulePath) {
+    if (modules.has(modulePath)) return modules.get(modulePath)
+    const source = await readFile(modulePath, 'utf8')
+    const parsed = ts.createSourceFile(modulePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+    const declarations = new Map()
+    const imports = new Map()
+    for (const statement of parsed.statements) {
+      if (ts.isVariableStatement(statement)) {
+        for (const declaration of statement.declarationList.declarations) {
+          if (ts.isIdentifier(declaration.name)) declarations.set(declaration.name.text, declaration.initializer)
+        }
+      }
+      if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
+        const names = statement.importClause?.namedBindings
+        if (!names || !ts.isNamedImports(names)) continue
+        const specifier = statement.moduleSpecifier.text
+        if (!specifier.startsWith('.')) continue
+        const target = path.resolve(path.dirname(modulePath), specifier.endsWith('.ts') ? specifier : `${specifier}.ts`)
+        if (path.relative(rootDirectory, target).startsWith('..')) throw new Error(`Locale import escapes directory: ${target}`)
+        for (const name of names.elements) imports.set(name.name.text, { target, name: name.propertyName?.text ?? name.name.text })
+      }
     }
-    values.set(property.name.text, property.initializer.text)
+    const module = { source, parsed, declarations, imports }
+    modules.set(modulePath, module)
+    return module
   }
-  return values
+  function stringValue(value) {
+    if (ts.isStringLiteralLike(value)) return value.text
+    if (ts.isParenthesizedExpression(value)) return stringValue(value.expression)
+    if (ts.isBinaryExpression(value) && value.operatorToken.kind === ts.SyntaxKind.PlusToken) return stringValue(value.left) + stringValue(value.right)
+    throw new Error('Locale entries must be static strings')
+  }
+  async function objectValue(modulePath, name) {
+    const key = `${modulePath}:${name}`
+    if (visiting.has(key)) throw new Error(`Circular locale import: ${key}`)
+    visiting.add(key)
+    try {
+      const module = await load(modulePath)
+      const imported = module.imports.get(name)
+      if (imported) return await objectValue(imported.target, imported.name)
+      const object = unwrapLocaleObject(module.declarations.get(name))
+      if (!object) throw new Error(`Unsupported locale message object: ${key}`)
+      const values = new Map()
+      for (const property of object.properties) {
+        if (ts.isSpreadAssignment(property) && ts.isIdentifier(property.expression)) {
+          for (const [entry, text] of await objectValue(modulePath, property.expression.text)) {
+            if (values.has(entry)) throw new Error(`Duplicate locale key: ${entry}`)
+            values.set(entry, text)
+          }
+        } else if (ts.isPropertyAssignment(property) && ts.isStringLiteralLike(property.name)) {
+          const entry = property.name.text
+          if (values.has(entry)) throw new Error(`Duplicate locale key: ${entry}`)
+          values.set(entry, stringValue(property.initializer))
+        } else {
+          throw new Error(`Locale entries must be static strings: ${formatPosition(modulePath, module.source, property.getStart(module.parsed))}`)
+        }
+      }
+      return values
+    } finally {
+      visiting.delete(key)
+    }
+  }
+  const module = await load(file)
+  const name = [...module.declarations.keys()].find((name) => name.endsWith('MESSAGES'))
+  if (!name) throw new Error(`Missing locale message object: ${file}`)
+  return objectValue(file, name)
 }
 
 function unwrapLocaleObject(value) {

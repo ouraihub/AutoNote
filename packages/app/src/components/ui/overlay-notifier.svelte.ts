@@ -1,7 +1,14 @@
 import { toast, type ExternalToast } from 'svelte-sonner'
-import type { ConfirmationRequest, Notifier, NotificationRequest } from '@app/platform/notifier.ts'
+import type {
+  ConfirmationRequest,
+  Notifier,
+  NotificationRequest,
+} from '@app/platform/notifier.ts'
 
-export type MessageResolver = (key: string, params?: Readonly<Record<string, string | number>>) => string
+export type MessageResolver = (
+  key: string,
+  params?: Readonly<Record<string, string | number>>,
+) => string
 
 interface PendingConfirmation {
   readonly request: ConfirmationRequest

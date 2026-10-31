@@ -6,7 +6,11 @@
   import TextInput from '@app/components/primitives/TextInput.svelte'
   import { listenSyncStatus } from '../ipc/transport'
   import type { MessageKey } from '@shared/locales/en-US'
-  import { syncPort, type BindPreview, type SyncStatus } from '../ipc/ports/remote-sync'
+  import {
+    syncPort,
+    type BindPreview,
+    type SyncStatus,
+  } from '../ipc/ports/remote-sync'
   import { confirmUnbind } from './sync-unbind'
 
   const i18n = getI18n()
@@ -38,7 +42,8 @@
         if (active) status = value
       })
       .catch((reason: unknown) => {
-        if (active) error = message(reason, i18n.t('desktopSync.readStatusFailed'))
+        if (active)
+          error = message(reason, i18n.t('desktopSync.readStatusFailed'))
       })
     return () => {
       active = false
@@ -46,7 +51,10 @@
     }
   })
 
-  function message(reason: unknown, fallback = i18n.t('desktopSync.operationFailed')): string {
+  function message(
+    reason: unknown,
+    fallback = i18n.t('desktopSync.operationFailed'),
+  ): string {
     return reason instanceof Error ? reason.message : fallback
   }
   async function step(action: () => Promise<void>): Promise<void> {
@@ -67,16 +75,25 @@
     })
   function login(): Promise<void> {
     return step(async () => {
-      const reply = await syncPort.login(origin.trim(), username.trim(), password)
+      const reply = await syncPort.login(
+        origin.trim(),
+        username.trim(),
+        password,
+      )
       password = ''
       loginId = reply.loginId
-      if ('twoFactorRequired' in reply.result) challengeToken = reply.result.challengeToken
+      if ('twoFactorRequired' in reply.result)
+        challengeToken = reply.result.challengeToken
     })
   }
   function completeTotp(): Promise<void> {
     return step(async () => {
       if (!loginId) return
-      const reply = await syncPort.completeTotp(loginId, challengeToken, totp.trim())
+      const reply = await syncPort.completeTotp(
+        loginId,
+        challengeToken,
+        totp.trim(),
+      )
       loginId = reply.loginId
       challengeToken = ''
       totp = ''
@@ -101,7 +118,8 @@
       const next = await confirmUnbind(notifier)
       if (next) status = next
     })
-  const phaseLabel = (phase: SyncStatus['phase']) => i18n.t(`desktopSync.phase_${phase}` as MessageKey)
+  const phaseLabel = (phase: SyncStatus['phase']) =>
+    i18n.t(`desktopSync.phase_${phase}` as MessageKey)
   const time = (at: number) => new Date(at).toLocaleString(i18n.locale)
 </script>
 
@@ -124,7 +142,12 @@
         />
       </FormField>
       <FormField label={i18n.t('desktopSync.username')} for="sync-username">
-        <TextInput id="sync-username" autocomplete="username" bind:value={username} disabled={busy || !!loginId} />
+        <TextInput
+          id="sync-username"
+          autocomplete="username"
+          bind:value={username}
+          disabled={busy || !!loginId}
+        />
       </FormField>
       {#if !loginId}
         <FormField label={i18n.t('desktopSync.password')} for="sync-password">
@@ -151,15 +174,27 @@
             disabled={busy}
           />
         </FormField>
-        <Button variant="primary" disabled={busy || !totp.trim()} onclick={() => void completeTotp()}
+        <Button
+          variant="primary"
+          disabled={busy || !totp.trim()}
+          onclick={() => void completeTotp()}
           >{i18n.t('desktopSync.verify')}</Button
         >
       {:else}
-        <p class="text-[12px] text-[var(--text-tertiary)]">{i18n.t('desktopSync.mergeExplain')}</p>
-        <Button disabled={busy} onclick={() => void makePreview()}>{i18n.t('desktopSync.previewBinding')}</Button>
+        <p class="text-[12px] text-[var(--text-tertiary)]">
+          {i18n.t('desktopSync.mergeExplain')}
+        </p>
+        <Button disabled={busy} onclick={() => void makePreview()}
+          >{i18n.t('desktopSync.previewBinding')}</Button
+        >
         {#if preview}
-          <p class="text-[11.5px] text-[var(--text-tertiary)]">{i18n.t('desktopSync.previewCounts', { ...preview })}</p>
-          <Button variant="primary" disabled={busy} onclick={() => void confirmPreview()}
+          <p class="text-[11.5px] text-[var(--text-tertiary)]">
+            {i18n.t('desktopSync.previewCounts', { ...preview })}
+          </p>
+          <Button
+            variant="primary"
+            disabled={busy}
+            onclick={() => void confirmPreview()}
             >{i18n.t('desktopSync.confirmBinding')}</Button
           >
         {/if}
@@ -175,40 +210,76 @@
       >
         {i18n.t('desktopSync.statusHeading')}
       </h3>
-      <div class="space-y-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-base)] p-4">
-        <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[12px] text-[var(--text-primary)]">
-          <dt class="text-[var(--text-tertiary)]">{i18n.t('desktopSync.phase')}</dt>
+      <div
+        class="space-y-3 rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-base)] p-4"
+      >
+        <dl
+          class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[12px] text-[var(--text-primary)]"
+        >
+          <dt class="text-[var(--text-tertiary)]">
+            {i18n.t('desktopSync.phase')}
+          </dt>
           <dd>{phaseLabel(status.phase)}</dd>
-          {#if status.siteOrigin}<dt class="text-[var(--text-tertiary)]">{i18n.t('desktopSync.site')}</dt>
+          {#if status.siteOrigin}<dt class="text-[var(--text-tertiary)]">
+              {i18n.t('desktopSync.site')}
+            </dt>
             <dd class="break-all">{status.siteOrigin}</dd>{/if}
-          {#if status.account}<dt class="text-[var(--text-tertiary)]">{i18n.t('desktopSync.account')}</dt>
+          {#if status.account}<dt class="text-[var(--text-tertiary)]">
+              {i18n.t('desktopSync.account')}
+            </dt>
             <dd class="break-all">{status.account}</dd>{/if}
-          <dt class="text-[var(--text-tertiary)]">{i18n.t('desktopSync.pending')}</dt>
+          <dt class="text-[var(--text-tertiary)]">
+            {i18n.t('desktopSync.pending')}
+          </dt>
           <dd>{status.pending}</dd>
-          <dt class="text-[var(--text-tertiary)]">{i18n.t('desktopSync.lastSuccess')}</dt>
-          <dd>{status.lastSuccessAt === null ? i18n.t('desktopSync.never') : time(status.lastSuccessAt)}</dd>
-          {#if status.errorCode}<dt class="text-[var(--text-tertiary)]">{i18n.t('desktopSync.error')}</dt>
-            <dd class="break-all text-[var(--danger)]">{status.errorCode}</dd>{/if}
+          <dt class="text-[var(--text-tertiary)]">
+            {i18n.t('desktopSync.lastSuccess')}
+          </dt>
+          <dd>
+            {status.lastSuccessAt === null
+              ? i18n.t('desktopSync.never')
+              : time(status.lastSuccessAt)}
+          </dd>
+          {#if status.errorCode}<dt class="text-[var(--text-tertiary)]">
+              {i18n.t('desktopSync.error')}
+            </dt>
+            <dd class="break-all text-[var(--danger)]">
+              {status.errorCode}
+            </dd>{/if}
         </dl>
         <div class="flex flex-wrap gap-2">
           {#if status.phase === 'paused'}
-            <Button size="sm" disabled={busy} onclick={() => void run(() => syncPort.start())}
+            <Button
+              size="sm"
+              disabled={busy}
+              onclick={() => void run(() => syncPort.start())}
               >{i18n.t('desktopSync.start')}</Button
             >
           {:else}
-            <Button size="sm" disabled={busy} onclick={() => void run(() => syncPort.stop())}
+            <Button
+              size="sm"
+              disabled={busy}
+              onclick={() => void run(() => syncPort.stop())}
               >{i18n.t('desktopSync.stop')}</Button
             >
           {/if}
-          <Button size="sm" disabled={busy || status.phase === 'syncing'} onclick={() => void run(() => syncPort.now())}
+          <Button
+            size="sm"
+            disabled={busy || status.phase === 'syncing'}
+            onclick={() => void run(() => syncPort.now())}
             >{i18n.t('settings.sync_now')}</Button
           >
-          <Button size="sm" variant="ghost" disabled={busy} onclick={() => void unbind()}
-            >{i18n.t('desktopSync.unbind')}</Button
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            onclick={() => void unbind()}>{i18n.t('desktopSync.unbind')}</Button
           >
         </div>
       </div>
     </section>
   {/if}
-  {#if error}<p role="alert" class="text-[11.5px] text-[var(--danger)]">{error}</p>{/if}
+  {#if error}<p role="alert" class="text-[11.5px] text-[var(--danger)]">
+      {error}
+    </p>{/if}
 </div>

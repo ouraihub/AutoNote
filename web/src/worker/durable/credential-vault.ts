@@ -1,14 +1,18 @@
 import { fromBase64Url, fromUtf8, toBase64Url, utf8 } from '../lib/encoding'
 
-
 const MASTER_KEY_NAME = 'backup-master-key-v1'
 const MASTER_KEY_BYTES = 32
 const MAX_REQUEST_BYTES = 24 * 1024
 const MAX_CIPHERTEXT_LENGTH = 24 * 1024
-const CREDENTIAL_SCOPE_PATTERN = /^(?:backup|totp|ai-endpoint):[0-9a-hjkmnp-tv-z]{20,26}$/
+const CREDENTIAL_SCOPE_PATTERN =
+  /^(?:backup|totp|ai-endpoint):[0-9a-hjkmnp-tv-z]{20,26}$/
 const CIPHERTEXT_PATTERN = /^v1\.([A-Za-z0-9_-]+)$/
 const HKDF_SALT = utf8('autonote.backup-credentials.v1')
-const BACKUP_SECRET_FIELDS: Record<string, true> = { password: true, accessKeyId: true, secretAccessKey: true }
+const BACKUP_SECRET_FIELDS: Record<string, true> = {
+  password: true,
+  accessKeyId: true,
+  secretAccessKey: true,
+}
 const TOTP_SECRET_FIELDS: Record<string, true> = { secret: true }
 const AI_SECRET_FIELDS: Record<string, true> = { apiKey: true }
 
@@ -30,7 +34,8 @@ export class CredentialVault implements DurableObject {
         return jsonError(400, 'invalid_request')
       }
       const plaintext = utf8(JSON.stringify(body.value))
-      if (plaintext.byteLength > MAX_REQUEST_BYTES) return jsonError(413, 'payload_too_large')
+      if (plaintext.byteLength > MAX_REQUEST_BYTES)
+        return jsonError(413, 'payload_too_large')
       const ciphertext = await this.encrypt(body.scope, plaintext)
       return Response.json({ ciphertext })
     }
@@ -44,7 +49,9 @@ export class CredentialVault implements DurableObject {
         return jsonError(400, 'invalid_request')
       }
       const value = await this.decrypt(body.scope, body.ciphertext)
-      return value ? Response.json({ value }) : jsonError(422, 'invalid_ciphertext')
+      return value
+        ? Response.json({ value })
+        : jsonError(422, 'invalid_ciphertext')
     }
 
     return jsonError(404, 'not_found')
@@ -68,7 +75,10 @@ export class CredentialVault implements DurableObject {
     return `v1.${toBase64Url(packed)}`
   }
 
-  private async decrypt(scope: string, ciphertext: string): Promise<CredentialRecord | null> {
+  private async decrypt(
+    scope: string,
+    ciphertext: string,
+  ): Promise<CredentialRecord | null> {
     const match = CIPHERTEXT_PATTERN.exec(ciphertext)
     if (!match) return null
     try {
@@ -111,7 +121,9 @@ export class CredentialVault implements DurableObject {
       this.masterKeyPromise = this.state.blockConcurrencyWhile(async () => {
         let encoded = await this.state.storage.get<string>(MASTER_KEY_NAME)
         if (encoded === undefined) {
-          encoded = toBase64Url(crypto.getRandomValues(new Uint8Array(MASTER_KEY_BYTES)))
+          encoded = toBase64Url(
+            crypto.getRandomValues(new Uint8Array(MASTER_KEY_BYTES)),
+          )
           await this.state.storage.put(MASTER_KEY_NAME, encoded)
         }
 
@@ -124,7 +136,13 @@ export class CredentialVault implements DurableObject {
         if (raw.byteLength !== MASTER_KEY_BYTES) {
           throw new Error('credential_vault_master_key_corrupt')
         }
-        return crypto.subtle.importKey('raw', raw as BufferSource, 'HKDF', false, ['deriveKey'])
+        return crypto.subtle.importKey(
+          'raw',
+          raw as BufferSource,
+          'HKDF',
+          false,
+          ['deriveKey'],
+        )
       })
     }
     return this.masterKeyPromise
@@ -135,7 +153,9 @@ function associatedData(scope: string): Uint8Array {
   return utf8(`autonote:credential-vault:v1:${scope}`)
 }
 
-async function readBody(request: Request): Promise<Record<string, unknown> | null> {
+async function readBody(
+  request: Request,
+): Promise<Record<string, unknown> | null> {
   try {
     const text = await request.text()
     if (utf8(text).byteLength > MAX_REQUEST_BYTES) return null
@@ -152,12 +172,26 @@ function isScope(value: unknown): value is string {
   return typeof value === 'string' && CREDENTIAL_SCOPE_PATTERN.test(value)
 }
 
-function isCredentialRecord(scope: string, value: unknown): value is CredentialRecord {
+function isCredentialRecord(
+  scope: string,
+  value: unknown,
+): value is CredentialRecord {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
-  const allowed = scope.startsWith('totp:') ? TOTP_SECRET_FIELDS : scope.startsWith('ai-endpoint:') ? AI_SECRET_FIELDS : BACKUP_SECRET_FIELDS
+  const allowed = scope.startsWith('totp:')
+    ? TOTP_SECRET_FIELDS
+    : scope.startsWith('ai-endpoint:')
+      ? AI_SECRET_FIELDS
+      : BACKUP_SECRET_FIELDS
   const entries = Object.entries(value)
-  if (entries.length < 1 || entries.length > Object.keys(allowed).length) return false
-  return entries.every(([key, field]) => allowed[key] === true && typeof field === 'string' && field.length > 0 && field.length <= 4096)
+  if (entries.length < 1 || entries.length > Object.keys(allowed).length)
+    return false
+  return entries.every(
+    ([key, field]) =>
+      allowed[key] === true &&
+      typeof field === 'string' &&
+      field.length > 0 &&
+      field.length <= 4096,
+  )
 }
 
 function jsonError(status: number, error: string): Response {

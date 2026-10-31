@@ -1,7 +1,15 @@
 import type { ReasoningEffort } from '@ouraihub/aether-contracts'
 import type { OutboundHttp } from '@ouraihub/aether-core/ports'
 import type { Env } from '../env'
-import { addressAllowed, badRequest, cancelled, KitFailure, parseTarget, readUpTo, upstreamFailure } from './kit'
+import {
+  addressAllowed,
+  badRequest,
+  cancelled,
+  KitFailure,
+  parseTarget,
+  readUpTo,
+  upstreamFailure,
+} from './kit'
 import { withKeys, type Connection } from './providers'
 import { authHeaders } from '@ouraihub/aether-core/protocol/request'
 
@@ -10,19 +18,32 @@ export function outbound(env: Env): OutboundHttp {
   return {
     async fetch(raw, init) {
       const url = parseTarget(raw)
-      if (!(await addressAllowed(env.DB, url))) throw badRequest('url', 'blocked_address')
-      const request: RequestInit & { credentials: 'omit' } = { ...init, redirect: 'manual', credentials: 'omit' }
+      if (!(await addressAllowed(env.DB, url)))
+        throw badRequest('url', 'blocked_address')
+      const request: RequestInit & { credentials: 'omit' } = {
+        ...init,
+        redirect: 'manual',
+        credentials: 'omit',
+      }
       return fetch(url, request)
     },
   }
 }
 
 /** Keep AutoNote's persisted fill-first/key exhaustion policy before handing the stream to Aether. */
-export function modelOutbound(env: Env, connection: Connection, effort: ReasoningEffort): OutboundHttp {
+export function modelOutbound(
+  env: Env,
+  connection: Connection,
+  effort: ReasoningEffort,
+): OutboundHttp {
   const http = outbound(env)
   return {
     async fetch(url, init) {
-      if (connection.reasoning?.dialect === 'qwen' && effort !== 'default' && typeof init.body === 'string') {
+      if (
+        connection.reasoning?.dialect === 'qwen' &&
+        effort !== 'default' &&
+        typeof init.body === 'string'
+      ) {
         const body = JSON.parse(init.body) as Record<string, unknown>
         body.enable_thinking = effort !== 'none'
         const ratios: Partial<Record<ReasoningEffort, number>> = {
@@ -35,7 +56,10 @@ export function modelOutbound(env: Env, connection: Connection, effort: Reasonin
         }
         const ratio = ratios[effort]
         if (ratio !== undefined && connection.reasoning.budgetTokens != null)
-          body.thinking_budget = Math.max(1, Math.floor(connection.reasoning.budgetTokens * ratio))
+          body.thinking_budget = Math.max(
+            1,
+            Math.floor(connection.reasoning.budgetTokens * ratio),
+          )
         init = { ...init, body: JSON.stringify(body) }
       }
       let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
@@ -48,23 +72,33 @@ export function modelOutbound(env: Env, connection: Connection, effort: Reasonin
                   const headers = new Headers(init.headers)
                   headers.delete('authorization')
                   headers.delete('x-api-key')
-                  for (const [name, value] of Object.entries(authHeaders(connection.protocol, key)))
+                  for (const [name, value] of Object.entries(
+                    authHeaders(connection.protocol, key),
+                  ))
                     headers.set(name, value)
                   let response: Response
                   try {
-                    response = await http.fetch(url, { ...init, headers: Object.fromEntries(headers) })
+                    response = await http.fetch(url, {
+                      ...init,
+                      headers: Object.fromEntries(headers),
+                    })
                   } catch (error) {
                     if (init.signal?.aborted) throw cancelled()
                     if (error instanceof KitFailure) throw error
                     throw new KitFailure('network', 'upstream unreachable')
                   }
                   if (!response.ok) {
-                    const body = await readUpTo(response.body, 8192).catch(() => ({ bytes: new Uint8Array(0) }))
+                    const body = await readUpTo(response.body, 8192).catch(
+                      () => ({ bytes: new Uint8Array(0) }),
+                    )
                     const text = new TextDecoder().decode(body.bytes)
                     const failure = upstreamFailure(
                       response.status,
                       text,
-                      [...connection.apiKeys, ...Object.values(connection.headers)],
+                      [
+                        ...connection.apiKeys,
+                        ...Object.values(connection.headers),
+                      ],
                       response.headers.get('retry-after'),
                     )
                     if (
@@ -76,7 +110,8 @@ export function modelOutbound(env: Env, connection: Connection, effort: Reasonin
                       failure.details.reason = 'tools_unsupported'
                     throw failure
                   }
-                  if (!response.body) throw new KitFailure('network', 'upstream unreachable')
+                  if (!response.body)
+                    throw new KitFailure('network', 'upstream unreachable')
                   const candidate = response.body.getReader()
                   try {
                     return { reader: candidate, chunk: await candidate.read() }

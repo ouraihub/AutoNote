@@ -31,7 +31,8 @@
       complete = true
     } catch (reason) {
       if (!isBackendError(reason)) throw reason
-      if (reason.code !== 'cancelled') error = i18n.t(messageKeyForError(reason.code))
+      if (reason.code !== 'cancelled')
+        error = i18n.t(messageKeyForError(reason.code))
     } finally {
       busy = false
     }
@@ -39,30 +40,59 @@
 </script>
 
 <div class="space-y-6">
-  <section class="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-base)] p-4">
+  <section
+    class="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-base)] p-4"
+  >
     <div class="flex items-center gap-2.5">
-      <span class={connected ? 'text-[var(--success)]' : 'text-[var(--warning)]'}>
-        {#if connected}<CheckCircle2 size={16} />{:else}<CloudOff size={16} />{/if}
+      <span
+        class={connected ? 'text-[var(--success)]' : 'text-[var(--warning)]'}
+      >
+        {#if connected}<CheckCircle2 size={16} />{:else}<CloudOff
+            size={16}
+          />{/if}
       </span>
       <div class="min-w-0 flex-1">
         <div class="text-[13px] font-medium text-[var(--text-primary)]">
-          {connected ? i18n.t('settings.connected') : i18n.t('settings.offline')}
+          {connected
+            ? i18n.t('settings.connected')
+            : i18n.t('settings.offline')}
         </div>
-        {#if !connected}<div class="mt-0.5 text-[11.5px] text-[var(--text-tertiary)]">
+        {#if !connected}<div
+            class="mt-0.5 text-[11.5px] text-[var(--text-tertiary)]"
+          >
             {pending
-              ? i18n.t('settings.value0_changes_will_upload_automatically_after_reconnecting', { value0: pending })
-              : i18n.t('settings.changes_are_saved_locally_and_sync_automatically_after_reconnecting')}
+              ? i18n.t(
+                  'settings.value0_changes_will_upload_automatically_after_reconnecting',
+                  { value0: pending },
+                )
+              : i18n.t(
+                  'settings.changes_are_saved_locally_and_sync_automatically_after_reconnecting',
+                )}
           </div>{/if}
       </div>
-      <Button size="sm" variant="secondary" loading={busy} onclick={() => void syncNow()}
-        >{#if !busy}<RefreshCw size={12} />{/if}{i18n.t('settings.sync_now')}</Button
+      <Button
+        size="sm"
+        variant="secondary"
+        loading={busy}
+        onclick={() => void syncNow()}
+        >{#if !busy}<RefreshCw size={12} />{/if}{i18n.t(
+          'settings.sync_now',
+        )}</Button
       >
     </div>
-    {#if settings.error}<p role="alert" class="mt-2 text-[11.5px] text-[var(--danger)]">
+    {#if settings.error}<p
+        role="alert"
+        class="mt-2 text-[11.5px] text-[var(--danger)]"
+      >
         {i18n.t(messageKeyForError(settings.error))}
       </p>{/if}
-    {#if error}<p role="alert" class="mt-2 text-[11.5px] text-[var(--danger)]">{error}</p>{/if}
-    {#if complete}<p role="status" class="mt-2 text-[11.5px] text-[var(--text-tertiary)]">
+    {#if error}<p role="alert" class="mt-2 text-[11.5px] text-[var(--danger)]">
+        {error}
+      </p>{/if}
+    {#if complete}<p
+        role="status"
+        class="mt-2 text-[11.5px] text-[var(--text-tertiary)]"
+      >
         {i18n.t('settings.reloaded_all_data')}
       </p>{/if}
   </section>
@@ -71,7 +101,9 @@
     {#if backend.capabilities.realtime}
       <SettingRow
         title={i18n.t('settings.realtime_sync')}
-        description={i18n.t('settings.receive_changes_from_other_devices_quickly')}
+        description={i18n.t(
+          'settings.receive_changes_from_other_devices_quickly',
+        )}
       >
         <Switch
           checked={settings.current.sync.realtime}
@@ -89,7 +121,8 @@
         min={5}
         max={120}
         step={5}
-        onChange={(seconds) => settings.update({ sync: { pollIntervalMs: seconds * 1000 } })}
+        onChange={(seconds) =>
+          settings.update({ sync: { pollIntervalMs: seconds * 1000 } })}
         suffix={i18n.t('settings.sec')}
       />
     </SettingRow>

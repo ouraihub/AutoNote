@@ -2,7 +2,8 @@
   import type { Snippet } from 'svelte'
   import { cn } from '@app/utils'
 
-  let { children, class: className }: { children: Snippet; class?: string } = $props()
+  let { children, class: className }: { children: Snippet; class?: string } =
+    $props()
 </script>
 
 <div

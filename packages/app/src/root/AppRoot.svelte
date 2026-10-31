@@ -44,15 +44,28 @@
     onReadyChange(ready: boolean): void
   }
 
-  let { deps, i18n, notes, session, settings, ui, organize, notifier, overlay, registerFlush, onReadyChange }: Props =
-    $props()
+  let {
+    deps,
+    i18n,
+    notes,
+    session,
+    settings,
+    ui,
+    organize,
+    notifier,
+    overlay,
+    registerFlush,
+    onReadyChange,
+  }: Props = $props()
   let surface = $state<HTMLDivElement>()
   setContext('autonote-surface', () => surface)
   setRegisterFlush((flush) => registerFlush(flush))
   let ready = $state(false)
   let loadFailed = $state(false)
   let retry = $state(0)
-  const owner = $derived(session.status === 'authed' ? (session.user?.id ?? null) : null)
+  const owner = $derived(
+    session.status === 'authed' ? (session.user?.id ?? null) : null,
+  )
   let theme: ThemeController | undefined
   function provideContexts(read: () => Props): void {
     const value = read()
@@ -69,7 +82,8 @@
     setUi(value.ui)
     setOrganize(value.organize)
     const aiHost = value.deps.backend.aiHost
-    if (aiHost) provideKitContext(aiHost, value.i18n, value.notifier, value.deps.logger)
+    if (aiHost)
+      provideKitContext(aiHost, value.i18n, value.notifier, value.deps.logger)
   }
   provideContexts(() => ({
     deps,
@@ -103,7 +117,9 @@
         if (active) return session.load()
       })
       .catch((error: unknown) => {
-        deps.logger.error('root.session.load_failed', { name: error instanceof Error ? error.name : 'unknown' })
+        deps.logger.error('root.session.load_failed', {
+          name: error instanceof Error ? error.name : 'unknown',
+        })
       })
     return () => {
       active = false
@@ -141,7 +157,9 @@
       } catch (error) {
         if (!cancelled) {
           loadFailed = true
-          deps.logger.error('root.library.load_failed', { name: error instanceof Error ? error.name : 'unknown' })
+          deps.logger.error('root.library.load_failed', {
+            name: error instanceof Error ? error.name : 'unknown',
+          })
         }
       }
     })
@@ -158,14 +176,23 @@
       ui.setDensity(appearance.density)
       theme?.setAppearance(appearance)
       void i18n.setLocale(appearance.language).catch((error: unknown) => {
-        deps.logger.error('root.locale.load_failed', { name: error instanceof Error ? error.name : 'unknown' })
+        deps.logger.error('root.locale.load_failed', {
+          name: error instanceof Error ? error.name : 'unknown',
+        })
       })
     })
   })
 </script>
 
-<div bind:this={surface} class="h-full min-h-0 bg-[var(--bg-base)] text-[var(--text-primary)]" data-app-root>
-  <OverlayProvider notifier={overlay} resolveMessage={(key, params) => i18n.t(key as MessageKey, params)} />
+<div
+  bind:this={surface}
+  class="h-full min-h-0 bg-[var(--bg-base)] text-[var(--text-primary)]"
+  data-app-root
+>
+  <OverlayProvider
+    notifier={overlay}
+    resolveMessage={(key, params) => i18n.t(key as MessageKey, params)}
+  />
   {#if session.status === 'loading'}
     <p role="status">{i18n.t('common.loading')}</p>
   {:else if session.status === 'anonymous' && deps.backend.capabilities.accounts}
@@ -173,11 +200,15 @@
   {:else if session.status === 'authed'}
     <svelte:boundary
       onerror={(error) =>
-        deps.logger.error('root.ui.render_failed', { name: error instanceof Error ? error.name : 'unknown' })}
+        deps.logger.error('root.ui.render_failed', {
+          name: error instanceof Error ? error.name : 'unknown',
+        })}
     >
       {#if ready}<AppShell />
       {:else if loadFailed}<p role="alert">{i18n.t('common.action_failed')}</p>
-        <button type="button" onclick={() => retry++}>{i18n.t('common.retry')}</button>
+        <button type="button" onclick={() => retry++}
+          >{i18n.t('common.retry')}</button
+        >
       {:else}<p role="status">{i18n.t('common.loading')}</p>{/if}
       {#snippet failed()}
         <p role="alert">{i18n.t('app.something_went_wrong')}</p>

@@ -28,7 +28,9 @@ test('reports exactly one local write and ignores its external value echo', asyn
 
 test('keeps the focused live-preview line editable when settings re-run with identical values', async () => {
   let view: EditorView | null = null
-  const { container } = render(LiveEditorHarness, { onView: (next: EditorView | null) => (view = next) })
+  const { container } = render(LiveEditorHarness, {
+    onView: (next: EditorView | null) => (view = next),
+  })
   await tick()
   view!.contentDOM.dispatchEvent(new FocusEvent('focus'))
   view!.dispatch({ selection: { anchor: 5 } })

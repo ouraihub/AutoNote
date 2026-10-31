@@ -70,14 +70,20 @@ describe('Web platform boundaries', () => {
 
   test('keeps the latest 200 safe log entries and excludes secrets', () => {
     const entries: unknown[] = []
-    const logger = new ConsoleRingLogger({ console: fakeConsole(entries), clock: () => 42 })
+    const logger = new ConsoleRingLogger({
+      console: fakeConsole(entries),
+      clock: () => 42,
+    })
 
-    for (let index = 0; index < 201; index += 1) logger.info('host.lifecycle.started', { index })
+    for (let index = 0; index < 201; index += 1)
+      logger.info('host.lifecycle.started', { index })
     logger.error('host.lifecycle.failed', { token: 'not-safe' })
 
     expect(logger.entries()).toHaveLength(200)
     expect(logger.entries()[0]?.fields).toEqual({ index: 1 })
-    expect(logger.entries().some((entry) => entry.event === 'host.lifecycle.failed')).toBe(false)
+    expect(
+      logger.entries().some((entry) => entry.event === 'host.lifecycle.failed'),
+    ).toBe(false)
   })
 })
 

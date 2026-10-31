@@ -1,5 +1,16 @@
-import { ACCENTS, DEFAULT_SETTINGS, LIMITS, VIEW_KINDS } from '@shared/constants'
-import type { EditorLayout, SortKey, SortOrder, UiDensity, ViewKind } from '@shared/types'
+import {
+  ACCENTS,
+  DEFAULT_SETTINGS,
+  LIMITS,
+  VIEW_KINDS,
+} from '@shared/constants'
+import type {
+  EditorLayout,
+  SortKey,
+  SortOrder,
+  UiDensity,
+  ViewKind,
+} from '@shared/types'
 import type { PrefValue } from '@app/platform'
 import type { ThemeAppearance } from '@app/theme'
 
@@ -57,7 +68,9 @@ const SORT_KEYS: readonly SortKey[] = ['updated', 'created', 'title']
 const SORT_ORDERS: readonly SortOrder[] = ['asc', 'desc']
 const DENSITIES: readonly UiDensity[] = ['comfortable', 'compact']
 const THEMES: readonly ThemeAppearance['theme'][] = ['light', 'dark', 'system']
-const ACCENT_NAMES: readonly ThemeAppearance['accent'][] = ACCENTS.map((accent) => accent.name)
+const ACCENT_NAMES: readonly ThemeAppearance['accent'][] = ACCENTS.map(
+  (accent) => accent.name,
+)
 const BACKGROUNDS: readonly ThemeAppearance['background'][] = ['paper', 'white']
 
 export const DEFAULT_LAYOUT_PREFS: LayoutPrefs = Object.freeze({
@@ -94,12 +107,22 @@ export function workspacePrefKey(scope: string): string {
 }
 
 export function isEntityId(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0 && value.length <= ENTITY_ID_MAX_LENGTH
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= ENTITY_ID_MAX_LENGTH
+  )
 }
 
-export function listFilter(view: ViewKind, folderId: string | null, tag: string | null): ListFilter | null {
-  if (view === 'folder') return isEntityId(folderId) ? { view, folderId, tag: null } : null
-  if (view === 'tag') return isTagName(tag) ? { view, folderId: null, tag } : null
+export function listFilter(
+  view: ViewKind,
+  folderId: string | null,
+  tag: string | null,
+): ListFilter | null {
+  if (view === 'folder')
+    return isEntityId(folderId) ? { view, folderId, tag: null } : null
+  if (view === 'tag')
+    return isTagName(tag) ? { view, folderId: null, tag } : null
   return { view, folderId: null, tag: null }
 }
 
@@ -108,18 +131,47 @@ export function parseLayoutPrefs(value: unknown): LayoutPrefs {
   const appearance = asRecord(source.appearance)
   const fallback = DEFAULT_LAYOUT_PREFS
   return {
-    navWidth: clampNumber(source.navWidth, PANEL_WIDTHS.navigation, fallback.navWidth),
-    listWidth: clampNumber(source.listWidth, PANEL_WIDTHS.noteList, fallback.listWidth),
-    navCollapsed: typeof source.navCollapsed === 'boolean' ? source.navCollapsed : fallback.navCollapsed,
-    listCollapsed: typeof source.listCollapsed === 'boolean' ? source.listCollapsed : fallback.listCollapsed,
-    assistOpen: typeof source.assistOpen === 'boolean' ? source.assistOpen : fallback.assistOpen,
+    navWidth: clampNumber(
+      source.navWidth,
+      PANEL_WIDTHS.navigation,
+      fallback.navWidth,
+    ),
+    listWidth: clampNumber(
+      source.listWidth,
+      PANEL_WIDTHS.noteList,
+      fallback.listWidth,
+    ),
+    navCollapsed:
+      typeof source.navCollapsed === 'boolean'
+        ? source.navCollapsed
+        : fallback.navCollapsed,
+    listCollapsed:
+      typeof source.listCollapsed === 'boolean'
+        ? source.listCollapsed
+        : fallback.listCollapsed,
+    assistOpen:
+      typeof source.assistOpen === 'boolean'
+        ? source.assistOpen
+        : fallback.assistOpen,
     splitRatio: clampNumber(source.splitRatio, SPLIT_RATIO_RANGE, null),
-    workspaceSplitRatio: clampNumber(source.workspaceSplitRatio, SPLIT_RATIO_RANGE, null),
+    workspaceSplitRatio: clampNumber(
+      source.workspaceSplitRatio,
+      SPLIT_RATIO_RANGE,
+      null,
+    ),
     density: choiceOr(source.density, DENSITIES, fallback.density),
     appearance: {
       theme: choiceOr(appearance.theme, THEMES, fallback.appearance.theme),
-      accent: choiceOr(appearance.accent, ACCENT_NAMES, fallback.appearance.accent),
-      background: choiceOr(appearance.background, BACKGROUNDS, fallback.appearance.background),
+      accent: choiceOr(
+        appearance.accent,
+        ACCENT_NAMES,
+        fallback.appearance.accent,
+      ),
+      background: choiceOr(
+        appearance.background,
+        BACKGROUNDS,
+        fallback.appearance.background,
+      ),
     },
   }
 }
@@ -129,9 +181,14 @@ export function parseWorkspacePrefs(value: unknown): WorkspacePrefs {
   const panes = asRecord(source.panes)
   const storedPrimary = parsePane(panes.primary)
   const storedSecondary = parsePane(panes.secondary)
-  const promoted = storedPrimary.noteId === null && storedSecondary.noteId !== null
-  const primary = promoted ? { noteId: storedSecondary.noteId, layout: storedPrimary.layout } : storedPrimary
-  const secondary = promoted ? { noteId: null, layout: storedSecondary.layout } : storedSecondary
+  const promoted =
+    storedPrimary.noteId === null && storedSecondary.noteId !== null
+  const primary = promoted
+    ? { noteId: storedSecondary.noteId, layout: storedPrimary.layout }
+    : storedPrimary
+  const secondary = promoted
+    ? { noteId: null, layout: storedSecondary.layout }
+    : storedSecondary
   const filter = asRecord(source.filter)
   const parsedFilter = listFilter(
     choiceOr(filter.view, VIEW_KINDS, DEFAULT_WORKSPACE_PREFS.filter.view),
@@ -140,7 +197,10 @@ export function parseWorkspacePrefs(value: unknown): WorkspacePrefs {
   )
   return {
     panes: { primary, secondary },
-    activePane: secondary.noteId === null ? 'primary' : choiceOr(source.activePane, WORKSPACE_PANES, 'primary'),
+    activePane:
+      secondary.noteId === null
+        ? 'primary'
+        : choiceOr(source.activePane, WORKSPACE_PANES, 'primary'),
     filter: parsedFilter ?? DEFAULT_WORKSPACE_PREFS.filter,
     sort: choiceOr(source.sort, SORT_KEYS, DEFAULT_WORKSPACE_PREFS.sort),
     order: choiceOr(source.order, SORT_ORDERS, DEFAULT_WORKSPACE_PREFS.order),
@@ -170,11 +230,21 @@ export function layoutPrefsValue(prefs: LayoutPrefs): PrefValue {
 export function workspacePrefsValue(prefs: WorkspacePrefs): PrefValue {
   return {
     panes: {
-      primary: { noteId: prefs.panes.primary.noteId, layout: prefs.panes.primary.layout },
-      secondary: { noteId: prefs.panes.secondary.noteId, layout: prefs.panes.secondary.layout },
+      primary: {
+        noteId: prefs.panes.primary.noteId,
+        layout: prefs.panes.primary.layout,
+      },
+      secondary: {
+        noteId: prefs.panes.secondary.noteId,
+        layout: prefs.panes.secondary.layout,
+      },
     },
     activePane: prefs.activePane,
-    filter: { view: prefs.filter.view, folderId: prefs.filter.folderId, tag: prefs.filter.tag },
+    filter: {
+      view: prefs.filter.view,
+      folderId: prefs.filter.folderId,
+      tag: prefs.filter.tag,
+    },
     sort: prefs.sort,
     order: prefs.order,
     expandedFolders: prefs.expandedFolders,
@@ -191,11 +261,17 @@ function parsePane(value: unknown): PaneState {
 }
 
 function isTagName(value: unknown): value is string {
-  return typeof value === 'string' && value.trim().length > 0 && value.length <= LIMITS.tagNameMaxLength
+  return (
+    typeof value === 'string' &&
+    value.trim().length > 0 &&
+    value.length <= LIMITS.tagNameMaxLength
+  )
 }
 
 function asRecord(value: unknown): Readonly<Record<string, unknown>> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
 }
 
 function clampNumber<F extends number | null>(
@@ -207,7 +283,11 @@ function clampNumber<F extends number | null>(
   return Math.min(range.max, Math.max(range.min, value))
 }
 
-function choiceOr<T extends string>(value: unknown, choices: readonly T[], fallback: T): T {
+function choiceOr<T extends string>(
+  value: unknown,
+  choices: readonly T[],
+  fallback: T,
+): T {
   return choices.find((choice) => choice === value) ?? fallback
 }
 

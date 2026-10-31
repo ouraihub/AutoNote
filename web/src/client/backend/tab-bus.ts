@@ -61,7 +61,8 @@ export class BroadcastTabBus implements TabBus {
       : typeof globalThis.BroadcastChannel === 'undefined'
         ? null
         : browserBroadcastChannelFactory(CHANNEL_NAME)
-    if (this.#channel) this.#channel.onmessage = (event) => this.#receive(event.data)
+    if (this.#channel)
+      this.#channel.onmessage = (event) => this.#receive(event.data)
   }
 
   post(message: TabMessage): void {
@@ -106,7 +107,10 @@ export class MemoryTabBus implements TabBus {
   readonly #listeners = new Set<(message: TabMessage) => void>()
   #closed = false
 
-  constructor(userId: string, channel: MemoryTabBusChannel = createMemoryTabBusChannel()) {
+  constructor(
+    userId: string,
+    channel: MemoryTabBusChannel = createMemoryTabBusChannel(),
+  ) {
     this.#userId = userId
     this.#channel = channel
     channel.buses.add(this)
@@ -145,14 +149,26 @@ function browserBroadcastChannelFactory(name: string): BroadcastChannelLike {
 }
 
 function isTabMessage(value: unknown): value is TabMessage {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  if (value === null || typeof value !== 'object' || Array.isArray(value))
+    return false
   if (!('type' in value) || typeof value.type !== 'string') return false
   if (!('userId' in value) || typeof value.userId !== 'string') return false
-  if (!('clientId' in value) || typeof value.clientId !== 'string' || !value.clientId) return false
-  if (value.type === 'claim-leader') return 'at' in value && typeof value.at === 'number' && Number.isFinite(value.at)
+  if (
+    !('clientId' in value) ||
+    typeof value.clientId !== 'string' ||
+    !value.clientId
+  )
+    return false
+  if (value.type === 'claim-leader')
+    return (
+      'at' in value && typeof value.at === 'number' && Number.isFinite(value.at)
+    )
   if (value.type === 'pulled')
     return (
-      'cursor' in value && typeof value.cursor === 'number' && Number.isSafeInteger(value.cursor) && value.cursor >= 0
+      'cursor' in value &&
+      typeof value.cursor === 'number' &&
+      Number.isSafeInteger(value.cursor) &&
+      value.cursor >= 0
     )
   if (value.type === 'outbox-base-advanced')
     return (

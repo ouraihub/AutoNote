@@ -1,4 +1,5 @@
-export type PageSignal = 'visible' | 'hidden' | 'focus' | 'online' | 'offline' | 'pagehide'
+export type PageSignal =
+  'visible' | 'hidden' | 'focus' | 'online' | 'offline' | 'pagehide'
 
 export interface PageSignals {
   readonly isHidden: boolean

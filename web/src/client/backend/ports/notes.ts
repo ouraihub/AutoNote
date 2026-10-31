@@ -15,7 +15,12 @@ export interface NotesTextWriterDeps {
   readonly replay?: (noteId?: string) => Promise<void>
 }
 
-const TEXT_KEYS: Record<string, true> = { rev: true, content: true, title: true, preserveVersion: true }
+const TEXT_KEYS: Record<string, true> = {
+  rev: true,
+  content: true,
+  title: true,
+  preserveVersion: true,
+}
 
 /** Text writes are durable before confirmation; network replay is independently scheduled. */
 export class HttpNotesTextWriter {
@@ -49,7 +54,12 @@ export class HttpNotesTextWriter {
     nextRev: number
   }): Promise<void> {
     await this.waitForQueued(message.noteId)
-    await this.#outbox.advanceDependents(message.noteId, message.writeId, message.expectedRev, message.nextRev)
+    await this.#outbox.advanceDependents(
+      message.noteId,
+      message.writeId,
+      message.expectedRev,
+      message.nextRev,
+    )
   }
 
   async onOutboxResult(message: {
@@ -73,7 +83,11 @@ export class HttpNotesTextWriter {
       }
       return false
     }
-    if (message.outcome === 'recovered' && (message.recoveryReason !== 'deleted' || !message.copyId)) return false
+    if (
+      message.outcome === 'recovered' &&
+      (message.recoveryReason !== 'deleted' || !message.copyId)
+    )
+      return false
     const note =
       message.note ??
       (await this.#transport.json<Note>({
@@ -90,7 +104,13 @@ export class HttpNotesTextWriter {
         copy: note,
         reason: 'deleted',
       })
-    else this.#onWriteEvent?.({ kind: 'settled', noteId: message.noteId, writeId: message.writeId, note })
+    else
+      this.#onWriteEvent?.({
+        kind: 'settled',
+        noteId: message.noteId,
+        writeId: message.writeId,
+        note,
+      })
     return true
   }
 
@@ -100,7 +120,10 @@ export class HttpNotesTextWriter {
     await this.#outbox.list()
     let note: Note
     try {
-      note = await this.#transport.json<Note>({ path: `/api/notes/${encodeURIComponent(id)}`, signal: options?.signal })
+      note = await this.#transport.json<Note>({
+        path: `/api/notes/${encodeURIComponent(id)}`,
+        signal: options?.signal,
+      })
       this.#assertUser(user)
       // A title-only journal still needs a real server body for subsequent offline reads.
       // Serialize this tab's cache writes with queued edits; dirty journal entries
@@ -108,9 +131,21 @@ export class HttpNotesTextWriter {
       const previous = this.#enqueueChains.get(id) ?? Promise.resolve()
       const cache = previous.then(async () => {
         this.#assertUser(user)
-        if (!(await this.#outbox.list()).some((item) => item.noteId === id && item.payload.contentDirty)) {
+        if (
+          !(await this.#outbox.list()).some(
+            (item) => item.noteId === id && item.payload.contentDirty,
+          )
+        ) {
           await this.#localDb
-            .setContent(id, { content: note.content, rev: note.rev, updatedAt: note.updatedAt }, user!)
+            .setContent(
+              id,
+              {
+                content: note.content,
+                rev: note.rev,
+                updatedAt: note.updatedAt,
+              },
+              user!,
+            )
             .catch(() => undefined)
         }
       })
@@ -121,32 +156,51 @@ export class HttpNotesTextWriter {
       await cache
     } catch (error) {
       this.#assertUser(user)
-      if (!(error instanceof BackendError && error.code === 'offline')) throw error
+      if (!(error instanceof BackendError && error.code === 'offline'))
+        throw error
       await this.#enqueueChains.get(id)
       const shell = await this.#localDb.loadShell()
       const summary = shell?.notes.find((item) => item.id === id)
-      const current = (await this.#outbox.list()).filter((item) => item.noteId === id)
+      const current = (await this.#outbox.list()).filter(
+        (item) => item.noteId === id,
+      )
       const content =
-        current.filter((item) => item.payload.contentDirty).at(-1)?.payload.content ??
-        (await this.#localDb.getContent(id))?.content
+        current.filter((item) => item.payload.contentDirty).at(-1)?.payload
+          .content ?? (await this.#localDb.getContent(id))?.content
       if (content === undefined || !summary) throw offlineError()
       note = { ...summary, content }
     }
     await this.#enqueueChains.get(id)
-    const latest = (await this.#outbox.list()).filter((item) => item.noteId === id)
+    const latest = (await this.#outbox.list()).filter(
+      (item) => item.noteId === id,
+    )
     this.#assertUser(user)
-    const content = latest.filter((item) => item.payload.contentDirty).at(-1)?.payload.content
-    const title = latest.filter((item) => item.payload.title !== undefined).at(-1)?.payload.title
-    return { ...note, ...(content === undefined ? {} : { content }), ...(title === undefined ? {} : { title }) }
+    const content = latest.filter((item) => item.payload.contentDirty).at(-1)
+      ?.payload.content
+    const title = latest
+      .filter((item) => item.payload.title !== undefined)
+      .at(-1)?.payload.title
+    return {
+      ...note,
+      ...(content === undefined ? {} : { content }),
+      ...(title === undefined ? {} : { title }),
+    }
   }
 
   async flush(noteId?: string): Promise<{ pending: number; failed: number }> {
-    const chains = noteId === undefined ? [...this.#enqueueChains.values()] : [this.#enqueueChains.get(noteId)]
+    const chains =
+      noteId === undefined
+        ? [...this.#enqueueChains.values()]
+        : [this.#enqueueChains.get(noteId)]
     await Promise.all(chains)
     await this.#replay?.(noteId)
-    const items = (await this.#outbox.list()).filter((item) => noteId === undefined || item.noteId === noteId)
+    const items = (await this.#outbox.list()).filter(
+      (item) => noteId === undefined || item.noteId === noteId,
+    )
     const pending = new Set(items.map((item) => item.noteId))
-    const failed = new Set(items.filter((item) => item.attempts > 0).map((item) => item.noteId))
+    const failed = new Set(
+      items.filter((item) => item.attempts > 0).map((item) => item.noteId),
+    )
     for (const id of this.#failed) {
       if (noteId === undefined || id === noteId) {
         pending.add(id)
@@ -161,16 +215,30 @@ export class HttpNotesTextWriter {
     do {
       chains = [...this.#enqueueChains.values()]
       await Promise.all(chains)
-    } while ([...this.#enqueueChains.values()].some((chain, index) => chain !== chains[index]))
-    if (this.#failed.size) throw new BackendError('internal', 0, 'Local changes are not persisted')
+    } while (
+      [...this.#enqueueChains.values()].some(
+        (chain, index) => chain !== chains[index],
+      )
+    )
+    if (this.#failed.size)
+      throw new BackendError('internal', 0, 'Local changes are not persisted')
   }
 
-  patch(id: string, body: PatchNoteBody, options: NoteWriteOptions): Promise<NoteWriteResult> {
-    if (!Object.keys(body).every((key) => TEXT_KEYS[key])) return this.#patchRemote(id, body, options)
+  patch(
+    id: string,
+    body: PatchNoteBody,
+    options: NoteWriteOptions,
+  ): Promise<NoteWriteResult> {
+    if (!Object.keys(body).every((key) => TEXT_KEYS[key]))
+      return this.#patchRemote(id, body, options)
     return this.#queueTextPatch(id, body, options)
   }
 
-  async #patchRemote(id: string, body: PatchNoteBody, options: NoteWriteOptions): Promise<NoteWriteResult> {
+  async #patchRemote(
+    id: string,
+    body: PatchNoteBody,
+    options: NoteWriteOptions,
+  ): Promise<NoteWriteResult> {
     const user = this.#localDb.activeUserId()
     const note = await this.#transport.json<Note>({
       method: 'PATCH',
@@ -182,17 +250,27 @@ export class HttpNotesTextWriter {
     this.#assertUser(user)
     if (
       !options.signal?.aborted &&
-      !(await this.#outbox.list()).some((item) => item.noteId === id && item.payload.contentDirty)
+      !(await this.#outbox.list()).some(
+        (item) => item.noteId === id && item.payload.contentDirty,
+      )
     ) {
       await this.#localDb
-        .setContent(id, { content: note.content, rev: note.rev, updatedAt: note.updatedAt }, user!)
+        .setContent(
+          id,
+          { content: note.content, rev: note.rev, updatedAt: note.updatedAt },
+          user!,
+        )
         .catch(() => undefined)
     }
     this.#assertUser(user)
     return { queued: false, writeId: options.writeId, note }
   }
 
-  #queueTextPatch(id: string, body: PatchNoteBody, options: NoteWriteOptions): Promise<NoteWriteResult> {
+  #queueTextPatch(
+    id: string,
+    body: PatchNoteBody,
+    options: NoteWriteOptions,
+  ): Promise<NoteWriteResult> {
     const user = this.#localDb.activeUserId()
     const previous = this.#enqueueChains.get(id) ?? Promise.resolve()
     const result = previous.then(async () => {
@@ -214,20 +292,30 @@ export class HttpNotesTextWriter {
     return result
   }
 
-  async #enqueueTextPatch(id: string, body: PatchNoteBody, options: NoteWriteOptions): Promise<NoteWriteResult> {
+  async #enqueueTextPatch(
+    id: string,
+    body: PatchNoteBody,
+    options: NoteWriteOptions,
+  ): Promise<NoteWriteResult> {
     const user = this.#localDb.activeUserId()
     const cached = await this.#localDb.getContent(id)
     const entries = await this.#outbox.list()
     this.#assertUser(user)
     const queueId = `patch:${this.#clientId}:${id}`
     const stored = entries.find((item) => item.id === queueId)
-    const contentDirty = stored?.payload.contentDirty === true || body.content !== undefined
-    const content = body.content ?? stored?.payload.content ?? cached?.content ?? ''
+    const contentDirty =
+      stored?.payload.contentDirty === true || body.content !== undefined
+    const content =
+      body.content ?? stored?.payload.content ?? cached?.content ?? ''
     const title = body.title ?? stored?.payload.title
     const dependsOnWriteId =
       stored?.dependsOnWriteId ??
-      entries.find((item) => item.noteId === id && item.clientId !== this.#clientId && item.payload.rev === body.rev)
-        ?.writeId
+      entries.find(
+        (item) =>
+          item.noteId === id &&
+          item.clientId !== this.#clientId &&
+          item.payload.rev === body.rev,
+      )?.writeId
     const item: OutboxItem = {
       id: queueId,
       clientId: this.#clientId,
@@ -240,8 +328,12 @@ export class HttpNotesTextWriter {
         content,
         contentDirty,
         ...(title === undefined ? {} : { title }),
-        ...(body.preserveVersion || stored?.payload.preserveVersion ? { preserveVersion: true } : {}),
-        ...(stored?.payload.recoveryId ? { recoveryId: stored.payload.recoveryId } : {}),
+        ...(body.preserveVersion || stored?.payload.preserveVersion
+          ? { preserveVersion: true }
+          : {}),
+        ...(stored?.payload.recoveryId
+          ? { recoveryId: stored.payload.recoveryId }
+          : {}),
       },
       attempts: 0,
       createdAt: Date.now(),
@@ -271,8 +363,16 @@ export class HttpNotesTextWriter {
         )
         .catch(() => undefined)
     }
-    this.#onWriteEvent?.({ kind: 'pending', count: new Set([...entries.map((entry) => entry.noteId), id]).size })
-    return { queued: true, noteId: id, rev: item.payload.rev, writeId: options.writeId }
+    this.#onWriteEvent?.({
+      kind: 'pending',
+      count: new Set([...entries.map((entry) => entry.noteId), id]).size,
+    })
+    return {
+      queued: true,
+      noteId: id,
+      rev: item.payload.rev,
+      writeId: options.writeId,
+    }
   }
 
   #assertUser(user: string | null): void {

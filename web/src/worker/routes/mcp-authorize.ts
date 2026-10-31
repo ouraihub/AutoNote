@@ -19,7 +19,7 @@ import {
   MCP_SCOPES,
   MCP_SUPPORTED_SCOPES,
 } from '../mcp/settings'
-
+import { authorizationCopy } from './mcp-authorize-copy'
 const CSRF_COOKIE = 'autonote_mcp_csrf'
 const LOCALE_COOKIE = 'autonote_mcp_locale'
 const LOCALE_QUERY = 'autonote_lang'
@@ -33,11 +33,12 @@ mcpAuthorizeRoutes.get('/authorize', async (c) => {
   const parsed = await parseAuthorization(c.req.raw, c.env.OAUTH_PROVIDER)
   if (parsed instanceof Response) return parsed
   const copy = authorizationCopy(locale)
-  if (!await isMcpEnabled(c.env.DB)) {
+  if (!(await isMcpEnabled(c.env.DB))) {
     return html(c, errorPage(copy.mcpDisabled, locale, c.req.url), 403)
   }
   const client = await c.env.OAUTH_PROVIDER!.lookupClient(parsed.clientId)
-  if (!client) return html(c, errorPage(copy.unknownClient, locale, c.req.url), 400)
+  if (!client)
+    return html(c, errorPage(copy.unknownClient, locale, c.req.url), 400)
   const csrf = randomToken()
   setCookie(c, CSRF_COOKIE, csrf, {
     path: '/authorize',
@@ -48,17 +49,21 @@ mcpAuthorizeRoutes.get('/authorize', async (c) => {
   })
   c.header('Cache-Control', 'no-store')
   const user = c.get('user')
-  return html(c, user
-    ? consentPage({
-        client,
-        request: parsed,
-        csrf,
-        userName: user.name || user.login,
-        action: new URL(c.req.url).pathname + new URL(c.req.url).search,
-        locale,
-        currentUrl: c.req.url,
-      })
-    : loginPage(client.clientName || 'MCP client', locale, c.req.url), 200)
+  return html(
+    c,
+    user
+      ? consentPage({
+          client,
+          request: parsed,
+          csrf,
+          userName: user.name || user.login,
+          action: new URL(c.req.url).pathname + new URL(c.req.url).search,
+          locale,
+          currentUrl: c.req.url,
+        })
+      : loginPage(client.clientName || 'MCP client', locale, c.req.url),
+    200,
+  )
 })
 
 mcpAuthorizeRoutes.post('/authorize', async (c) => {
@@ -66,17 +71,27 @@ mcpAuthorizeRoutes.post('/authorize', async (c) => {
   const locale = authorizationLocale(c)
   const copy = authorizationCopy(locale)
   const user = c.get('user')
-  if (!user) return html(c, errorPage(copy.sessionExpired, locale, c.req.url), 401)
-  if (!await isMcpEnabled(c.env.DB)) {
+  if (!user)
+    return html(c, errorPage(copy.sessionExpired, locale, c.req.url), 401)
+  if (!(await isMcpEnabled(c.env.DB))) {
     return html(c, errorPage(copy.mcpDisabled, locale, c.req.url), 403)
   }
   const parsed = await parseAuthorization(c.req.raw, c.env.OAUTH_PROVIDER)
   if (parsed instanceof Response) return parsed
-  const body = await readUrlEncodedFormWithinLimit(c.req, FORM_BODY_LIMITS.authorization)
+  const body = await readUrlEncodedFormWithinLimit(
+    c.req,
+    FORM_BODY_LIMITS.authorization,
+  )
   const submittedCsrf = body.get('csrf') ?? ''
   const storedCsrf = getCookie(c, CSRF_COOKIE) ?? ''
-  if (!submittedCsrf || !storedCsrf || !timingSafeEqual(submittedCsrf, storedCsrf)) {
-    throw ApiError.forbidden('Authorization form expired. Start the connection again.')
+  if (
+    !submittedCsrf ||
+    !storedCsrf ||
+    !timingSafeEqual(submittedCsrf, storedCsrf)
+  ) {
+    throw ApiError.forbidden(
+      'Authorization form expired. Start the connection again.',
+    )
   }
   setCookie(c, CSRF_COOKIE, '', { path: '/authorize', maxAge: 0 })
 
@@ -92,12 +107,18 @@ mcpAuthorizeRoutes.post('/authorize', async (c) => {
     )
   }
   const client = await c.env.OAUTH_PROVIDER!.lookupClient(parsed.clientId)
-  if (!client) return html(c, errorPage(copy.unknownClient, locale, c.req.url), 400)
-  const selected = body.getAll('scope').filter((scope) =>
-    (MCP_SUPPORTED_SCOPES as readonly string[]).includes(scope),
-  )
+  if (!client)
+    return html(c, errorPage(copy.unknownClient, locale, c.req.url), 400)
+  const selected = body
+    .getAll('scope')
+    .filter((scope) =>
+      (MCP_SUPPORTED_SCOPES as readonly string[]).includes(scope),
+    )
   const preferences = await getMcpPreferences(c.env.DB, user.id)
-  const scopes = grantedMcpScopes(selected.length ? selected : parsed.scope, preferences)
+  const scopes = grantedMcpScopes(
+    selected.length ? selected : parsed.scope,
+    preferences,
+  )
   const { redirectTo } = await c.env.OAUTH_PROVIDER!.completeAuthorization({
     request: parsed,
     userId: user.id,
@@ -113,7 +134,10 @@ mcpAuthorizeRoutes.post('/authorize', async (c) => {
     },
   })
   return Response.redirect(
-    authorizationResponseRedirect(redirectTo, authorizationIssuer(c.req.raw, parsed)),
+    authorizationResponseRedirect(
+      redirectTo,
+      authorizationIssuer(c.req.raw, parsed),
+    ),
     302,
   )
 })
@@ -126,7 +150,9 @@ async function parseAuthorization(
   try {
     const parsed = await oauth.parseAuthRequest(request)
     const unsupported = parsed.scope.filter(
-      (scope) => scope !== 'offline_access' && !(MCP_SUPPORTED_SCOPES as readonly string[]).includes(scope),
+      (scope) =>
+        scope !== 'offline_access' &&
+        !(MCP_SUPPORTED_SCOPES as readonly string[]).includes(scope),
     )
     if (unsupported.length) {
       return Response.redirect(
@@ -142,12 +168,16 @@ async function parseAuthorization(
     return parsed
   } catch (error) {
     if (!(error instanceof AuthorizationError)) throw error
-    if (!error.redirectUri) return new Response(error.description, { status: 400 })
+    if (!error.redirectUri)
+      return new Response(error.description, { status: 400 })
     const redirect = new URL(error.redirectUri)
     redirect.searchParams.set('error', error.code)
     redirect.searchParams.set('error_description', error.description)
     if (error.state) redirect.searchParams.set('state', error.state)
-    redirect.searchParams.set('iss', error.issuer ?? new URL(request.url).origin)
+    redirect.searchParams.set(
+      'iss',
+      error.issuer ?? new URL(request.url).origin,
+    )
     return Response.redirect(redirect.toString(), 302)
   }
 }
@@ -156,7 +186,10 @@ function authorizationIssuer(request: Request, parsed: AuthRequest): string {
   return parsed.issuer ?? new URL(request.url).origin
 }
 
-function authorizationResponseRedirect(redirectTo: string, issuer: string): string {
+function authorizationResponseRedirect(
+  redirectTo: string,
+  issuer: string,
+): string {
   const redirect = new URL(redirectTo)
   const returnedIssuer = redirect.searchParams.get('iss')
   if (returnedIssuer && returnedIssuer !== issuer) {
@@ -189,12 +222,15 @@ function consentPage(input: {
   locale: AppLocale
   currentUrl: string
 }): string {
-  const requested = new Set(input.request.scope.length ? input.request.scope : [MCP_SCOPES.read])
+  const requested = new Set(
+    input.request.scope.length ? input.request.scope : [MCP_SCOPES.read],
+  )
   const wantsWrite = requested.has(MCP_SCOPES.write)
   const wantsTrash = requested.has(MCP_SCOPES.trash)
   const copy = authorizationCopy(input.locale)
   const clientName = escapeHtml(input.client.clientName || copy.mcpClient)
-  return page(`
+  return page(
+    `
     <div class="panel-body">
       <section class="request-card">
         <span class="brand-mark">${logoMark()}</span>
@@ -232,16 +268,29 @@ function consentPage(input: {
           <button class="primary" name="decision" value="approve">${copy.allowAccess}</button>
         </div>
       </form>
-    </div>`, input.locale, input.currentUrl)
+    </div>`,
+    input.locale,
+    input.currentUrl,
+  )
 }
 
-function permission(scope: string, title: string, detail: string, checked: boolean): string {
+function permission(
+  scope: string,
+  title: string,
+  detail: string,
+  checked: boolean,
+): string {
   return `<label class="setting-row"><span class="setting-copy"><strong>${escapeHtml(title)}</strong><small>${escapeHtml(detail)}</small></span><input class="switch" type="checkbox" name="scope" value="${escapeHtml(scope)}" aria-label="${escapeHtml(title)}" ${checked ? 'checked' : ''}></label>`
 }
 
-function loginPage(clientName: string, locale: AppLocale, currentUrl: string): string {
+function loginPage(
+  clientName: string,
+  locale: AppLocale,
+  currentUrl: string,
+): string {
   const copy = authorizationCopy(locale)
-  return page(`
+  return page(
+    `
     <div class="panel-body">
       <section class="request-card">
         <span class="brand-mark">${logoMark()}</span>
@@ -281,97 +330,32 @@ function loginPage(clientName: string, locale: AppLocale, currentUrl: string): s
           location.reload();
         } catch (reason) { error.textContent = reason.message || ${JSON.stringify(copy.signInFailed)}; button.disabled = false; }
       });
-    </script>`, locale, currentUrl)
+    </script>`,
+    locale,
+    currentUrl,
+  )
 }
 
-function errorPage(message: string, locale: AppLocale, currentUrl: string): string {
+function errorPage(
+  message: string,
+  locale: AppLocale,
+  currentUrl: string,
+): string {
   const copy = authorizationCopy(locale)
-  return page(`
+  return page(
+    `
     <div class="panel-body">
       <section class="request-card">
         <span class="brand-mark">${logoMark()}</span>
         <div class="request-copy"><h1>${copy.authorizationFailed}</h1><p>${escapeHtml(message)}</p></div>
       </section>
       <div class="actions"><a class="primary link" href="/">${copy.openAutoNote}</a></div>
-    </div>`, locale, currentUrl)
+    </div>`,
+    locale,
+    currentUrl,
+  )
 }
 
-function authorizationCopy(locale: AppLocale) {
-  if (locale === 'zh-CN') {
-    return {
-      header: 'MCP',
-      authorization: '授权',
-      switchLabel: 'EN',
-      switchAria: '切换为英文',
-      mcpClient: 'MCP 客户端',
-      accessTitle: (clientName: string) => `${clientName} 请求访问`,
-      signedInAs: '已登录为 ',
-      accountOnly: '。仅可访问此账户的笔记。',
-      permissions: '权限',
-      readTitle: '读取与搜索笔记',
-      readDetail: '必需。连接的 AI 客户端只会收到工具选中的笔记内容。',
-      readRequiredAria: '读取与搜索笔记为必需权限',
-      writeTitle: '\u4fee\u6539\u7b14\u8bb0\u5e93',
-      writeDetail: '\u53ef\u4fee\u6539\u7b14\u8bb0\u3001\u76ee\u5f55\u3001\u6807\u7b7e\u3001\u5c5e\u6027\u548c\u9644\u4ef6\uff0c\u4e5f\u53ef\u6309\u660e\u786e\u8bf7\u6c42\u521b\u5efa\u5171\u4eab\u94fe\u63a5\u6216\u8fd0\u884c\u5df2\u914d\u7f6e\u7684\u5907\u4efd\uff1b\u5199\u5165\u5305\u542b\u51b2\u7a81\u4fdd\u62a4\u548c\u5e42\u7b49\u952e\u3002',
-      trashTitle: '移入回收站',
-      trashDetail: '仅软删除；MCP 不提供永久清除功能。',
-      privacy: '隐私',
-      privacyDetail: (clientName: string) =>
-        `Cloudflare 托管静态加密的服务数据。只有工具读取笔记时，内容才会发送给 ${clientName}，之后由该客户端的隐私政策约束。`,
-      cancel: '取消',
-      allowAccess: '允许访问',
-      signInTitle: (clientName: string) => `登录以授权 ${clientName}`,
-      passwordOnly: '密码只会发送到当前 AutoNote 部署。',
-      autonoteAccount: 'AutoNote 账户',
-      username: '用户名',
-      password: '密码',
-      signInContinue: '登录并继续',
-      needAccount: '还没有账户？请先在另一个标签页打开 AutoNote。',
-      signInFailed: '登录失败',
-      authorizationFailed: '授权失败',
-      openAutoNote: '打开 AutoNote',
-      mcpDisabled: 'MCP 已在 AutoNote 设置中停用。',
-      unknownClient: '未知的 OAuth 客户端。',
-      sessionExpired: 'AutoNote 会话已过期，请登录后重试。',
-    }
-  }
-  return {
-    header: 'MCP',
-    authorization: 'Authorization',
-    switchLabel: '中文',
-    switchAria: 'Switch to Chinese',
-    mcpClient: 'MCP client',
-    accessTitle: (clientName: string) => `${clientName} wants access`,
-    signedInAs: 'Signed in as ',
-    accountOnly: '. Only this account’s notes are available.',
-    permissions: 'Permissions',
-    readTitle: 'Read and search notes',
-    readDetail: 'Required. Selected note text is returned to the connected AI client.',
-    readRequiredAria: 'Read and search notes is required',
-    writeTitle: 'Modify the note library',
-    writeDetail: 'May modify notes, folders, tags, properties, and attachments, and may create shares or run configured backups when explicitly requested. Writes use conflict protection and idempotency keys.',
-    trashTitle: 'Move notes to trash',
-    trashDetail: 'Soft-delete only. Permanent purge is not exposed through MCP.',
-    privacy: 'Privacy',
-    privacyDetail: (clientName: string) =>
-      `Cloudflare hosts the encrypted-at-rest service data. Note content is sent to ${clientName} only when a tool reads it, then follows that client’s privacy policy.`,
-    cancel: 'Cancel',
-    allowAccess: 'Allow access',
-    signInTitle: (clientName: string) => `Sign in to authorize ${clientName}`,
-    passwordOnly: 'Your password is sent only to this AutoNote deployment.',
-    autonoteAccount: 'AutoNote account',
-    username: 'Username',
-    password: 'Password',
-    signInContinue: 'Sign in and continue',
-    needAccount: 'Need an account? Open AutoNote in another tab first.',
-    signInFailed: 'Sign-in failed',
-    authorizationFailed: 'Authorization failed',
-    openAutoNote: 'Open AutoNote',
-    mcpDisabled: 'MCP is disabled in AutoNote settings.',
-    unknownClient: 'Unknown OAuth client.',
-    sessionExpired: 'Your AutoNote session expired. Sign in and try again.',
-  }
-}
 
 function applyLocalePreference(c: Context<AppBindings>): Response | null {
   const url = new URL(c.req.url)
@@ -395,12 +379,16 @@ function authorizationLocale(c: Context<AppBindings>): AppLocale {
   const user = c.get('user')
   if (user) {
     try {
-      const settings = JSON.parse(user.settingsRaw) as { appearance?: { language?: unknown } }
-      if (isAppLocale(settings.appearance?.language)) return settings.appearance.language
-    } catch {
-    }
+      const settings = JSON.parse(user.settingsRaw) as {
+        appearance?: { language?: unknown }
+      }
+      if (isAppLocale(settings.appearance?.language))
+        return settings.appearance.language
+    } catch {}
   }
-  return c.req.header('Accept-Language')?.toLowerCase().startsWith('en') ? 'en-US' : 'zh-CN'
+  return c.req.header('Accept-Language')?.toLowerCase().startsWith('en')
+    ? 'en-US'
+    : 'zh-CN'
 }
 
 function isAppLocale(value: unknown): value is AppLocale {
@@ -429,22 +417,37 @@ function page(content: string, locale: AppLocale, currentUrl: string): string {
   </style></head><body><main class="panel"><header class="panel-header"><div class="panel-heading"><span>${escapeHtml(copy.header)}</span><span class="header-subtitle">${escapeHtml(copy.authorization)}</span></div><a class="language-switch" href="${escapeHtml(languageSwitchUrl(currentUrl, locale))}" hreflang="${nextLocale}" aria-label="${escapeHtml(copy.switchAria)}">${escapeHtml(copy.switchLabel)}</a></header>${content}</main></body></html>`
 }
 
-function html(c: Context<AppBindings>, body: string, status: 200 | 400 | 401 | 403 | 503): Response {
+function html(
+  c: Context<AppBindings>,
+  body: string,
+  status: 200 | 400 | 401 | 403 | 503,
+): Response {
   return c.html(body, status)
 }
 
 function assertSameOrigin(request: Request): void {
   const origin = request.headers.get('Origin')
-  if (origin && origin !== new URL(request.url).origin) throw ApiError.forbidden('Invalid form origin')
+  if (origin && origin !== new URL(request.url).origin)
+    throw ApiError.forbidden('Invalid form origin')
 }
 
 function randomToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(24))
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join(
+    '',
+  )
 }
 
 function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (character) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-  })[character]!)
+  return value.replace(
+    /[&<>"']/g,
+    (character) =>
+      ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      })[character]!,
+  )
 }

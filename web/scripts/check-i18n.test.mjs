@@ -68,6 +68,38 @@ test('i18n checker rejects mismatched locale interpolation placeholders', async 
   )
 })
 
+test('split locales keep complete key and placeholder validation without executing code', async () => {
+  await withFixture({
+    'packages/shared/src/locales/en-US.ts': "import { PART } from './en-part'\nexport const EN_US_MESSAGES = { ...PART } as const",
+    'packages/shared/src/locales/zh-CN.ts': "import { PART } from './zh-part'\nexport const ZH_CN_MESSAGES = { ...PART } as const",
+    'packages/shared/src/locales/en-part.ts': "export const PART = { 'known.key': 'Open ' + '{name}', 'missing.key': 'Extra' } as const",
+    'packages/shared/src/locales/zh-part.ts': "export const PART = { 'known.key': '打开 {title}' } as const",
+    'packages/app/src/view.svelte': "<p>{t('known.key')}</p>",
+    'web/src/client/use.ts': '',
+  }, async (root) => {
+    const errors = await run(root)
+    assert.ok(errors.includes('Missing zh-CN key: missing.key'))
+    assert.ok(errors.some((error) => error.startsWith('Mismatched placeholders for known.key:')))
+  })
+})
+
+test('split locale cycles and duplicate keys are rejected', async () => {
+  for (const part of [
+    "import { EN_US_MESSAGES } from './en-US'\nexport const PART = { ...EN_US_MESSAGES } as const",
+    "export const PART = { 'known.key': 'First' } as const",
+  ]) {
+    await withFixture({
+      'packages/shared/src/locales/en-US.ts': "import { PART } from './part'\nexport const EN_US_MESSAGES = { ...PART, 'known.key': 'Second' } as const",
+      'packages/shared/src/locales/part.ts': part,
+      'packages/shared/src/locales/zh-CN.ts': locale('打开'),
+      'packages/app/src/view.svelte': '<p>AutoNote</p>',
+      'web/src/client/use.ts': '',
+    }, async (root) => {
+      await assert.rejects(run(root), /Circular locale import|Duplicate locale key/)
+    })
+  }
+})
+
 function locale(value) {
   return `export const EN_US_MESSAGES = { 'known.key': '${value}' } as const\n`
 }

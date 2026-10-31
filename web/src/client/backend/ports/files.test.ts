@@ -6,7 +6,9 @@ it('rejects oversized uploads before transport', async () => {
   const json = vi.fn()
   const port = new HttpFilesPort({ transport: { json } as never })
   await expect(
-    port.upload(new File([new Uint8Array(LIMITS.attachmentMaxBytes + 1)], 'large.bin')),
+    port.upload(
+      new File([new Uint8Array(LIMITS.attachmentMaxBytes + 1)], 'large.bin'),
+    ),
   ).rejects.toMatchObject({
     code: 'payload_too_large',
     status: 413,
@@ -17,15 +19,21 @@ it('rejects oversized uploads before transport', async () => {
 it('preserves attachment page cursor', async () => {
   const json = vi.fn().mockResolvedValue({ files: [], nextCursor: 'next' })
   const port = new HttpFilesPort({ transport: { json } as never })
-  await expect(port.list('current')).resolves.toEqual({ files: [], nextCursor: 'next' })
-  expect(json).toHaveBeenCalledWith(expect.objectContaining({ query: { cursor: 'current' } }))
+  await expect(port.list('current')).resolves.toEqual({
+    files: [],
+    nextCursor: 'next',
+  })
+  expect(json).toHaveBeenCalledWith(
+    expect.objectContaining({ query: { cursor: 'current' } }),
+  )
 })
 
 it('resolves demo attachments without a private network request', () => {
   const json = vi.fn()
   const port = new HttpFilesPort({
     transport: { json } as never,
-    resolveFileUrl: (url) => (url === '/api/files/demo' ? 'blob:controlled' : url),
+    resolveFileUrl: (url) =>
+      url === '/api/files/demo' ? 'blob:controlled' : url,
   })
   expect(port.resolveUrl('/api/files/demo')).toBe('blob:controlled')
   expect(json).not.toHaveBeenCalled()

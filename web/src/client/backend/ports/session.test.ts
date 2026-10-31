@@ -6,7 +6,15 @@ import { MemoryKvStore, createLocalDb } from '../../local'
 import { HttpSessionPort } from './session'
 
 const session: BackendSession = {
-  user: { id: 'u1', login: 'u1', username: 'u1', name: 'U', avatarUrl: '', role: 'member', createdAt: 1 },
+  user: {
+    id: 'u1',
+    login: 'u1',
+    username: 'u1',
+    name: 'U',
+    avatarUrl: '',
+    role: 'member',
+    createdAt: 1,
+  },
   site: {
     name: 'AutoNote',
     initialized: true,
@@ -34,7 +42,9 @@ function transport(response: unknown, requests: unknown[]): HttpTransport {
       requests.push({
         method: request.method,
         path: new URL(request.url).pathname,
-        body: request.headers.has('content-type') ? await request.json() : undefined,
+        body: request.headers.has('content-type')
+          ? await request.json()
+          : undefined,
       })
       return Response.json(response)
     },
@@ -42,11 +52,19 @@ function transport(response: unknown, requests: unknown[]): HttpTransport {
     getLocale: () => 'en-US',
     bus,
     logger,
-    timers: { setTimeout: () => 1, clearTimeout() {}, setInterval: () => 1, clearInterval() {} },
+    timers: {
+      setTimeout: () => 1,
+      clearTimeout() {},
+      setInterval: () => 1,
+      clearInterval() {},
+    },
   })
 }
 
-function port(response: unknown, pending?: () => Promise<{ pending: number; failed: number }>) {
+function port(
+  response: unknown,
+  pending?: () => Promise<{ pending: number; failed: number }>,
+) {
   const requests: unknown[] = []
   const client = transport(response, requests)
   return {
@@ -64,7 +82,9 @@ function port(response: unknown, pending?: () => Promise<{ pending: number; fail
 describe('HttpSessionPort', () => {
   it('maps account requests and persists authenticated session', async () => {
     const { port: sessionPort, requests } = port(session)
-    await expect(sessionPort.account?.register('u1', 'password-password', 'en-US')).resolves.toEqual(session)
+    await expect(
+      sessionPort.account?.register('u1', 'password-password', 'en-US'),
+    ).resolves.toEqual(session)
     expect(requests).toHaveLength(1)
     expect(requests[0]).toMatchObject({
       method: 'POST',
@@ -74,8 +94,13 @@ describe('HttpSessionPort', () => {
   })
 
   it('does not call logout when any queue remains', async () => {
-    const { port: sessionPort, requests } = port({ ok: true }, async () => ({ pending: 1, failed: 0 }))
-    await expect(sessionPort.logout()).rejects.toMatchObject({ code: 'conflict' })
+    const { port: sessionPort, requests } = port({ ok: true }, async () => ({
+      pending: 1,
+      failed: 0,
+    }))
+    await expect(sessionPort.logout()).rejects.toMatchObject({
+      code: 'conflict',
+    })
     expect(requests).toHaveLength(0)
   })
 
@@ -129,14 +154,18 @@ describe('HttpSessionPort', () => {
       attempts: 0,
       createdAt: 1,
     })
-    await expect(sessionPort.logout()).rejects.toMatchObject({ code: 'conflict' })
+    await expect(sessionPort.logout()).rejects.toMatchObject({
+      code: 'conflict',
+    })
     expect(requests).toHaveLength(0)
     await expect(db.loadSession()).resolves.toEqual(session)
     await db.completeOutboxItem('patch:test:n1', 'w1')
     await sessionPort.logout()
     expect(requests).toHaveLength(1)
     await expect(db.loadSession()).resolves.toBeNull()
-    expect((await db.getAllOutbox()).map((item) => item.writeId)).toEqual(['w2'])
+    expect((await db.getAllOutbox()).map((item) => item.writeId)).toEqual([
+      'w2',
+    ])
   })
 
   it('does not allow stale account response to overwrite a newer login', async () => {
@@ -144,7 +173,8 @@ describe('HttpSessionPort', () => {
     const waits: Array<(value: BackendSession) => void> = []
     const sessionPort = new HttpSessionPort({
       transport: {
-        json: () => new Promise<BackendSession>((resolve) => waits.push(resolve)),
+        json: () =>
+          new Promise<BackendSession>((resolve) => waits.push(resolve)),
       } as unknown as HttpTransport,
       localDb: db,
       bus,

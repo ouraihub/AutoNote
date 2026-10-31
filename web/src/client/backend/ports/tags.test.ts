@@ -5,5 +5,8 @@ it('normalizes a count-only rename for consumers while preserving the worker rew
   const port = new HttpTagsPort({
     transport: { json: async () => ({ ok: true, renamed: 3 }) } as never,
   })
-  await expect(port.patch('tag-id', { name: 'renamed' })).resolves.toEqual({ tag: null, renamed: 3 })
+  await expect(port.patch('tag-id', { name: 'renamed' })).resolves.toEqual({
+    tag: null,
+    renamed: 3,
+  })
 })

@@ -41,7 +41,11 @@ export async function matchTotpCode(
   if (!code) return null
   const current = Math.floor(now / 1000 / TOTP_PERIOD_SECONDS)
   const offsets = [0]
-  for (let distance = 1; distance <= Math.max(0, Math.min(2, Math.trunc(window))); distance++) {
+  for (
+    let distance = 1;
+    distance <= Math.max(0, Math.min(2, Math.trunc(window)));
+    distance++
+  ) {
     offsets.push(-distance, distance)
   }
   for (const offset of offsets) {
@@ -52,7 +56,10 @@ export async function matchTotpCode(
   return null
 }
 
-export async function totpCodeForStep(secret: string, step: number): Promise<string> {
+export async function totpCodeForStep(
+  secret: string,
+  step: number,
+): Promise<string> {
   const keyBytes = decodeBase32(secret)
   const key = await crypto.subtle.importKey(
     'raw',
@@ -62,17 +69,21 @@ export async function totpCodeForStep(secret: string, step: number): Promise<str
     ['sign'],
   )
   const counter = new Uint8Array(8)
-  new DataView(counter.buffer).setBigUint64(0, BigInt(Math.max(0, Math.trunc(step))), false)
+  new DataView(counter.buffer).setBigUint64(
+    0,
+    BigInt(Math.max(0, Math.trunc(step))),
+    false,
+  )
   const signed = new Uint8Array(
     await crypto.subtle.sign('HMAC', key, counter as BufferSource),
   )
   const offset = signed[signed.length - 1]! & 0x0f
-  const binary = (
-    ((signed[offset]! & 0x7f) << 24) |
-    ((signed[offset + 1]! & 0xff) << 16) |
-    ((signed[offset + 2]! & 0xff) << 8) |
-    (signed[offset + 3]! & 0xff)
-  ) >>> 0
+  const binary =
+    (((signed[offset]! & 0x7f) << 24) |
+      ((signed[offset + 1]! & 0xff) << 16) |
+      ((signed[offset + 2]! & 0xff) << 8) |
+      (signed[offset + 3]! & 0xff)) >>>
+    0
   return String(binary % 10 ** TOTP_DIGITS).padStart(TOTP_DIGITS, '0')
 }
 
@@ -82,7 +93,9 @@ export function normalizeTotpCode(value: unknown): string | null {
   return /^\d{6}$/.test(normalized) ? normalized : null
 }
 
-export function generateRecoveryCodes(count = TOTP_RECOVERY_CODE_COUNT): string[] {
+export function generateRecoveryCodes(
+  count = TOTP_RECOVERY_CODE_COUNT,
+): string[] {
   const capped = Math.max(1, Math.min(20, Math.trunc(count)))
   return Array.from({ length: capped }, () => {
     const bytes = crypto.getRandomValues(new Uint8Array(16))
@@ -102,7 +115,10 @@ export function normalizeRecoveryCode(value: unknown): string | null {
   return normalized
 }
 
-export async function hashRecoveryCode(userId: string, code: string): Promise<string> {
+export async function hashRecoveryCode(
+  userId: string,
+  code: string,
+): Promise<string> {
   return sha256Hex(`autonote:totp-recovery:v1:${userId}:${code}`)
 }
 
@@ -137,7 +153,8 @@ function encodeBase32(bytes: Uint8Array): string {
 
 function decodeBase32(value: string): Uint8Array {
   const normalized = value.toUpperCase().replace(/=+$/, '')
-  if (!normalized || !/^[A-Z2-7]+$/.test(normalized)) throw new Error('invalid_base32')
+  if (!normalized || !/^[A-Z2-7]+$/.test(normalized))
+    throw new Error('invalid_base32')
   let buffer = 0
   let bits = 0
   const output: number[] = []

@@ -237,4 +237,6 @@ pub fn recover_staging(library: &Library) -> Result<(), Error> {
     Ok(())
 }
 #[cfg(test)]
+#[path = "recovery_tests.rs"]
+mod recovery_tests;
 mod tests;

@@ -1,6 +1,5 @@
 import type { RealtimeMessage } from '@shared/types'
 
-
 export class SyncHub implements DurableObject {
   constructor(private readonly state: DurableObjectState) {}
 
@@ -16,7 +15,8 @@ export class SyncHub implements DurableObject {
       this.broadcast({
         type: 'changed',
         cursor: Number.isSafeInteger(cursor) && cursor >= 0 ? cursor : 0,
-        origin: typeof body.origin === 'string' ? body.origin.slice(0, 128) : null,
+        origin:
+          typeof body.origin === 'string' ? body.origin.slice(0, 128) : null,
       })
       return new Response(null, { status: 204 })
     }
@@ -51,35 +51,32 @@ export class SyncHub implements DurableObject {
       return
     }
     if (parsed?.type === 'ping') {
-      ws.send(JSON.stringify({ type: 'pong', serverTime: Date.now() } satisfies RealtimeMessage))
+      ws.send(
+        JSON.stringify({
+          type: 'pong',
+          serverTime: Date.now(),
+        } satisfies RealtimeMessage),
+      )
     }
   }
 
   webSocketClose(ws: WebSocket, code: number, reason: string): void {
-
     try {
       ws.close(code === 1005 ? 1000 : code, reason)
-    } catch {
-
-    }
+    } catch {}
   }
 
-  webSocketError(): void {
-
-  }
+  webSocketError(): void {}
 
   private broadcast(message: RealtimeMessage): void {
     const payload = JSON.stringify(message)
     for (const ws of this.state.getWebSockets()) {
       try {
         ws.send(payload)
-      } catch {
-
-      }
+      } catch {}
     }
   }
 }
-
 
 export async function notifySyncHub(
   namespace: DurableObjectNamespace | undefined,
@@ -96,7 +93,9 @@ export async function notifySyncHub(
       body: JSON.stringify({ cursor, origin }),
     })
   } catch (err) {
-
-    console.warn('[autonote] Realtime broadcast failed:', err instanceof Error ? err.message : err)
+    console.warn(
+      '[autonote] Realtime broadcast failed:',
+      err instanceof Error ? err.message : err,
+    )
   }
 }

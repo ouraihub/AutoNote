@@ -8,13 +8,34 @@
   import type { UiState } from '@app/state/ui.svelte'
   import { fuzzyFilter, splitByRanges, type FuzzyMatch } from '@app/lib/fuzzy'
   import { Dialog as DialogPrimitive } from 'bits-ui'
-  import { Clock, Columns2, Eye, FileText, FolderPlus, Hash, Keyboard, Pencil, Plus, Search, Settings, Star, Trash2, Waypoints, X } from '@lucide/svelte'
+  import {
+    Clock,
+    Columns2,
+    Eye,
+    FileText,
+    FolderPlus,
+    Hash,
+    Keyboard,
+    Pencil,
+    Plus,
+    Search,
+    Settings,
+    Star,
+    Trash2,
+    Waypoints,
+    X,
+  } from '@lucide/svelte'
   import DialogPortal from '@app/components/ui/dialog/dialog-portal.svelte'
   import IconButton from '@app/components/primitives/IconButton.svelte'
   import Kbd from '@app/components/primitives/Kbd.svelte'
 
   interface I18n {
-    t(key: MessageKey, params?: Readonly<Record<string, boolean | number | string | null | undefined>>): string
+    t(
+      key: MessageKey,
+      params?: Readonly<
+        Record<string, boolean | number | string | null | undefined>
+      >,
+    ): string
   }
   interface Item {
     readonly id: string
@@ -37,12 +58,26 @@
     onOpenChange(open: boolean): void
   }
 
-  let { open = $bindable(true), notes, ui, backend, i18n, settings, organize, onOpenChange }: Props = $props()
+  let {
+    open = $bindable(true),
+    notes,
+    ui,
+    backend,
+    i18n,
+    settings,
+    organize,
+    onOpenChange,
+  }: Props = $props()
   let query = $state('')
   let cursor = $state(0)
   let searchGeneration = 0
-  let remote = $state<{ query: string; results: NoteSummary[] }>({ query: '', results: [] })
-  const allNotes = $derived(Object.values(notes.summaries).filter((note) => note.deletedAt === null))
+  let remote = $state<{ query: string; results: NoteSummary[] }>({
+    query: '',
+    results: [],
+  })
+  const allNotes = $derived(
+    Object.values(notes.summaries).filter((note) => note.deletedAt === null),
+  )
   const snapshot = $derived(notes.readOrganizeSnapshot())
   const localItems = $derived.by(() => {
     const text = query.trim()
@@ -124,45 +159,66 @@
     if (!text) {
       const recent = ui.recent
         .map((id) => notes.summaries[id])
-        .filter((note): note is NoteSummary => Boolean(note && note.deletedAt === null))
+        .filter((note): note is NoteSummary =>
+          Boolean(note && note.deletedAt === null),
+        )
         .slice(0, 6)
-      return [...recent.map((note) => noteItem(note, i18n.t('command.recently_opened'), Clock)), ...commands]
+      return [
+        ...recent.map((note) =>
+          noteItem(note, i18n.t('command.recently_opened'), Clock),
+        ),
+        ...commands,
+      ]
     }
-    const result: Item[] = fuzzyFilter(commands, text, (item) => item.label, 10).map(({ item, match }) => ({
+    const result: Item[] = fuzzyFilter(
+      commands,
+      text,
+      (item) => item.label,
+      10,
+    ).map(({ item, match }) => ({
       ...item,
       match,
     }))
     result.push(
-      ...fuzzyFilter(allNotes, text, (note) => note.title, 15).map(({ item, match }) =>
-        noteItem(item, i18n.t('common.note'), FileText, match),
+      ...fuzzyFilter(allNotes, text, (note) => note.title, 15).map(
+        ({ item, match }) =>
+          noteItem(item, i18n.t('common.note'), FileText, match),
       ),
     )
     result.push(
-      ...fuzzyFilter(snapshot.tags, text, (tag) => tag.name, 5).map(({ item, match }) => ({
-        id: `tag-${item.id}`,
-        label: `#${item.name}`,
-        detail: `${item.count}`,
-        group: i18n.t('navigation.tag'),
-        icon: Hash,
-        match,
-        run: () => ui.openView('tag', { tag: item.name }),
-      })),
+      ...fuzzyFilter(snapshot.tags, text, (tag) => tag.name, 5).map(
+        ({ item, match }) => ({
+          id: `tag-${item.id}`,
+          label: `#${item.name}`,
+          detail: `${item.count}`,
+          group: i18n.t('navigation.tag'),
+          icon: Hash,
+          match,
+          run: () => ui.openView('tag', { tag: item.name }),
+        }),
+      ),
     )
     result.push(
-      ...fuzzyFilter(snapshot.folders, text, (folder) => folder.name, 5).map(({ item, match }) => ({
-        id: `folder-${item.id}`,
-        label: item.name,
-        group: i18n.t('navigation.folder'),
-        icon: FolderPlus,
-        match,
-        run: () => ui.openView('folder', { folderId: item.id }),
-      })),
+      ...fuzzyFilter(snapshot.folders, text, (folder) => folder.name, 5).map(
+        ({ item, match }) => ({
+          id: `folder-${item.id}`,
+          label: item.name,
+          group: i18n.t('navigation.folder'),
+          icon: FolderPlus,
+          match,
+          run: () => ui.openView('folder', { folderId: item.id }),
+        }),
+      ),
     )
     if (remote.query === text)
       result.push(
         ...remote.results
-          .filter((note) => !result.some((item) => item.id === `note-${note.id}`))
-          .map((note) => noteItem(note, i18n.t('command.content_match'), Search)),
+          .filter(
+            (note) => !result.some((item) => item.id === `note-${note.id}`),
+          )
+          .map((note) =>
+            noteItem(note, i18n.t('command.content_match'), Search),
+          ),
       )
     if (!result.length)
       result.push({
@@ -172,7 +228,9 @@
         icon: Plus,
         run: () => void createNote(text),
       })
-    return result.sort((a, b) => (b.match?.score ?? 0) - (a.match?.score ?? 0)).slice(0, 40)
+    return result
+      .sort((a, b) => (b.match?.score ?? 0) - (a.match?.score ?? 0))
+      .slice(0, 40)
   })
   const groups = $derived.by(() => {
     const map: Record<string, Item[]> = {}
@@ -193,10 +251,14 @@
         .query(text, 20, { signal: controller.signal })
         .then((response) => {
           if (!controller.signal.aborted && generation === searchGeneration)
-            remote = { query: text, results: response.results.map((hit) => hit.note) }
+            remote = {
+              query: text,
+              results: response.results.map((hit) => hit.note),
+            }
         })
         .catch((error: unknown) => {
-          if (!controller.signal.aborted && generation === searchGeneration) remote = { query: text, results: [] }
+          if (!controller.signal.aborted && generation === searchGeneration)
+            remote = { query: text, results: [] }
           if (error instanceof Error && error.name === 'AbortError') return
         })
     }, 120)
@@ -206,7 +268,12 @@
     }
   })
 
-  function noteItem(note: NoteSummary, group: string, icon: typeof Plus, match?: FuzzyMatch): Item {
+  function noteItem(
+    note: NoteSummary,
+    group: string,
+    icon: typeof Plus,
+    match?: FuzzyMatch,
+  ): Item {
     return {
       id: `note-${note.id}`,
       label: note.title || i18n.t('common.untitled_note'),
@@ -248,16 +315,28 @@
 
 <DialogPrimitive.Root bind:open {onOpenChange}>
   <DialogPortal>
-    <div class="app-viewport-fixed fixed z-[240] flex items-end justify-center md:items-start md:px-4 md:pt-[13vh]">
-      <DialogPrimitive.Overlay class="anim-fade absolute inset-0 bg-[var(--scrim)] backdrop-blur-[3px]" />
+    <div
+      class="app-viewport-fixed fixed z-[240] flex items-end justify-center md:items-start md:px-4 md:pt-[13vh]"
+    >
+      <DialogPrimitive.Overlay
+        class="anim-fade absolute inset-0 bg-[var(--scrim)] backdrop-blur-[3px]"
+      />
       <DialogPrimitive.Content
         class="anim-pop relative flex h-[min(82dvh,var(--app-viewport-height,100dvh))] w-full max-w-[660px] flex-col overflow-hidden rounded-t-[var(--r-2xl)] border border-b-0 border-[var(--border-default)] bg-[var(--bg-overlay)] pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow-modal)] outline-none md:h-auto md:rounded-[var(--r-2xl)] md:border-b md:pb-0"
       >
-        <DialogPrimitive.Title class="sr-only">{i18n.t('common.search_notes_or_run_a_command')}</DialogPrimitive.Title>
-        <DialogPrimitive.Description class="sr-only"
-          >{i18n.t('command.use_nearly_every_action_without_touching_the_mouse')}</DialogPrimitive.Description
+        <DialogPrimitive.Title class="sr-only"
+          >{i18n.t(
+            'common.search_notes_or_run_a_command',
+          )}</DialogPrimitive.Title
         >
-        <div class="flex items-center gap-2.5 border-b border-[var(--border-subtle)] px-4">
+        <DialogPrimitive.Description class="sr-only"
+          >{i18n.t(
+            'command.use_nearly_every_action_without_touching_the_mouse',
+          )}</DialogPrimitive.Description
+        >
+        <div
+          class="flex items-center gap-2.5 border-b border-[var(--border-subtle)] px-4"
+        >
           <Search size={16} class="shrink-0 text-[var(--text-quaternary)]" />
           <input
             bind:value={query}
@@ -267,7 +346,9 @@
             aria-label={i18n.t('common.search_notes_or_run_a_command')}
             aria-expanded="true"
             aria-controls={listId}
-            aria-activedescendant={localItems[cursor] ? `${listId}-option-${cursor}` : undefined}
+            aria-activedescendant={localItems[cursor]
+              ? `${listId}-option-${cursor}`
+              : undefined}
             aria-autocomplete="list"
             autocomplete="off"
             placeholder={i18n.t('command.search_notes_or_type_a_command')}
@@ -275,20 +356,33 @@
           />
           <span class="hidden md:inline-flex"><Kbd keys={['Esc']} /></span>
           <span class="md:hidden">
-            <IconButton label={i18n.t('common.close')} title={i18n.t('common.close')} size="sm" onclick={() => onOpenChange(false)}>
+            <IconButton
+              label={i18n.t('common.close')}
+              title={i18n.t('common.close')}
+              size="sm"
+              onclick={() => onOpenChange(false)}
+            >
               <X size={16} />
             </IconButton>
           </span>
         </div>
-        <div id={listId} role="listbox" class="min-h-0 flex-1 overflow-y-auto p-1.5 md:max-h-[54vh] md:flex-none">
+        <div
+          id={listId}
+          role="listbox"
+          class="min-h-0 flex-1 overflow-y-auto p-1.5 md:max-h-[54vh] md:flex-none"
+        >
           {#if !groups.length}
-            <div class="px-3 py-10 text-center text-[12.5px] text-[var(--text-quaternary)]">
+            <div
+              class="px-3 py-10 text-center text-[12.5px] text-[var(--text-quaternary)]"
+            >
               {i18n.t('command.no_matching_results')}
             </div>
           {:else}
             {#each groups as [group, items] (group)}
               <div role="group" aria-label={group} class="mb-1">
-                <div class="px-2.5 pt-2 pb-1 text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+                <div
+                  class="px-2.5 pt-2 pb-1 text-[10.5px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]"
+                >
                   {group}
                 </div>
                 {#each items as item, index (item.id)}
@@ -298,7 +392,8 @@
                         0,
                         groups.findIndex(([name]) => name === group),
                       )
-                      .reduce((count, [, values]) => count + values.length, 0) + index}
+                      .reduce((count, [, values]) => count + values.length, 0) +
+                    index}
                   {@const active = indexInList === cursor}
                   <button
                     id={`${listId}-option-${indexInList}`}
@@ -311,20 +406,33 @@
                     class={[
                       'flex w-full items-center gap-2.5 rounded-[var(--r-md)] px-2.5 py-2 text-left',
                       'transition-colors duration-[80ms]',
-                      active ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--bg-hover)]',
+                      active
+                        ? 'bg-[var(--accent-soft)]'
+                        : 'hover:bg-[var(--bg-hover)]',
                     ]}
                   >
-                    <span class={['shrink-0', active ? 'text-[var(--accent)]' : 'text-[var(--text-quaternary)]']}>
+                    <span
+                      class={[
+                        'shrink-0',
+                        active
+                          ? 'text-[var(--accent)]'
+                          : 'text-[var(--text-quaternary)]',
+                      ]}
+                    >
                       <item.icon size={14} />
                     </span>
                     <span class="min-w-0 flex-1">
-                      <span class="block truncate text-[13px] text-[var(--text-primary)]"
+                      <span
+                        class="block truncate text-[13px] text-[var(--text-primary)]"
                         >{#each item.match ? splitByRanges(item.label, item.match.ranges) : [{ text: item.label, hit: false }] as part, partIndex (partIndex)}{#if part.hit}<mark
                               class="ink-hit">{part.text}</mark
                             >{:else}{part.text}{/if}{/each}</span
                       >
                       {#if item.detail}
-                        <span class="mt-0.5 block truncate text-[11px] text-[var(--text-quaternary)]">{item.detail}</span>
+                        <span
+                          class="mt-0.5 block truncate text-[11px] text-[var(--text-quaternary)]"
+                          >{item.detail}</span
+                        >
                       {/if}
                     </span>
                     {#if item.combo}<Kbd combo={item.combo} />{/if}
@@ -337,9 +445,15 @@
         <div
           class="hidden items-center gap-4 border-t border-[var(--border-subtle)] px-4 py-2 text-[10.5px] text-[var(--text-quaternary)] md:flex"
         >
-          <span class="flex items-center gap-1.5"><Kbd keys={['↑', '↓']} />{i18n.t('command.select')}</span>
-          <span class="flex items-center gap-1.5"><Kbd keys={['↵']} />{i18n.t('common.open')}</span>
-          <span class="flex items-center gap-1.5"><Kbd keys={['Esc']} />{i18n.t('common.close')}</span>
+          <span class="flex items-center gap-1.5"
+            ><Kbd keys={['↑', '↓']} />{i18n.t('command.select')}</span
+          >
+          <span class="flex items-center gap-1.5"
+            ><Kbd keys={['↵']} />{i18n.t('common.open')}</span
+          >
+          <span class="flex items-center gap-1.5"
+            ><Kbd keys={['Esc']} />{i18n.t('common.close')}</span
+          >
         </div>
       </DialogPrimitive.Content>
     </div>

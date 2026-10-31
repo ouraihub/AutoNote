@@ -50,13 +50,17 @@ function isBoundary(text: string, index: number): boolean {
   return /[\s\-_/.·\u3001\uff0c,\uff08(\u3010[]/.test(text[index - 1]!)
 }
 
-export function splitByRanges(text: string, ranges: readonly [number, number][]): { text: string; hit: boolean }[] {
+export function splitByRanges(
+  text: string,
+  ranges: readonly [number, number][],
+): { text: string; hit: boolean }[] {
   if (!ranges.length) return [{ text, hit: false }]
   const merged = mergeRanges(ranges)
   const parts: { text: string; hit: boolean }[] = []
   let cursor = 0
   for (const [start, end] of merged) {
-    if (start > cursor) parts.push({ text: text.slice(cursor, start), hit: false })
+    if (start > cursor)
+      parts.push({ text: text.slice(cursor, start), hit: false })
     parts.push({ text: text.slice(start, end), hit: true })
     cursor = end
   }
@@ -69,7 +73,8 @@ function mergeRanges(ranges: readonly [number, number][]): [number, number][] {
   const result: [number, number][] = []
   for (const range of sorted) {
     const previous = result[result.length - 1]
-    if (previous && range[0] <= previous[1]) previous[1] = Math.max(previous[1], range[1])
+    if (previous && range[0] <= previous[1])
+      previous[1] = Math.max(previous[1], range[1])
     else result.push([range[0], range[1]])
   }
   return result
@@ -81,7 +86,10 @@ export function fuzzyFilter<T>(
   getText: (item: T) => string,
   limit = 50,
 ): { item: T; match: FuzzyMatch }[] {
-  if (!query.trim()) return items.slice(0, limit).map((item) => ({ item, match: { score: 0, ranges: [] } }))
+  if (!query.trim())
+    return items
+      .slice(0, limit)
+      .map((item) => ({ item, match: { score: 0, ranges: [] } }))
   const matches: { item: T; match: FuzzyMatch }[] = []
   for (const item of items) {
     const match = fuzzyMatch(getText(item), query)

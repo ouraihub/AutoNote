@@ -1,6 +1,10 @@
 import { describe, expect, test, vi } from 'vitest'
 import type { Folder, NoteSummary, Tag } from '@shared/types'
-import { OrganizeActions, type OrganizeActionsOptions, type OrganizeSnapshot } from './mutations'
+import {
+  OrganizeActions,
+  type OrganizeActionsOptions,
+  type OrganizeSnapshot,
+} from './mutations'
 
 const folder = (id: string, parentId: string | null = null): Folder => ({
   id,
@@ -12,7 +16,11 @@ const folder = (id: string, parentId: string | null = null): Folder => ({
   createdAt: 1,
   updatedAt: 1,
 })
-const note = (id: string, folderId: string | null, tags: string[] = []): NoteSummary => ({
+const note = (
+  id: string,
+  folderId: string | null,
+  tags: string[] = [],
+): NoteSummary => ({
   id,
   title: id,
   excerpt: '',
@@ -30,7 +38,10 @@ const note = (id: string, folderId: string | null, tags: string[] = []): NoteSum
   deletedAt: null,
 })
 
-function setup(initial: OrganizeSnapshot, overrides: Record<string, unknown> = {}) {
+function setup(
+  initial: OrganizeSnapshot,
+  overrides: Record<string, unknown> = {},
+) {
   let snapshot = initial
   const state = {
     read: () => snapshot,
@@ -46,7 +57,13 @@ function setup(initial: OrganizeSnapshot, overrides: Record<string, unknown> = {
       remove: vi.fn(),
       ...overrides,
     },
-    tags: { list: vi.fn(async () => snapshot.tags), create: vi.fn(), patch: vi.fn(), remove: vi.fn(), ...overrides },
+    tags: {
+      list: vi.fn(async () => snapshot.tags),
+      create: vi.fn(),
+      patch: vi.fn(),
+      remove: vi.fn(),
+      ...overrides,
+    },
     notes: {
       flush: vi.fn(async () => ({ pending: 0, failed: 0 })),
       snapshot: vi.fn(async () => ({
@@ -103,7 +120,11 @@ describe('OrganizeActions', () => {
   test('folder move-up flushes notes and promotes direct children', async () => {
     const { actions, backend, read } = setup(
       {
-        folders: [folder('root'), folder('child', 'root'), folder('grandchild', 'child')],
+        folders: [
+          folder('root'),
+          folder('child', 'root'),
+          folder('grandchild', 'child'),
+        ],
         tags: [],
         notes: { a: note('a', 'root'), b: note('b', 'grandchild') },
         contents: {},
@@ -114,14 +135,22 @@ describe('OrganizeActions', () => {
     expect(backend.notes.flush).toHaveBeenCalledWith('a')
     expect(backend.notes.flush).toHaveBeenCalledWith('b')
     expect(read().folders.find((item) => item.id === 'root')).toBeUndefined()
-    expect(read().folders.find((item) => item.id === 'child')?.parentId).toBeNull()
+    expect(
+      read().folders.find((item) => item.id === 'child')?.parentId,
+    ).toBeNull()
     expect(read().notes.a?.folderId).toBeNull()
     expect(read().notes.b?.folderId).toBe('grandchild')
   })
 
   test('tag rename rewrites loaded body and derived summary', async () => {
     const body = '#old\n\nBody'
-    const tag: Tag = { id: 'tag-1', name: 'old', color: null, count: 1, createdAt: 1 }
+    const tag: Tag = {
+      id: 'tag-1',
+      name: 'old',
+      color: null,
+      count: 1,
+      createdAt: 1,
+    }
     const { actions, backend, read } = setup(
       {
         folders: [],
@@ -129,7 +158,12 @@ describe('OrganizeActions', () => {
         notes: { n: { ...note('n', null, ['old']), excerpt: 'old' } },
         contents: { n: body },
       },
-      { patch: vi.fn(async () => ({ tag: { ...tag, name: 'new' }, renamed: 1 })) },
+      {
+        patch: vi.fn(async () => ({
+          tag: { ...tag, name: 'new' },
+          renamed: 1,
+        })),
+      },
     )
     await actions.renameTag('tag-1', 'new')
     expect(backend.notes.flush).toHaveBeenCalledWith('n')

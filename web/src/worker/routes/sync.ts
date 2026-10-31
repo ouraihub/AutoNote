@@ -2,7 +2,15 @@ import { Hono } from 'hono'
 import { LIMITS } from '@shared/constants'
 import type { SyncDeletion, SyncResponse } from '@shared/types'
 import type { AppBindings } from '../env'
-import { NOTE_COLUMNS, toFolder, toNoteSummary, toTag, type FolderRow, type NoteRow, type TagRow } from '../db/rows'
+import {
+  NOTE_COLUMNS,
+  toFolder,
+  toNoteSummary,
+  toTag,
+  type FolderRow,
+  type NoteRow,
+  type TagRow,
+} from '../db/rows'
 import { ApiError } from '../lib/errors'
 import { clampInt } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
@@ -13,13 +21,14 @@ export const CHANGE_BOUNDS_SQL = `SELECT
   (SELECT seq FROM changes WHERE user_id = ?1 ORDER BY seq ASC LIMIT 1) AS lo,
   (SELECT seq FROM changes WHERE user_id = ?1 ORDER BY seq DESC LIMIT 1) AS hi`
 
-const FOLDER_SELECT = `f.id, f.parent_id, f.name, f.icon, f.color, f.position, f.created_at, f.updated_at`
+const FOLDER_SELECT =
+  'f.id, f.parent_id, f.name, f.icon, f.color, f.position, ' +
+  'f.created_at, f.updated_at'
 
 const TAG_SELECT = `t.id, t.name, t.color, t.created_at,
   (SELECT COUNT(*) FROM note_tags nt JOIN notes n ON n.id = nt.note_id
     WHERE nt.tag_id = t.id AND n.user_id = t.user_id
       AND n.deleted_at IS NULL AND n.is_archived = 0) AS note_count`
-
 
 syncRoutes.get('/', requireAuth, async (c) => {
   const userId = c.get('userId')
@@ -32,7 +41,6 @@ syncRoutes.get('/', requireAuth, async (c) => {
 
   const lo = bounds?.lo ?? 0
   const hi = bounds?.hi ?? 0
-
 
   const needFull = since <= 0 || (lo > 0 && since < lo - 1)
   // A non-empty `after` key always means the caller is mid-way through a
@@ -81,10 +89,13 @@ syncRoutes.get('/', requireAuth, async (c) => {
   const cursor = changes.length ? changes[changes.length - 1]!.seq : since
   const hasMore = changes.length === LIMITS.syncBatchSize && cursor < hi
 
-
   const latest = new Map<string, { entity: string; id: string; op: string }>()
   for (const ch of changes) {
-    latest.set(`${ch.entity}:${ch.entity_id}`, { entity: ch.entity, id: ch.entity_id, op: ch.op })
+    latest.set(`${ch.entity}:${ch.entity_id}`, {
+      entity: ch.entity,
+      id: ch.entity_id,
+      op: ch.op,
+    })
   }
 
   const noteIds: string[] = []
@@ -94,7 +105,11 @@ syncRoutes.get('/', requireAuth, async (c) => {
 
   for (const item of latest.values()) {
     if (item.op === 'delete') {
-      if (item.entity === 'note' || item.entity === 'folder' || item.entity === 'tag') {
+      if (
+        item.entity === 'note' ||
+        item.entity === 'folder' ||
+        item.entity === 'tag'
+      ) {
         deletions.push({ entity: item.entity, id: item.id })
       }
       continue
@@ -104,9 +119,15 @@ syncRoutes.get('/', requireAuth, async (c) => {
     else if (item.entity === 'tag') tagIds.push(item.id)
   }
   const facetsFull = [...latest.values()].some((item) => item.entity === 'note')
-  const settingsChanged = [...latest.values()].some((item) => item.entity === 'settings')
-  const profileChanged = [...latest.values()].some((item) => item.entity === 'profile')
-  const siteChanged = [...latest.values()].some((item) => item.entity === 'site')
+  const settingsChanged = [...latest.values()].some(
+    (item) => item.entity === 'settings',
+  )
+  const profileChanged = [...latest.values()].some(
+    (item) => item.entity === 'profile',
+  )
+  const siteChanged = [...latest.values()].some(
+    (item) => item.entity === 'site',
+  )
 
   const notes = await loadInChunks(noteIds, (ids) =>
     c.env.DB.prepare(
@@ -156,11 +177,14 @@ syncRoutes.get('/', requireAuth, async (c) => {
       )
 
   const gotNotes = new Set(notes.map((n) => n.id))
-  for (const id of noteIds) if (!gotNotes.has(id)) deletions.push({ entity: 'note', id })
+  for (const id of noteIds)
+    if (!gotNotes.has(id)) deletions.push({ entity: 'note', id })
   const gotFolders = new Set(folders.map((f) => f.id))
-  for (const id of folderIds) if (!gotFolders.has(id)) deletions.push({ entity: 'folder', id })
+  for (const id of folderIds)
+    if (!gotFolders.has(id)) deletions.push({ entity: 'folder', id })
   const gotTags = new Set(tags.map((t) => t.id))
-  for (const id of tagIds) if (!gotTags.has(id)) deletions.push({ entity: 'tag', id })
+  for (const id of tagIds)
+    if (!gotTags.has(id)) deletions.push({ entity: 'tag', id })
 
   const body: SyncResponse = {
     cursor,
@@ -180,17 +204,22 @@ syncRoutes.get('/', requireAuth, async (c) => {
   return c.json(body)
 })
 
-
 syncRoutes.get('/ws', requireAuth, async (c) => {
   if (!c.env.SYNC_HUB) {
-    throw new ApiError(503, 'storage_unavailable', 'The realtime channel is disabled; polling will be used')
+    throw new ApiError(
+      503,
+      'storage_unavailable',
+      'The realtime channel is disabled; polling will be used',
+    )
   }
   const origin = c.req.header('Origin')
   if (origin && origin !== new URL(c.req.url).origin) {
     throw ApiError.forbidden('The realtime connection origin is not trusted')
   }
   if (c.req.header('Upgrade')?.toLowerCase() !== 'websocket') {
-    throw ApiError.badRequest('This endpoint accepts only WebSocket upgrade requests')
+    throw ApiError.badRequest(
+      'This endpoint accepts only WebSocket upgrade requests',
+    )
   }
 
   const userId = c.get('userId')
@@ -201,7 +230,6 @@ syncRoutes.get('/ws', requireAuth, async (c) => {
     }),
   )
 })
-
 
 async function fullSnapshot(
   db: D1Database,
@@ -220,8 +248,8 @@ async function fullSnapshot(
     !after
       ? db
           .prepare(
-            `SELECT ${FOLDER_SELECT} FROM folders f WHERE f.user_id = ?1 AND f.deleted_at IS NULL
-              ORDER BY f.position ASC`,
+            `SELECT ${FOLDER_SELECT} FROM folders f WHERE f.user_id = ?1 ` +
+              `AND f.deleted_at IS NULL ORDER BY f.position ASC`,
           )
           .bind(userId)
           .all<FolderRow>()

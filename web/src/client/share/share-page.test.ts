@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { SharePageState } from './share-page.svelte'
 import { addShareAccess } from './share-access'
 
-const logger = { debug: () => undefined, info: () => undefined, warn: () => undefined, error: () => undefined }
+const logger = {
+  debug: () => undefined,
+  info: () => undefined,
+  warn: () => undefined,
+  error: () => undefined,
+}
 const note = (slug: string) => ({
   title: 'public',
   content: 'public text',
@@ -48,7 +53,12 @@ describe('public share isolation', () => {
       getLocale: () => 'en-US',
       fetch: async () =>
         Response.json(
-          { error: { code: status === 401 ? 'password_invalid' : 'too_many_attempts', details: { retryAfter: 37 } } },
+          {
+            error: {
+              code: status === 401 ? 'password_invalid' : 'too_many_attempts',
+              details: { retryAfter: 37 },
+            },
+          },
           { status },
         ),
     })
@@ -63,13 +73,25 @@ describe('public share isolation', () => {
   })
   it('only grants exact same-origin attachment paths', () => {
     const id = '01ARZ3NDEKTSV4RRFFQ69G5FAV'
-    expect(addShareAccess(`/api/files/${id}?download=1`, 'public', 'https://site.test')).toBe(
-      `/api/files/${id}?download=1&share=public`,
-    )
-    expect(addShareAccess(`https://other.test/api/files/${id}`, 'public', 'https://site.test')).toBe(
-      `https://other.test/api/files/${id}`,
-    )
-    expect(addShareAccess('/api/files/private/path', 'public', 'https://site.test')).toBe('data:,')
-    expect(addShareAccess('/api/notes/private', 'public', 'https://site.test')).toBe('data:,')
+    expect(
+      addShareAccess(
+        `/api/files/${id}?download=1`,
+        'public',
+        'https://site.test',
+      ),
+    ).toBe(`/api/files/${id}?download=1&share=public`)
+    expect(
+      addShareAccess(
+        `https://other.test/api/files/${id}`,
+        'public',
+        'https://site.test',
+      ),
+    ).toBe(`https://other.test/api/files/${id}`)
+    expect(
+      addShareAccess('/api/files/private/path', 'public', 'https://site.test'),
+    ).toBe('data:,')
+    expect(
+      addShareAccess('/api/notes/private', 'public', 'https://site.test'),
+    ).toBe('data:,')
   })
 })

@@ -1,22 +1,28 @@
-import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate } from '@codemirror/view'
+import {
+  Decoration,
+  EditorView,
+  ViewPlugin,
+  type DecorationSet,
+  type ViewUpdate,
+} from '@codemirror/view'
 import { RangeSetBuilder, StateEffect } from '@codemirror/state'
 import { syntaxTree } from '@codemirror/language'
-
 
 const taskDone = Decoration.mark({ class: 'cm-md-task-done' })
 const tagMark = Decoration.mark({ class: 'cm-md-tag' })
 const wikiMark = Decoration.mark({ class: 'cm-md-wikilink' })
 
-const TAG_RE = /(^|[\s(\uff08[\u3010>\u300c\u300e\uff0c,\u3001;\uff1b])#([\p{L}\p{N}_\-/·]{1,60})(?![\p{L}\p{N}_\-/·])/gu
+const TAG_RE =
+  /(^|[\s(\uff08[\u3010>\u300c\u300e\uff0c,\u3001;\uff1b])#([\p{L}\p{N}_\-/·]{1,60})(?![\p{L}\p{N}_\-/·])/gu
 const WIKI_RE = /\[\[[^[\]\n]{1,200}\]\]/g
-const TASK_DONE_RE = /^((?:[ \t]*>[ \t]?)*[ \t]*(?:[-*+]|\d+[.)])[ \t]+\[[xX]\][ \t]+)(.*)$/
+const TASK_DONE_RE =
+  /^((?:[ \t]*>[ \t]?)*[ \t]*(?:[-*+]|\d+[.)])[ \t]+\[[xX]\][ \t]+)(.*)$/
 
 function buildDecorations(view: EditorView): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>()
   const tree = syntaxTree(view.state)
 
   for (const { from, to } of view.visibleRanges) {
-
     const fenced: { from: number; to: number }[] = []
     tree.iterate({
       from,
@@ -66,10 +72,9 @@ function buildDecorations(view: EditorView): DecorationSet {
       }
     }
 
-
-    const all = [
-      ...markDecorations.map((d) => ({ ...d, line: false })),
-    ].sort((a, b) => a.from - b.from || (a.line === b.line ? 0 : a.line ? -1 : 1))
+    const all = [...markDecorations.map((d) => ({ ...d, line: false }))].sort(
+      (a, b) => a.from - b.from || (a.line === b.line ? 0 : a.line ? -1 : 1),
+    )
 
     for (const item of all) builder.add(item.from, item.to, item.deco)
   }
@@ -94,11 +99,9 @@ export const markdownDecorations = ViewPlugin.fromClass(
   { decorations: (plugin) => plugin.decorations },
 )
 
-
 export const setFocusMode = StateEffect.define<boolean>()
 
 const focusParagraph = Decoration.line({ class: 'cm-focus-paragraph' })
-
 
 export const focusModePlugin = ViewPlugin.fromClass(
   class {
@@ -112,7 +115,12 @@ export const focusModePlugin = ViewPlugin.fromClass(
       const modeChanged = update.transactions.some((transaction) =>
         transaction.effects.some((effect) => effect.is(setFocusMode)),
       )
-      if (update.docChanged || update.selectionSet || update.viewportChanged || modeChanged) {
+      if (
+        update.docChanged ||
+        update.selectionSet ||
+        update.viewportChanged ||
+        modeChanged
+      ) {
         this.compute(update.view)
       }
     }
@@ -141,7 +149,6 @@ export const focusModePlugin = ViewPlugin.fromClass(
   { decorations: (plugin) => plugin.decorations },
 )
 
-
 export const typewriterPlugin = ViewPlugin.fromClass(
   class {
     view: EditorView
@@ -151,7 +158,6 @@ export const typewriterPlugin = ViewPlugin.fromClass(
 
     constructor(view: EditorView) {
       this.view = view
-
 
       view.contentDOM.addEventListener('pointerdown', this.onPointerDown, true)
       document.addEventListener('pointerup', this.onPointerEnd, true)
@@ -167,8 +173,6 @@ export const typewriterPlugin = ViewPlugin.fromClass(
         transaction.isUserEvent('select.pointer'),
       )
       if (pointerSelection) {
-
-
         cancelAnimationFrame(this.centerFrame)
         return
       }
@@ -192,7 +196,11 @@ export const typewriterPlugin = ViewPlugin.fromClass(
     destroy() {
       cancelAnimationFrame(this.centerFrame)
       window.clearTimeout(this.releaseTimer)
-      this.view.contentDOM.removeEventListener('pointerdown', this.onPointerDown, true)
+      this.view.contentDOM.removeEventListener(
+        'pointerdown',
+        this.onPointerDown,
+        true,
+      )
       document.removeEventListener('pointerup', this.onPointerEnd, true)
       document.removeEventListener('pointercancel', this.onPointerEnd, true)
       window.removeEventListener('blur', this.onPointerEnd)
@@ -206,7 +214,6 @@ export const typewriterPlugin = ViewPlugin.fromClass(
     }
 
     onPointerEnd = () => {
-
       window.clearTimeout(this.releaseTimer)
       this.releaseTimer = window.setTimeout(() => {
         this.pointerSelecting = false

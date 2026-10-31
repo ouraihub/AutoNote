@@ -7,7 +7,12 @@
     description,
     children,
     class: className,
-  }: { title: string; description?: string | undefined; children: Snippet; class?: string | undefined } = $props()
+  }: {
+    title: string
+    description?: string | undefined
+    children: Snippet
+    class?: string | undefined
+  } = $props()
 </script>
 
 <div
@@ -17,8 +22,14 @@
   )}
 >
   <div class="min-w-0 flex-1">
-    <div class="text-[13px] font-medium text-[var(--text-primary)]">{title}</div>
-    {#if description}<div class="mt-0.5 text-[11.5px] leading-relaxed text-[var(--text-tertiary)]">{description}</div>{/if}
+    <div class="text-[13px] font-medium text-[var(--text-primary)]">
+      {title}
+    </div>
+    {#if description}<div
+        class="mt-0.5 text-[11.5px] leading-relaxed text-[var(--text-tertiary)]"
+      >
+        {description}
+      </div>{/if}
   </div>
   <div class="min-w-0 shrink-0">{@render children()}</div>
 </div>

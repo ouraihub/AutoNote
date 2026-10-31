@@ -23,7 +23,10 @@ class TestTimers implements Timers {
   clearInterval(): void {}
 }
 
-function makeTransport(fetch: (request: Request) => Promise<Response>, timers = new TestTimers()): HttpTransport {
+function makeTransport(
+  fetch: (request: Request) => Promise<Response>,
+  timers = new TestTimers(),
+): HttpTransport {
   return new HttpTransport({
     fetch,
     clientId: 'client-a',
@@ -42,7 +45,9 @@ test('构造 JSON 请求、查询参数和成功写广播', async () => {
   const transport = new HttpTransport({
     fetch: async (request) => {
       expect(request.method).toBe('POST')
-      expect(request.url).toBe('http://autonote.invalid/api/notes?enabled=1&empty=0')
+      expect(request.url).toBe(
+        'http://autonote.invalid/api/notes?enabled=1&empty=0',
+      )
       expect(request.headers.get('X-AutoNote-Client')).toBe('1')
       expect(request.headers.get('X-AutoNote-Origin')).toBe('client-a')
       expect(request.headers.get('Accept-Language')).toBe('zh-CN')
@@ -64,7 +69,9 @@ test('构造 JSON 请求、查询参数和成功写广播', async () => {
       body: { title: 'hello' },
     }),
   ).resolves.toEqual({ ok: true })
-  expect(messages).toEqual([{ type: 'local-write', clientId: 'client-a', userId: 'user-a' }])
+  expect(messages).toEqual([
+    { type: 'local-write', clientId: 'client-a', userId: 'user-a' },
+  ])
   receiver.close()
 })
 
@@ -72,11 +79,15 @@ test('FormData 请求不手动设置 Content-Type', async () => {
   const form = new FormData()
   form.set('file', new File(['content'], 'note.txt', { type: 'text/plain' }))
   const transport = makeTransport(async (request) => {
-    expect(request.headers.get('Content-Type')).toMatch(/^multipart\/form-data; boundary=/)
+    expect(request.headers.get('Content-Type')).toMatch(
+      /^multipart\/form-data; boundary=/,
+    )
     expect(await request.formData()).toBeInstanceOf(FormData)
     return Response.json({ uploaded: true })
   })
-  await expect(transport.json({ method: 'POST', path: '/api/files', form })).resolves.toEqual({ uploaded: true })
+  await expect(
+    transport.json({ method: 'POST', path: '/api/files', form }),
+  ).resolves.toEqual({ uploaded: true })
 })
 
 test('401/409 只保留安全 details', async () => {
@@ -87,7 +98,11 @@ test('401/409 只保留安全 details', async () => {
           error: {
             code: 'conflict',
             message: 'conflict',
-            details: { server: { bad: true }, cause: '/secret/db', retryAfter: 4 },
+            details: {
+              server: { bad: true },
+              cause: '/secret/db',
+              retryAfter: 4,
+            },
           },
         }),
         { status: 409, headers: { 'content-type': 'application/json' } },
@@ -102,14 +117,22 @@ test('401/409 只保留安全 details', async () => {
   const unauthorized = makeTransport(
     async () =>
       new Response(
-        JSON.stringify({ error: { code: 'unauthenticated', message: 'expired', details: { cause: 'token' } } }),
+        JSON.stringify({
+          error: {
+            code: 'unauthenticated',
+            message: 'expired',
+            details: { cause: 'token' },
+          },
+        }),
         {
           status: 401,
           headers: { 'content-type': 'application/json' },
         },
       ),
   )
-  await expect(unauthorized.json({ path: '/api/auth/session' })).rejects.toMatchObject({
+  await expect(
+    unauthorized.json({ path: '/api/auth/session' }),
+  ).rejects.toMatchObject({
     code: 'unauthenticated',
     status: 401,
   })
@@ -120,14 +143,22 @@ test('调用方取消和超时转换为不同错误并清理 timer', async () =>
   const transport = makeTransport(
     (request) =>
       new Promise<Response>((_, reject) => {
-        request.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), {
-          once: true,
-        })
+        request.signal?.addEventListener(
+          'abort',
+          () => reject(new DOMException('aborted', 'AbortError')),
+          {
+            once: true,
+          },
+        )
       }),
     timers,
   )
   const controller = new AbortController()
-  const cancelled = transport.json({ path: '/api/notes/x', timeoutMs: 50, signal: controller.signal })
+  const cancelled = transport.json({
+    path: '/api/notes/x',
+    timeoutMs: 50,
+    signal: controller.signal,
+  })
   controller.abort()
   await expect(cancelled).rejects.toMatchObject({ code: 'cancelled' })
   expect(timers.callbacks.size).toBe(0)
@@ -139,17 +170,26 @@ test('调用方取消和超时转换为不同错误并清理 timer', async () =>
 })
 
 test('204 和下载 raw 成功返回原始响应', async () => {
-  const transport = makeTransport(async () => new Response(null, { status: 204 }))
-  await expect(transport.json({ method: 'DELETE', path: '/api/notes/x' })).resolves.toBeUndefined()
+  const transport = makeTransport(
+    async () => new Response(null, { status: 204 }),
+  )
+  await expect(
+    transport.json({ method: 'DELETE', path: '/api/notes/x' }),
+  ).resolves.toBeUndefined()
   const raw = makeTransport(async () => new Response('bytes', { status: 200 }))
-  await expect(raw.raw({ path: '/api/export?format=zip' })).resolves.toBeInstanceOf(Response)
+  await expect(
+    raw.raw({ path: '/api/export?format=zip' }),
+  ).resolves.toBeInstanceOf(Response)
 })
 
 test('网络失败抛 offline 而不是伪造服务端错误', async () => {
   const transport = makeTransport(async () => {
     throw new TypeError('Failed to fetch')
   })
-  await expect(transport.json({ path: '/api/notes' })).rejects.toMatchObject({ code: 'offline', status: 0 })
+  await expect(transport.json({ path: '/api/notes' })).rejects.toMatchObject({
+    code: 'offline',
+    status: 0,
+  })
   expect(transport).toBeInstanceOf(HttpTransport)
 })
 
@@ -165,7 +205,11 @@ test('rejects an old account response whose body finishes after epoch changes wi
     getLocale: () => 'en-US',
     timers: new TestTimers(),
     logger,
-    bus: { post: (message) => messages.push(message), subscribe: () => () => undefined, close() {} },
+    bus: {
+      post: (message) => messages.push(message),
+      subscribe: () => () => undefined,
+      close() {},
+    },
     captureCurrent: () => {
       const started = epoch
       return () => started === epoch

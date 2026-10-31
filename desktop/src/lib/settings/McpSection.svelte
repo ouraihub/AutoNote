@@ -21,9 +21,12 @@
   let keyName = $state('')
   let token = $state<string | null>(null)
   let busy = $state(false)
-  let error = $state<'common.action_failed' | 'desktop.mcpPortInUse' | 'settings.mcp_api_key_name_required' | null>(
-    null,
-  )
+  let error = $state<
+    | 'common.action_failed'
+    | 'desktop.mcpPortInUse'
+    | 'settings.mcp_api_key_name_required'
+    | null
+  >(null)
 
   onMount(() => {
     let active = true
@@ -56,7 +59,10 @@
     try {
       await action()
     } catch (cause) {
-      error = isBackendError(cause) && cause.code === 'conflict' ? 'desktop.mcpPortInUse' : 'common.action_failed'
+      error =
+        isBackendError(cause) && cause.code === 'conflict'
+          ? 'desktop.mcpPortInUse'
+          : 'common.action_failed'
     } finally {
       busy = false
     }
@@ -70,7 +76,9 @@
         status = await mcp.start()
       }
     })
-  const savePreference = (patch: Partial<Pick<McpPreferences, 'writeEnabled' | 'trashEnabled'>>): Promise<void> =>
+  const savePreference = (
+    patch: Partial<Pick<McpPreferences, 'writeEnabled' | 'trashEnabled'>>,
+  ): Promise<void> =>
     run(async () => {
       prefs = await mcp.savePreferences(patch)
     })
@@ -119,15 +127,27 @@
 
 <div class="space-y-6">
   {#if status && prefs}
-    <section class="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-base)] p-4">
+    <section
+      class="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-base)] p-4"
+    >
       <div class="flex items-center gap-2.5">
         <span
           aria-hidden="true"
-          class={['size-2 shrink-0 rounded-full', status.running ? 'bg-[var(--success)]' : 'bg-[var(--border-strong)]']}
+          class={[
+            'size-2 shrink-0 rounded-full',
+            status.running
+              ? 'bg-[var(--success)]'
+              : 'bg-[var(--border-strong)]',
+          ]}
         ></span>
         <div class="min-w-0 flex-1">
-          <div class="text-[13px] font-medium text-[var(--text-primary)]">{i18n.t('settings.mcp')}</div>
-          <div role="status" class="mt-0.5 truncate text-[11.5px] text-[var(--text-tertiary)]">
+          <div class="text-[13px] font-medium text-[var(--text-primary)]">
+            {i18n.t('settings.mcp')}
+          </div>
+          <div
+            role="status"
+            class="mt-0.5 truncate text-[11.5px] text-[var(--text-tertiary)]"
+          >
             {status.running && status.endpoint
               ? i18n.t('desktop.mcpRunning', { endpoint: status.endpoint })
               : i18n.t('desktop.mcpStopped')}
@@ -138,13 +158,18 @@
           variant={status.running ? 'secondary' : 'primary'}
           loading={busy}
           onclick={() => void toggle()}
-          >{status.running ? i18n.t('desktop.mcpStop') : i18n.t('desktop.mcpStart')}</Button
+          >{status.running
+            ? i18n.t('desktop.mcpStop')
+            : i18n.t('desktop.mcpStart')}</Button
         >
       </div>
     </section>
 
     <section>
-      <SettingRow title={i18n.t('desktop.mcpPort')} description={i18n.t('desktop.mcpPortHint')}>
+      <SettingRow
+        title={i18n.t('desktop.mcpPort')}
+        description={i18n.t('desktop.mcpPortHint')}
+      >
         <TextInput
           id="mcp-port"
           aria-label={i18n.t('desktop.mcpPort')}
@@ -156,7 +181,10 @@
           bind:value={port}
         />
       </SettingRow>
-      <SettingRow title={i18n.t('settings.mcp_write_access')} description={i18n.t('settings.mcp_write_access_desc')}>
+      <SettingRow
+        title={i18n.t('settings.mcp_write_access')}
+        description={i18n.t('settings.mcp_write_access_desc')}
+      >
         <Switch
           id="mcp-write"
           label={i18n.t('settings.mcp_write_access')}
@@ -165,7 +193,10 @@
           onChange={(writeEnabled) => void savePreference({ writeEnabled })}
         />
       </SettingRow>
-      <SettingRow title={i18n.t('settings.mcp_trash_access')} description={i18n.t('settings.mcp_trash_access_desc')}>
+      <SettingRow
+        title={i18n.t('settings.mcp_trash_access')}
+        description={i18n.t('settings.mcp_trash_access_desc')}
+      >
         <Switch
           id="mcp-trash"
           label={i18n.t('settings.mcp_trash_access')}
@@ -177,15 +208,24 @@
     </section>
 
     <section aria-labelledby="mcp-keys-title">
-      <h3 id="mcp-keys-title" class="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+      <h3
+        id="mcp-keys-title"
+        class="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]"
+      >
         {i18n.t('settings.mcp_api_keys')}
       </h3>
-      {#if keys.length === 0}<p class="py-3 text-[12px] text-[var(--text-tertiary)]">
+      {#if keys.length === 0}<p
+          class="py-3 text-[12px] text-[var(--text-tertiary)]"
+        >
           {i18n.t('settings.mcp_api_keys_empty')}
         </p>{/if}
       {#each keys as key (key.id)}
         <SettingRow title={key.name} description={key.scopes.join(' · ')}>
-          <Button size="sm" variant="ghost" disabled={busy} onclick={() => void revoke(key)}
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            onclick={() => void revoke(key)}
             >{i18n.t('settings.mcp_api_key_revoke')}</Button
           >
         </SettingRow>
@@ -200,7 +240,10 @@
           disabled={busy || token !== null}
           bind:value={keyName}
         />
-        <Button variant="primary" disabled={busy || token !== null} onclick={() => void create()}
+        <Button
+          variant="primary"
+          disabled={busy || token !== null}
+          onclick={() => void create()}
           >{i18n.t('settings.mcp_api_key_create')}</Button
         >
       </div>
@@ -213,18 +256,26 @@
           <p role="alert" class="text-[12px] font-medium text-[var(--warning)]">
             {i18n.t('settings.mcp_api_key_copy_warning')}
           </p>
-          <p class="text-[11px] text-[var(--text-tertiary)]">{i18n.t('desktop.mcpConfigSnippet')}</p>
+          <p class="text-[11px] text-[var(--text-tertiary)]">
+            {i18n.t('desktop.mcpConfigSnippet')}
+          </p>
           <code
             class="block rounded-[var(--r-sm)] bg-[var(--bg-inset)] px-2.5 py-2 text-[11.5px] break-all text-[var(--text-secondary)]"
             >{snippet(token)}</code
           >
           <div class="flex justify-end gap-2">
-            <Button size="sm" variant="ghost" onclick={() => (token = null)}>{i18n.t('common.close')}</Button>
-            <Button size="sm" onclick={() => void copy(snippet(token!))}>{i18n.t('settings.mcp_copy')}</Button>
+            <Button size="sm" variant="ghost" onclick={() => (token = null)}
+              >{i18n.t('common.close')}</Button
+            >
+            <Button size="sm" onclick={() => void copy(snippet(token!))}
+              >{i18n.t('settings.mcp_copy')}</Button
+            >
           </div>
         </div>
       {/if}
     </section>
   {/if}
-  {#if error}<p role="alert" class="text-[11.5px] text-[var(--danger)]">{i18n.t(error)}</p>{/if}
+  {#if error}<p role="alert" class="text-[11.5px] text-[var(--danger)]">
+      {i18n.t(error)}
+    </p>{/if}
 </div>

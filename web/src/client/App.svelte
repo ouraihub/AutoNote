@@ -30,7 +30,9 @@
 
   function report(cause: unknown): void {
     error = true
-    services.logger.error('host.lifecycle.failed', { code: cause instanceof BackendError ? cause.code : 'internal' })
+    services.logger.error('host.lifecycle.failed', {
+      code: cause instanceof BackendError ? cause.code : 'internal',
+    })
   }
   async function boot(): Promise<void> {
     if (!active || route.kind !== 'app' || !target || app) return
@@ -52,7 +54,13 @@
       },
       aboutPanels: [
         ...deps.extensions.aboutPanels,
-        { id: 'pwa', order: 90, titleKey: 'pwa.app_installation', component: PwaPanel, props: { state: nextPwa } },
+        {
+          id: 'pwa',
+          order: 90,
+          titleKey: 'pwa.app_installation',
+          component: PwaPanel,
+          props: { state: nextPwa },
+        },
       ],
     }
     try {
@@ -91,7 +99,8 @@
     try {
       if (app && next.kind === 'app') {
         const saved = await app.flush()
-        if (saved.failed) throw new BackendError('internal', 0, 'Local save failed')
+        if (saved.failed)
+          throw new BackendError('internal', 0, 'Local save failed')
         await app.openNote(next.noteId)
       } else {
         await leave()
@@ -109,7 +118,11 @@
   }
   onMount(() => {
     services.logger.info('host.lifecycle.started', {
-      mode: IS_DEMO_MODE ? 'demo' : import.meta.env.DEV ? 'development' : 'production',
+      mode: IS_DEMO_MODE
+        ? 'demo'
+        : import.meta.env.DEV
+          ? 'development'
+          : 'production',
     })
     void boot().catch(report)
     const popstate = (): void => {
@@ -170,12 +183,15 @@
       language={services.language}
       notifier={services.notifier}
       clientId={CLIENT_ID}
-      {...services.resolveFileUrl ? { resolveFileUrl: services.resolveFileUrl } : {}}
+      {...services.resolveFileUrl
+        ? { resolveFileUrl: services.resolveFileUrl }
+        : {}}
     />
   {/key}
   <OverlayProvider
     notifier={services.notifier}
-    resolveMessage={(key, params) => services.language.t(key as MessageKey, params)}
+    resolveMessage={(key, params) =>
+      services.language.t(key as MessageKey, params)}
   />
 {:else}
   <p role="alert" class="p-4">{services.language.t('api.error.not_found')}</p>

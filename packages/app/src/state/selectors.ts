@@ -1,5 +1,12 @@
 import { LIMITS } from '@shared/constants'
-import type { AppLocale, Folder, NoteSummary, SortKey, SortOrder, ViewKind } from '@shared/types'
+import type {
+  AppLocale,
+  Folder,
+  NoteSummary,
+  SortKey,
+  SortOrder,
+  ViewKind,
+} from '@shared/types'
 
 export const RECENT_NOTES_LIMIT = 60
 
@@ -49,7 +56,10 @@ export function matchesView(
     case 'unfiled':
       return note.folderId === null
     case 'folder':
-      return note.folderId !== null && (folderScope?.has(note.folderId) ?? note.folderId === folderId)
+      return (
+        note.folderId !== null &&
+        (folderScope?.has(note.folderId) ?? note.folderId === folderId)
+      )
     case 'tag':
       return tag !== null && note.tags.includes(tag)
     case 'recent':
@@ -73,7 +83,11 @@ export function compareNotes(
       result = (a.createdAt - b.createdAt) * direction
       break
     case 'title':
-      result = a.title.localeCompare(b.title, locale, { numeric: true, sensitivity: 'base' }) * direction
+      result =
+        a.title.localeCompare(b.title, locale, {
+          numeric: true,
+          sensitivity: 'base',
+        }) * direction
       break
     case 'updated':
       result = (a.updatedAt - b.updatedAt) * direction
@@ -83,7 +97,10 @@ export function compareNotes(
 }
 
 export function compareTrash(a: NoteSummary, b: NoteSummary): number {
-  return (b.deletedAt ?? b.updatedAt) - (a.deletedAt ?? a.updatedAt) || a.id.localeCompare(b.id)
+  return (
+    (b.deletedAt ?? b.updatedAt) - (a.deletedAt ?? a.updatedAt) ||
+    a.id.localeCompare(b.id)
+  )
 }
 
 export function selectVisibleNotes(
@@ -92,18 +109,26 @@ export function selectVisibleNotes(
   query: NoteListQuery,
 ): NoteSummary[] {
   const folderScope =
-    query.view === 'folder' && query.folderId !== null ? folderDescendantIds(folders, query.folderId) : undefined
+    query.view === 'folder' && query.folderId !== null
+      ? folderDescendantIds(folders, query.folderId)
+      : undefined
   const list = Object.values(notes).filter((note) =>
     matchesView(note, query.view, query.folderId, query.tag, folderScope),
   )
   if (query.view === 'recent') {
-    return list.sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id)).slice(0, RECENT_NOTES_LIMIT)
+    return list
+      .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
+      .slice(0, RECENT_NOTES_LIMIT)
   }
   if (query.view === 'trash') return list.sort(compareTrash)
-  return list.sort((a, b) => compareNotes(a, b, query.sort, query.order, query.locale))
+  return list.sort((a, b) =>
+    compareNotes(a, b, query.sort, query.order, query.locale),
+  )
 }
 
-export function selectNavigation(notes: Readonly<Record<string, NoteSummary>>): NavigationProjection {
+export function selectNavigation(
+  notes: Readonly<Record<string, NoteSummary>>,
+): NavigationProjection {
   const counts = { all: 0, starred: 0, unfiled: 0, archived: 0, trash: 0 }
   const folderCounts = new Map<string, number>()
   for (const note of Object.values(notes)) {
@@ -118,12 +143,19 @@ export function selectNavigation(notes: Readonly<Record<string, NoteSummary>>): 
     counts.all++
     if (note.isStarred) counts.starred++
     if (note.folderId === null) counts.unfiled++
-    else folderCounts.set(note.folderId, (folderCounts.get(note.folderId) ?? 0) + 1)
+    else
+      folderCounts.set(
+        note.folderId,
+        (folderCounts.get(note.folderId) ?? 0) + 1,
+      )
   }
   return { counts, folderCounts }
 }
 
-export function folderDescendantIds(folders: readonly Folder[], rootId: string): Set<string> {
+export function folderDescendantIds(
+  folders: readonly Folder[],
+  rootId: string,
+): Set<string> {
   const children = new Map<string, string[]>()
   for (const folder of folders) {
     if (folder.parentId === null) continue
@@ -141,7 +173,10 @@ export function folderDescendantIds(folders: readonly Folder[], rootId: string):
   return ids
 }
 
-export function folderPath(folders: readonly Folder[], folderId: string | null): Folder[] {
+export function folderPath(
+  folders: readonly Folder[],
+  folderId: string | null,
+): Folder[] {
   const byId = new Map(folders.map((folder) => [folder.id, folder]))
   const path: Folder[] = []
   const visited = new Set<string>()
@@ -155,11 +190,16 @@ export function folderPath(folders: readonly Folder[], folderId: string | null):
   return path
 }
 
-export function buildFolderTree(folders: readonly Folder[], directCounts: ReadonlyMap<string, number>): FolderNode[] {
+export function buildFolderTree(
+  folders: readonly Folder[],
+  directCounts: ReadonlyMap<string, number>,
+): FolderNode[] {
   const byId = new Map(folders.map((folder) => [folder.id, folder]))
   const byParent = new Map<string, Folder[]>()
   const compare = (a: Folder, b: Folder) =>
-    a.position - b.position || a.createdAt - b.createdAt || a.id.localeCompare(b.id)
+    a.position - b.position ||
+    a.createdAt - b.createdAt ||
+    a.id.localeCompare(b.id)
   for (const folder of folders) {
     const key = folder.parentId ?? ''
     const siblings = byParent.get(key) ?? []
@@ -169,15 +209,22 @@ export function buildFolderTree(folders: readonly Folder[], directCounts: Readon
   for (const siblings of byParent.values()) siblings.sort(compare)
 
   const visited = new Set<string>()
-  const build = (folder: Folder, depth: number, parentId: string | null): FolderNode | null => {
+  const build = (
+    folder: Folder,
+    depth: number,
+    parentId: string | null,
+  ): FolderNode | null => {
     if (visited.has(folder.id)) return null
     visited.add(folder.id)
     const children =
       depth + 1 < LIMITS.folderDepthMax
-        ? (byParent.get(folder.id) ?? []).flatMap((child) => build(child, depth + 1, folder.id) ?? [])
+        ? (byParent.get(folder.id) ?? []).flatMap(
+            (child) => build(child, depth + 1, folder.id) ?? [],
+          )
         : []
     const directNotes = directCounts.get(folder.id) ?? 0
-    const totalNotes = directNotes + children.reduce((sum, child) => sum + child.totalNotes, 0)
+    const totalNotes =
+      directNotes + children.reduce((sum, child) => sum + child.totalNotes, 0)
     return { ...folder, parentId, children, depth, directNotes, totalNotes }
   }
   const roots = folders

@@ -12,14 +12,18 @@ type Role = (typeof ROLES)[number]
 const RoleBody = z.strictObject({
   role: z.enum(ROLES),
   binding: z
-    .strictObject({ endpointId: z.string().refine(isValidId), modelId: z.string().trim().min(1).max(200) })
+    .strictObject({
+      endpointId: z.string().refine(isValidId),
+      modelId: z.string().trim().min(1).max(200),
+    })
     .nullable(),
 })
 
 export const aiRoutes = new Hono<AppBindings>()
 aiRoutes.use('*', requireAuth)
 aiRoutes.use('*', async (c, next) => {
-  if (c.get('user').role !== 'owner') throw ApiError.forbidden('AI is available to the owner only')
+  if (c.get('user').role !== 'owner')
+    throw ApiError.forbidden('AI is available to the owner only')
   await next()
 })
 
@@ -30,32 +34,76 @@ aiRoutes.put('/roles', async (c) => {
   if (!parsed.success) throw ApiError.badRequest('Invalid role binding')
   const { role, binding } = parsed.data
   if (binding) {
-    const saved = await c.env.DB.prepare('SELECT 1 FROM ai_models WHERE user_id = ?1 AND endpoint_id = ?2 AND model_id = ?3 AND model_type = ?4')
-      .bind(userId, binding.endpointId, binding.modelId, role === 'painting' ? 'image' : 'chat')
+    const saved = await c.env.DB.prepare(
+      'SELECT 1 FROM ai_models WHERE user_id = ?1 AND endpoint_id = ?2 ' +
+        'AND model_id = ?3 AND model_type = ?4',
+    )
+      .bind(
+        userId,
+        binding.endpointId,
+        binding.modelId,
+        role === 'painting' ? 'image' : 'chat',
+      )
       .first()
-    if (!saved) throw ApiError.badRequest(role === 'painting' ? 'Binding must reference a saved image model' : 'Binding must reference a saved chat model')
-    await c.env.DB.prepare('INSERT INTO ai_roles (user_id,role,endpoint_id,model_id) VALUES (?1,?2,?3,?4) ON CONFLICT(user_id,role) DO UPDATE SET endpoint_id=?3, model_id=?4')
+    if (!saved)
+      throw ApiError.badRequest(
+        role === 'painting'
+          ? 'Binding must reference a saved image model'
+          : 'Binding must reference a saved chat model',
+      )
+    await c.env.DB.prepare(
+      'INSERT INTO ai_roles (user_id,role,endpoint_id,model_id) ' +
+        'VALUES (?1,?2,?3,?4) ON CONFLICT(user_id,role) DO UPDATE SET ' +
+        'endpoint_id=?3, model_id=?4',
+    )
       .bind(userId, role, binding.endpointId, binding.modelId)
       .run()
-  } else await c.env.DB.prepare('DELETE FROM ai_roles WHERE user_id = ?1 AND role = ?2').bind(userId, role).run()
+  } else
+    await c.env.DB.prepare(
+      'DELETE FROM ai_roles WHERE user_id = ?1 AND role = ?2',
+    )
+      .bind(userId, role)
+      .run()
   return listRoles(c.env.DB, userId)
 })
 
 async function listRoles(db: D1Database, userId: string): Promise<Response> {
   const [{ results }, options] = await Promise.all([
-    db.prepare('SELECT role,endpoint_id AS endpointId,model_id AS modelId FROM ai_roles WHERE user_id = ?1').bind(userId).all<{ role: Role; endpointId: string; modelId: string }>(),
+    db
+      .prepare(
+        'SELECT role,endpoint_id AS endpointId,model_id AS modelId ' +
+          'FROM ai_roles WHERE user_id = ?1',
+      )
+      .all<{ role: Role; endpointId: string; modelId: string }>(),
     modelOptions(db, userId, {}),
   ])
   const valid = (role: Role) => {
     const row = results.find((entry) => entry.role === role)
-    const option = row && options.find((entry) => entry.endpointId === row.endpointId && entry.modelId === row.modelId && entry.modelType === (role === 'painting' ? 'image' : 'chat'))
-    return option ? { endpointId: option.endpointId, modelId: option.modelId, label: option.label } : null
+    const option =
+      row &&
+      options.find(
+        (entry) =>
+          entry.endpointId === row.endpointId &&
+          entry.modelId === row.modelId &&
+          entry.modelType === (role === 'painting' ? 'image' : 'chat'),
+      )
+    return option
+      ? {
+          endpointId: option.endpointId,
+          modelId: option.modelId,
+          label: option.label,
+        }
+      : null
   }
   const chat = valid('chat')
   const writing = valid('writing')
   return Response.json([
     { role: 'chat', binding: chat, isFallback: false },
-    { role: 'writing', binding: writing ?? chat, isFallback: !writing && Boolean(chat) },
+    {
+      role: 'writing',
+      binding: writing ?? chat,
+      isFallback: !writing && Boolean(chat),
+    },
     { role: 'painting', binding: valid('painting'), isFallback: false },
   ])
 }

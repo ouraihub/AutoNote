@@ -28,7 +28,10 @@
 
   function append(view: EditorView | null, value: string): void {
     if (!view) return
-    view.dispatch({ changes: { from: view.state.doc.length, insert: value }, userEvent: 'input.type' })
+    view.dispatch({
+      changes: { from: view.state.doc.length, insert: value },
+      userEvent: 'input.type',
+    })
   }
 </script>
 
@@ -58,8 +61,11 @@
     onViewReady={(view) => (secondView = view)}
   />
 </div>
-<button type="button" onclick={() => append(firstView, ' A')}>Edit first</button>
-<button type="button" onclick={() => append(secondView, ' B')}>Edit second</button>
+<button type="button" onclick={() => append(firstView, ' A')}>Edit first</button
+>
+<button type="button" onclick={() => append(secondView, ' B')}
+  >Edit second</button
+>
 <button
   type="button"
   onclick={() => {

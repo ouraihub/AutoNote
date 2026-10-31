@@ -21,16 +21,35 @@ export class LocalOutboxStore implements OutboxStore {
     return this.#localDb.completeOutboxItem(id, writeId)
   }
 
-  updateRevision(id: string, writeId: string, rev: number, preserveVersion?: boolean): Promise<void> {
+  updateRevision(
+    id: string,
+    writeId: string,
+    rev: number,
+    preserveVersion?: boolean,
+  ): Promise<void> {
     return this.#localDb.updateOutboxRevision(id, writeId, rev, preserveVersion)
   }
 
-  setRecoveryId(id: string, writeId: string, recoveryId: string): Promise<void> {
+  setRecoveryId(
+    id: string,
+    writeId: string,
+    recoveryId: string,
+  ): Promise<void> {
     return this.#localDb.setOutboxRecoveryId(id, writeId, recoveryId)
   }
 
-  advanceDependents(noteId: string, sourceWriteId: string, expectedRev: number, nextRev: number): Promise<void> {
-    return this.#localDb.advanceOutboxDependents(noteId, sourceWriteId, expectedRev, nextRev)
+  advanceDependents(
+    noteId: string,
+    sourceWriteId: string,
+    expectedRev: number,
+    nextRev: number,
+  ): Promise<void> {
+    return this.#localDb.advanceOutboxDependents(
+      noteId,
+      sourceWriteId,
+      expectedRev,
+      nextRev,
+    )
   }
 
   markFailure(id: string, writeId: string, message: string): Promise<void> {

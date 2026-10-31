@@ -6,7 +6,11 @@
   import { setI18n } from '@app/root/context'
   import { aiHostExtensions } from '../index'
 
-  let { backend, i18n, section }: { backend: Backend; i18n: I18nState; section: string } = $props()
+  let {
+    backend,
+    i18n,
+    section,
+  }: { backend: Backend; i18n: I18nState; section: string } = $props()
   untrack(() => {
     setI18n(i18n)
     setKitContext({
@@ -16,7 +20,11 @@
       notify: { toast() {}, confirm: async () => true },
     })
   })
-  const selected = $derived(aiHostExtensions(backend).settingsSections.find((item) => item.id === section))
+  const selected = $derived(
+    aiHostExtensions(backend).settingsSections.find(
+      (item) => item.id === section,
+    ),
+  )
 </script>
 
 {#if selected}

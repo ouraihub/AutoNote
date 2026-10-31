@@ -38,7 +38,9 @@ describe('SyncPuller checkpoint', () => {
             if (fail) throw new Error('connection lost')
             return { ...page, full: false, facetsFull: false } as T
           }
-          return spec.query?.after ? (page as T) : ({ ...page, tags: [tag], hasMore: true, nextKey: 'next' } as T)
+          return spec.query?.after
+            ? (page as T)
+            : ({ ...page, tags: [tag], hasMore: true, nextKey: 'next' } as T)
         },
       },
     })
@@ -46,7 +48,12 @@ describe('SyncPuller checkpoint', () => {
     expect((await db.loadShell())?.cursor).toBe(1)
     expect(events).toEqual([])
     fail = false
-    expect(await puller.pull(true)).toMatchObject({ full: true, hasMore: false, cursor: 4, tags: [tag] })
+    expect(await puller.pull(true)).toMatchObject({
+      full: true,
+      hasMore: false,
+      cursor: 4,
+      tags: [tag],
+    })
     expect(queries).toContainEqual({ since: 0, after: 'next', snapshot: 4 })
     expect((await db.loadShell())?.tags).toEqual([tag])
   })
@@ -77,7 +84,8 @@ describe('SyncPuller checkpoint', () => {
       localDb: db,
       emitChange() {},
       transport: {
-        json: async <T>(): Promise<T> => ({ ...page, full: false, hasMore: true }) as T,
+        json: async <T>(): Promise<T> =>
+          ({ ...page, full: false, hasMore: true }) as T,
       },
     })
     await expect(bad.pull()).rejects.toMatchObject({ code: 'invalid_response' })

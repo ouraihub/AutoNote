@@ -20,7 +20,9 @@ test('closing the log view ignores an in-flight read and stops polling', async (
   await logs.refresh()
   expect(reads).toBe(1)
   logs.stop()
-  pending.resolve([{ seq: 1, time: '', level: 'WARN', target: 'app', message: 'late' }])
+  pending.resolve([
+    { seq: 1, time: '', level: 'WARN', target: 'app', message: 'late' },
+  ])
   await pending.promise
   await Promise.resolve()
   expect(logs.entries).toEqual([])
@@ -50,9 +52,16 @@ test('IPC logging removes free text and reports failed batches without recursive
   })
   await logger.flush()
   expect(batches).toHaveLength(1)
-  expect(batches[0]?.entries[0]?.fields).toEqual({ code: 'conflict', count: 1, noteId: '01arz3ndektsv4rrffq69g5fav' })
+  expect(batches[0]?.entries[0]?.fields).toEqual({
+    code: 'conflict',
+    count: 1,
+    noteId: '01arz3ndektsv4rrffq69g5fav',
+  })
   expect(logger.available).toBe(false)
-  expect(logger.diagnostic).toEqual({ event: 'app.log.unavailable', droppedCount: 1 })
+  expect(logger.diagnostic).toEqual({
+    event: 'app.log.unavailable',
+    droppedCount: 1,
+  })
   fail = false
   await logger.flush()
   expect(batches[1]).toEqual({ entries: [], droppedCount: 1 })
@@ -62,22 +71,36 @@ test('IPC logging removes free text and reports failed batches without recursive
 })
 
 test('saturated IPC log queue prioritizes warnings and remains capped at 200', async () => {
-  const waiting = Promise.withResolvers<{ ok: true; available: boolean; accepted: number; rejected: number }>()
+  const waiting = Promise.withResolvers<{
+    ok: true
+    available: boolean
+    accepted: number
+    rejected: number
+  }>()
   const batches: CommandArgs['app_log'][] = []
   const transport = {
     invoke: async (_command: string, args: CommandArgs['app_log']) => {
       batches.push(args)
-      return batches.length === 1 ? waiting.promise : { ok: true, available: true, accepted: 1, rejected: 0 }
+      return batches.length === 1
+        ? waiting.promise
+        : { ok: true, available: true, accepted: 1, rejected: 0 }
     },
   } as unknown as IpcTransport
   const logger = new IpcLogger(transport)
-  for (let count = 0; count < 240; count++) logger.info('app.lifecycle.started', { count })
+  for (let count = 0; count < 240; count++)
+    logger.info('app.lifecycle.started', { count })
   logger.warn('notes.save.failed', { code: 'conflict' })
   waiting.resolve({ ok: true, available: true, accepted: 1, rejected: 0 })
   await logger.flush()
   expect(batches.every((batch) => batch.entries.length <= 20)).toBe(true)
   expect(batches.slice(1).flatMap((batch) => batch.entries)).toHaveLength(200)
-  expect(batches.flatMap((batch) => batch.entries).some((entry) => entry.level === 'warn')).toBe(true)
-  expect(batches.reduce((count, batch) => count + batch.droppedCount, 0)).toBe(21)
+  expect(
+    batches
+      .flatMap((batch) => batch.entries)
+      .some((entry) => entry.level === 'warn'),
+  ).toBe(true)
+  expect(batches.reduce((count, batch) => count + batch.droppedCount, 0)).toBe(
+    21,
+  )
   await logger.dispose()
 })

@@ -1,5 +1,9 @@
 import { DEFAULT_SETTINGS } from '../../../shared/src/constants'
-import type { AccentName, BackgroundName, ThemePref } from '../../../shared/src/types'
+import type {
+  AccentName,
+  BackgroundName,
+  ThemePref,
+} from '../../../shared/src/types'
 
 export interface BootstrapAppearance {
   theme: ThemePref

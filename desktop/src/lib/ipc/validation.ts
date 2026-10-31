@@ -1,4 +1,10 @@
-import { isBackendSession, isNote, isNoteWriteResult, isPublicUser, NoteSchema } from '@shared/backend-types'
+import {
+  isBackendSession,
+  isNote,
+  isNoteWriteResult,
+  isPublicUser,
+  NoteSchema,
+} from '@shared/backend-types'
 import type { SyncResponse } from '@shared/types'
 import type { CommandArgs } from './commands'
 import { invalidResponse } from './errors'
@@ -9,9 +15,11 @@ const integer = (value: unknown): value is number =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
 const ids = /^[0-9a-hjkmnp-tv-z]{26}$/
 const text = (value: unknown): value is string => typeof value === 'string'
-const nullableText = (value: unknown): value is string | null => value === null || text(value)
+const nullableText = (value: unknown): value is string | null =>
+  value === null || text(value)
 const noteSummarySchema = NoteSchema.omit({ content: true })
-const noteSummary = (value: unknown): boolean => noteSummarySchema.safeParse(value).success
+const noteSummary = (value: unknown): boolean =>
+  noteSummarySchema.safeParse(value).success
 const folder = (value: unknown): boolean =>
   record(value) &&
   text(value.id) &&
@@ -56,7 +64,8 @@ const versionMeta = (value: unknown): boolean =>
   text(value.title) &&
   integer(value.size) &&
   integer(value.createdAt)
-const syncUser = (value: unknown): boolean => record(value) && text(value.id) && text(value.username)
+const syncUser = (value: unknown): boolean =>
+  record(value) && text(value.id) && text(value.username)
 const syncSession = (value: unknown): boolean =>
   record(value) &&
   (value.user === null || syncUser(value.user)) &&
@@ -79,7 +88,12 @@ const syncLogin = (value: unknown): boolean =>
     text(value.challengeToken) &&
     value.challengeToken.length > 0 &&
     integer(value.expiresAt))
-const SYNC_PHASES: Record<string, true> = { unbound: true, idle: true, syncing: true, paused: true }
+const SYNC_PHASES: Record<string, true> = {
+  unbound: true,
+  idle: true,
+  syncing: true,
+  paused: true,
+}
 const syncStatus = (value: unknown): boolean =>
   record(value) &&
   typeof value.phase === 'string' &&
@@ -145,14 +159,19 @@ const mcpPreferences = (value: unknown): boolean =>
   integer(value.updatedAt)
 const aiRoleBinding = (value: unknown): boolean =>
   record(value) &&
-  (value.role === 'chat' || value.role === 'writing' || value.role === 'painting') &&
+  (value.role === 'chat' ||
+    value.role === 'writing' ||
+    value.role === 'painting') &&
   typeof value.isFallback === 'boolean' &&
   (value.binding === null ||
     (record(value.binding) &&
       text(value.binding.endpointId) &&
       text(value.binding.modelId) &&
       text(value.binding.label)))
-export function validateResponse(command: keyof CommandArgs, value: unknown): void {
+export function validateResponse(
+  command: keyof CommandArgs,
+  value: unknown,
+): void {
   let valid: boolean
   switch (command) {
     case 'ai_roles_get':
@@ -188,7 +207,11 @@ export function validateResponse(command: keyof CommandArgs, value: unknown): vo
       valid = isPublicUser(value)
       break
     case 'sync_login':
-      valid = record(value) && text(value.loginId) && record(value.result) && syncLogin(value.result)
+      valid =
+        record(value) &&
+        text(value.loginId) &&
+        record(value.result) &&
+        syncLogin(value.result)
       break
     case 'sync_complete_totp':
       valid =
@@ -197,7 +220,8 @@ export function validateResponse(command: keyof CommandArgs, value: unknown): vo
         record(value.result) &&
         syncSession(value.result) &&
         typeof value.result.recoveryCodeUsed === 'boolean' &&
-        (value.result.recoveryCodesRemaining === null || integer(value.result.recoveryCodesRemaining))
+        (value.result.recoveryCodesRemaining === null ||
+          integer(value.result.recoveryCodesRemaining))
       break
     case 'sync_status':
     case 'sync_bind_confirm':
@@ -248,7 +272,11 @@ export function validateResponse(command: keyof CommandArgs, value: unknown): vo
         Array.isArray(value) &&
         value.every(
           (item: unknown) =>
-            record(item) && text(item.id) && ids.test(item.id) && text(item.title) && text(item.context),
+            record(item) &&
+            text(item.id) &&
+            ids.test(item.id) &&
+            text(item.title) &&
+            text(item.context),
         )
       break
     case 'app_logs_tail':
@@ -272,7 +300,10 @@ export function validateResponse(command: keyof CommandArgs, value: unknown): vo
       valid = tag(value)
       break
     case 'tags_patch':
-      valid = record(value) && (value.tag === null || tag(value.tag)) && integer(value.renamed)
+      valid =
+        record(value) &&
+        (value.tag === null || tag(value.tag)) &&
+        integer(value.renamed)
       break
     case 'files_upload_finish':
       valid = attachment(value)
@@ -292,7 +323,10 @@ export function validateResponse(command: keyof CommandArgs, value: unknown): vo
       valid =
         record(value) &&
         Array.isArray(value.files) &&
-        value.files.every((file: unknown) => attachment(file) && record(file) && integer(file.references)) &&
+        value.files.every(
+          (file: unknown) =>
+            attachment(file) && record(file) && integer(file.references),
+        ) &&
         nullableText(value.nextCursor)
       break
     case 'files_upload_begin':
@@ -307,7 +341,11 @@ export function validateResponse(command: keyof CommandArgs, value: unknown): vo
       valid = record(value) && Array.isArray(value.results)
       break
     case 'search_graph':
-      valid = record(value) && Array.isArray(value.nodes) && Array.isArray(value.edges) && record(value.meta)
+      valid =
+        record(value) &&
+        Array.isArray(value.nodes) &&
+        Array.isArray(value.edges) &&
+        record(value.meta)
       break
     case 'settings_get':
     case 'settings_save':
@@ -346,13 +384,17 @@ export function validateResponse(command: keyof CommandArgs, value: unknown): vo
       valid = record(value) && integer(value.purged)
       break
     case 'files_prune':
-      valid = record(value) && integer(value.removed) && integer(value.freedBytes)
+      valid =
+        record(value) && integer(value.removed) && integer(value.freedBytes)
       break
     case 'tags_remove':
       valid = record(value) && value.ok === true && integer(value.affected)
       break
     case 'app_log':
-      valid = record(value) && value.ok === true && typeof value.available === 'boolean'
+      valid =
+        record(value) &&
+        value.ok === true &&
+        typeof value.available === 'boolean'
       break
     case 'files_remove':
     case 'files_upload_cancel':

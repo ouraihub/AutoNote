@@ -11,10 +11,14 @@ export async function bootDesktop(target: HTMLElement): Promise<AppHandle> {
   const transport = new TauriTransport()
   const backend = createIpcBackend(transport)
   const logger = new IpcLogger(transport)
-  observeIpcFailures((command, code) => logger.warn('ipc.command.failed', { command, code }))
+  observeIpcFailures((command, code) =>
+    logger.warn('ipc.command.failed', { command, code }),
+  )
   const prefs = new DesktopPrefs()
   const i18n = new I18nState({ prefs })
-  const notifier = new OverlayNotifier((key, params) => i18n.t(key as Parameters<I18nState['t']>[0], params))
+  const notifier = new OverlayNotifier((key, params) =>
+    i18n.t(key as Parameters<I18nState['t']>[0], params),
+  )
   let stage = 'initialization'
   let handle: AppHandle | undefined
   try {
@@ -66,7 +70,8 @@ export async function bootDesktop(target: HTMLElement): Promise<AppHandle> {
       openNote: (id, pane) => mounted.openNote(id, pane),
       async destroy() {
         const result = await mounted.flush()
-        if (result.pending || result.failed) throw new Error('Local changes are not safely persisted')
+        if (result.pending || result.failed)
+          throw new Error('Local changes are not safely persisted')
         observeIpcFailures(undefined)
         await logger.dispose()
         await mounted.destroy()

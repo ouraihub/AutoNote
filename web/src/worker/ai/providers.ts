@@ -16,7 +16,11 @@ import type { Env } from '../env'
 import { decryptAiKey, encryptAiKey } from '../lib/crypto'
 import { newId } from '../lib/id'
 import { requireCurrentPassword } from '../lib/reauth'
-import { inferReasoning, probe as probeProvider, validateReasoning } from '@ouraihub/aether-core/providers'
+import {
+  inferReasoning,
+  probe as probeProvider,
+  validateReasoning,
+} from '@ouraihub/aether-core/providers'
 import { outbound } from './outbound'
 import {
   KitFailure,
@@ -29,18 +33,61 @@ import {
   notFound,
 } from './kit'
 
-const PROTOCOLS = ['anthropic-messages', 'openai-chat', 'openai-responses'] as const
-const MODEL_TYPES = ['chat', 'image', 'video', 'tts', 'stt', 'embedding', 'rerank', 'unknown'] as const
-const EFFORTS = ['default', 'none', 'auto', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
-const DIALECTS = ['openai', 'anthropic-budget', 'anthropic-adaptive', 'thinking-type', 'qwen'] as const
-const tokenLimit = z.number().int().min(0).max(0xffff_ffff).nullable().default(null)
+const PROTOCOLS = [
+  'anthropic-messages',
+  'openai-chat',
+  'openai-responses',
+] as const
+const MODEL_TYPES = [
+  'chat',
+  'image',
+  'video',
+  'tts',
+  'stt',
+  'embedding',
+  'rerank',
+  'unknown',
+] as const
+const EFFORTS = [
+  'default',
+  'none',
+  'auto',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+] as const
+const DIALECTS = [
+  'openai',
+  'anthropic-budget',
+  'anthropic-adaptive',
+  'thinking-type',
+  'qwen',
+] as const
+const tokenLimit = z
+  .number()
+  .int()
+  .min(0)
+  .max(0xffff_ffff)
+  .nullable()
+  .default(null)
 const ReasoningSchema = z
   .strictObject({
     dialect: z.enum(DIALECTS),
     efforts: z.array(z.enum(EFFORTS)).min(1),
-    budgetTokens: z.number().int().min(0).max(0xffff_ffff).nullable().default(null),
+    budgetTokens: z
+      .number()
+      .int()
+      .min(0)
+      .max(0xffff_ffff)
+      .nullable()
+      .default(null),
   })
-  .transform(({ budgetTokens, ...config }) => (budgetTokens === null ? config : { ...config, budgetTokens }))
+  .transform(({ budgetTokens, ...config }) =>
+    budgetTokens === null ? config : { ...config, budgetTokens },
+  )
 
 const PricingSchema = z.strictObject({
   currency: z.enum(['USD', 'CNY']),
@@ -123,7 +170,6 @@ export const ModelFilterSchema = z.strictObject({
     .optional(),
 })
 
-
 function readReasoning(
   raw: string | null,
   modelId: string,
@@ -134,19 +180,26 @@ function readReasoning(
 ): ReasoningConfig | null {
   if (raw === 'none') return null
   if (raw !== null) return ReasoningSchema.parse(JSON.parse(raw))
-  return modelType === 'chat' ? inferReasoning(modelId, protocol, baseUrl, maxOutput) : null
+  return modelType === 'chat'
+    ? inferReasoning(modelId, protocol, baseUrl, maxOutput)
+    : null
 }
 
 const label80 = (field: string, raw: string | null): string | null => {
   const value = raw?.trim() || null
-  if (value !== null && charCount(value) > 80) throw badRequest(field, 'too_long', 80)
+  if (value !== null && charCount(value) > 80)
+    throw badRequest(field, 'too_long', 80)
   return value
 }
 
-function validatePricing(pricing: ModelPricing | null, modelType: ModelType): void {
+function validatePricing(
+  pricing: ModelPricing | null,
+  modelType: ModelType,
+): void {
   if (pricing === null) return
   const { tiers } = pricing
-  const price = (value: number | null) => value === null || (Number.isFinite(value) && value >= 0 && value <= 1e6)
+  const price = (value: number | null) =>
+    value === null || (Number.isFinite(value) && value >= 0 && value <= 1e6)
   if (
     modelType !== 'chat' ||
     !tiers.length ||
@@ -155,18 +208,26 @@ function validatePricing(pricing: ModelPricing | null, modelType: ModelType): vo
     tiers.some(
       (tier, index) =>
         !Number.isSafeInteger(tier.minInputTokens) ||
-        (index > 0 && tier.minInputTokens <= tiers[index - 1]!.minInputTokens) ||
-        ![tier.input, tier.output, tier.cacheRead, tier.cacheWrite].every(price),
+        (index > 0 &&
+          tier.minInputTokens <= tiers[index - 1]!.minInputTokens) ||
+        ![tier.input, tier.output, tier.cacheRead, tier.cacheWrite].every(
+          price,
+        ),
     )
   )
     throw badRequest('pricing', 'invalid')
 }
 
-function validateModel(model: z.infer<typeof ModelSchema>, protocol: Protocol): void {
+function validateModel(
+  model: z.infer<typeof ModelSchema>,
+  protocol: Protocol,
+): void {
   label80('name', model.name)
   label80('groupName', model.groupName)
-  if (model.contextWindow !== null && model.contextWindow < 1) throw badRequest('contextWindow', 'invalid')
-  if (model.maxOutput !== null && model.maxOutput < 1) throw badRequest('maxOutput', 'invalid')
+  if (model.contextWindow !== null && model.contextWindow < 1)
+    throw badRequest('contextWindow', 'invalid')
+  if (model.maxOutput !== null && model.maxOutput < 1)
+    throw badRequest('maxOutput', 'invalid')
   if (
     model.modelType === 'chat' &&
     model.contextWindow !== null &&
@@ -175,7 +236,10 @@ function validateModel(model: z.infer<typeof ModelSchema>, protocol: Protocol): 
   )
     throw badRequest('maxOutput', 'exceeds_context')
   validatePricing(model.pricing, model.modelType)
-  if (model.nativeWebSearch && (model.modelType !== 'chat' || protocol === 'openai-chat'))
+  if (
+    model.nativeWebSearch &&
+    (model.modelType !== 'chat' || protocol === 'openai-chat')
+  )
     throw badRequest('nativeWebSearch', 'unsupported_protocol')
 }
 
@@ -188,7 +252,8 @@ export interface Connection {
   // Enabled keys in order for this request; empty = no key.
   apiKeys: string[]
   // Fill-first only: skips `key` until `until` (docs/43 §3.1) in D1 and for the rest of this request.
-  setAside: ((key: string, until: number, reason: string) => Promise<void>) | null
+  setAside:
+    ((key: string, until: number, reason: string) => Promise<void>) | null
   exhaustion?: { failure: KitFailure | null }
   modelId: string
   endpointId: string
@@ -239,23 +304,36 @@ interface ModelRow {
   pricing: string | null
 }
 
-const flag = (value: number | null): boolean | null => (value === null ? null : value !== 0)
+const flag = (value: number | null): boolean | null =>
+  value === null ? null : value !== 0
 
 const KEY_COLUMNS =
   'id, endpoint_id AS endpointId, label, enabled, key_ciphertext AS keyCiphertext, exhausted_until AS exhaustedUntil, exhausted_reason AS exhaustedReason'
-const plainKey = (env: Env, row: { id: string; keyCiphertext: string }): Promise<string | null> =>
+const plainKey = (
+  env: Env,
+  row: { id: string; keyCiphertext: string },
+): Promise<string | null> =>
   decryptAiKey(env, row.id, row.keyCiphertext).catch(() => null)
 
-async function openKey(env: Env, row: { id: string; keyCiphertext: string }): Promise<string> {
+async function openKey(
+  env: Env,
+  row: { id: string; keyCiphertext: string },
+): Promise<string> {
   const key = await plainKey(env, row)
   if (key === null) throw needsConfig('key_unreadable')
   return key
 }
 
-async function endpointKeys(db: D1Database, userId: string, endpointId: string): Promise<KeyRow[]> {
+async function endpointKeys(
+  db: D1Database,
+  userId: string,
+  endpointId: string,
+): Promise<KeyRow[]> {
   return (
     await db
-      .prepare(`SELECT ${KEY_COLUMNS} FROM ai_endpoint_keys WHERE user_id = ?1 AND endpoint_id = ?2 ORDER BY position, id`)
+      .prepare(
+        `SELECT ${KEY_COLUMNS} FROM ai_endpoint_keys WHERE user_id = ?1 AND endpoint_id = ?2 ORDER BY position, id`,
+      )
       .bind(userId, endpointId)
       .all<KeyRow>()
   ).results
@@ -265,8 +343,14 @@ async function endpointKeys(db: D1Database, userId: string, endpointId: string):
 const rotations = new WeakMap<D1Database, Map<string, number>>()
 
 /** Enabled keys of an endpoint, decrypted, starting one step further on every call. */
-async function rotatedKeys(env: Env, userId: string, endpointId: string): Promise<string[]> {
-  const rows = (await endpointKeys(env.DB, userId, endpointId)).filter((row) => row.enabled !== 0)
+async function rotatedKeys(
+  env: Env,
+  userId: string,
+  endpointId: string,
+): Promise<string[]> {
+  const rows = (await endpointKeys(env.DB, userId, endpointId)).filter(
+    (row) => row.enabled !== 0,
+  )
   const keys = await Promise.all(rows.map((row) => openKey(env, row)))
   if (!keys.length) return []
   let counters = rotations.get(env.DB)
@@ -293,13 +377,25 @@ export async function requestKeys(
   // The painting line is resolved up front for a chat run: an all-paused painting line must fail the tool call, not the chat.
   deferExhausted = false,
 ): Promise<Pick<Connection, 'apiKeys' | 'setAside' | 'exhaustion'>> {
-  if (strategy === 'round_robin') return { apiKeys: await rotatedKeys(env, userId, endpointId), setAside: null }
-  const rows = (await endpointKeys(env.DB, userId, endpointId)).filter((row) => row.enabled !== 0)
+  if (strategy === 'round_robin')
+    return {
+      apiKeys: await rotatedKeys(env, userId, endpointId),
+      setAside: null,
+    }
+  const rows = (await endpointKeys(env.DB, userId, endpointId)).filter(
+    (row) => row.enabled !== 0,
+  )
   const now = Date.now()
-  const usable = rows.filter((row) => row.exhaustedUntil === null || row.exhaustedUntil <= now)
+  const usable = rows.filter(
+    (row) => row.exhaustedUntil === null || row.exhaustedUntil <= now,
+  )
   if (rows.length && !usable.length) {
     const resumeAt = Math.min(...rows.map((row) => row.exhaustedUntil ?? now))
-    const failure = new KitFailure('rate_limited', `线路 ${name} 的密钥全部用完，最早 ${new Date(resumeAt).toISOString()} 恢复`, { reason: 'keys_exhausted' })
+    const failure = new KitFailure(
+      'rate_limited',
+      `线路 ${name} 的密钥全部用完，最早 ${new Date(resumeAt).toISOString()} 恢复`,
+      { reason: 'keys_exhausted' },
+    )
     failure.resumeAt = resumeAt
     if (!deferExhausted) throw failure
     return { apiKeys: [], setAside: null, exhaustion: { failure } }
@@ -312,15 +408,18 @@ export async function requestKeys(
     exhaustion: { failure: null },
     setAside: async (key, until, reason) => {
       const index = apiKeys.indexOf(key)
-      await env.DB.prepare('UPDATE ai_endpoint_keys SET exhausted_until = ?1, exhausted_reason = ?2 WHERE id = ?3 AND user_id = ?4')
+      await env.DB.prepare(
+        'UPDATE ai_endpoint_keys SET exhausted_until = ?1, exhausted_reason = ?2 WHERE id = ?3 AND user_id = ?4',
+      )
         .bind(until, reason, ids[index]!, userId)
         .run()
       // Later tool rounds of the same run reuse this pool.
       apiKeys.splice(index, 1)
       ids.splice(index, 1)
       if (!apiKeys.length) {
-        try { await requestKeys(env, userId, endpointId, strategy, name) }
-        catch (error) {
+        try {
+          await requestKeys(env, userId, endpointId, strategy, name)
+        } catch (error) {
           if (error instanceof KitFailure) pool.exhaustion!.failure = error
           throw error
         }
@@ -342,7 +441,12 @@ export async function withKeys<T>(
 ): Promise<T> {
   if (pool.exhaustion?.failure) throw pool.exhaustion.failure
   // A fill-first pool emptied by earlier rounds of this run must not fall back to a keyless request.
-  if (pool.setAside && !pool.apiKeys.length) throw new KitFailure('rate_limited', 'every key of this line is set aside', { reason: 'keys_exhausted' })
+  if (pool.setAside && !pool.apiKeys.length)
+    throw new KitFailure(
+      'rate_limited',
+      'every key of this line is set aside',
+      { reason: 'keys_exhausted' },
+    )
   const candidates = pool.apiKeys.length ? [...pool.apiKeys] : [null]
   let retried = false
   for (let index = 0; ; index++) {
@@ -366,7 +470,11 @@ export async function withKeys<T>(
       const facts = error.upstream
       const limited = status === 429 && facts?.usedUp === false
       if (!facts || (!limited && !facts.usedUp)) throw error
-      await pool.setAside(candidates[index]!, Date.now() + (limited ? (facts.retryAfterMs ?? COOLDOWN_MS) : DAY_MS), facts.reason)
+      await pool.setAside(
+        candidates[index]!,
+        Date.now() + (limited ? (facts.retryAfterMs ?? COOLDOWN_MS) : DAY_MS),
+        facts.reason,
+      )
       if (!next) throw error
     }
   }
@@ -376,22 +484,44 @@ async function ownedEndpoint(
   db: D1Database,
   userId: string,
   id: string,
-): Promise<{ baseUrl: string; protocol: Protocol; headers: Record<string, string> }> {
+): Promise<{
+  baseUrl: string
+  protocol: Protocol
+  headers: Record<string, string>
+}> {
   const row = await db
-    .prepare('SELECT base_url AS baseUrl, protocol, headers FROM ai_endpoints WHERE id = ?1 AND user_id = ?2')
+    .prepare(
+      'SELECT base_url AS baseUrl, protocol, headers FROM ai_endpoints WHERE id = ?1 AND user_id = ?2',
+    )
     .bind(id, userId)
     .first<{ baseUrl: string; protocol: Protocol; headers: string }>()
   if (!row) throw notFound('endpoint')
   return { ...row, headers: JSON.parse(row.headers) as Record<string, string> }
 }
 
-export async function listProviders(env: Env, userId: string): Promise<Provider[]> {
+export async function listProviders(
+  env: Env,
+  userId: string,
+): Promise<Provider[]> {
   const db = env.DB
-  const [{ results: providers }, { results: endpoints }, { results: models }, { results: keys }] = await Promise.all([
+  const [
+    { results: providers },
+    { results: endpoints },
+    { results: models },
+    { results: keys },
+  ] = await Promise.all([
     db
-      .prepare('SELECT id, name, enabled, notes, preset_id AS presetId FROM ai_providers WHERE user_id = ?1 ORDER BY position, id')
+      .prepare(
+        'SELECT id, name, enabled, notes, preset_id AS presetId FROM ai_providers WHERE user_id = ?1 ORDER BY position, id',
+      )
       .bind(userId)
-      .all<{ id: string; name: string; enabled: number; notes: string; presetId: string | null }>(),
+      .all<{
+        id: string
+        name: string
+        enabled: number
+        notes: string
+        presetId: string | null
+      }>(),
     db
       .prepare(
         'SELECT id, provider_id AS providerId, slug, base_url AS baseUrl, protocol, image_base_url AS imageBaseUrl, image_edit_base_url AS imageEditBaseUrl, headers, key_strategy AS keyStrategy FROM ai_endpoints WHERE user_id = ?1 ORDER BY position, id',
@@ -405,7 +535,9 @@ export async function listProviders(env: Env, userId: string): Promise<Provider[
       .bind(userId)
       .all<ModelRow>(),
     db
-      .prepare(`SELECT ${KEY_COLUMNS} FROM ai_endpoint_keys WHERE user_id = ?1 ORDER BY position, id`)
+      .prepare(
+        `SELECT ${KEY_COLUMNS} FROM ai_endpoint_keys WHERE user_id = ?1 ORDER BY position, id`,
+      )
       .bind(userId)
       .all<KeyRow>(),
   ])
@@ -454,9 +586,19 @@ export async function listProviders(env: Env, userId: string): Promise<Provider[
               maxOutput: model.maxOutput,
               canVision: model.canVision !== 0,
               supportsTools: flag(model.supportsTools),
-              reasoning: readReasoning(model.reasoning, model.id, model.modelType, row.protocol, row.baseUrl, model.maxOutput),
+              reasoning: readReasoning(
+                model.reasoning,
+                model.id,
+                model.modelType,
+                row.protocol,
+                row.baseUrl,
+                model.maxOutput,
+              ),
               nativeWebSearch: model.nativeWebSearch !== 0,
-              pricing: model.pricing === null ? null : (JSON.parse(model.pricing) as ModelPricing),
+              pricing:
+                model.pricing === null
+                  ? null
+                  : (JSON.parse(model.pricing) as ModelPricing),
             })),
         },
       ]
@@ -468,7 +610,9 @@ export async function listProviders(env: Env, userId: string): Promise<Provider[
     enabled: provider.enabled !== 0,
     notes: provider.notes,
     presetId: provider.presetId,
-    endpoints: shown.filter(([providerId]) => providerId === provider.id).map(([, endpoint]) => endpoint),
+    endpoints: shown
+      .filter(([providerId]) => providerId === provider.id)
+      .map(([, endpoint]) => endpoint),
   }))
 }
 
@@ -488,7 +632,10 @@ const RESERVED_HEADERS: Record<string, true> = {
 function imageBase(raw: string | null | undefined): string | null | undefined {
   const url = raw?.trim() ?? ''
   if (!url) return null
-  return new TextEncoder().encode(url).length <= 2048 && /^https?:\/\//.test(url) ? url : undefined
+  return new TextEncoder().encode(url).length <= 2048 &&
+    /^https?:\/\//.test(url)
+    ? url
+    : undefined
 }
 
 function cleanHeaders(raw: Record<string, string>): Record<string, string> {
@@ -499,9 +646,15 @@ function cleanHeaders(raw: Record<string, string>): Record<string, string> {
   for (const [rawName, value] of entries) {
     const name = rawName.trim()
     const lower = name.toLowerCase()
-    if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,100}$/.test(name) || seen.has(lower) || charCount(value) > 2048 || /[\r\n]/.test(value))
+    if (
+      !/^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,100}$/.test(name) ||
+      seen.has(lower) ||
+      charCount(value) > 2048 ||
+      /[\r\n]/.test(value)
+    )
       throw badRequest('headers', 'invalid')
-    if (Object.hasOwn(RESERVED_HEADERS, lower)) throw badRequest('headers', 'reserved')
+    if (Object.hasOwn(RESERVED_HEADERS, lower))
+      throw badRequest('headers', 'reserved')
     seen.add(lower)
     headers.push([name, value])
   }
@@ -511,12 +664,15 @@ function cleanHeaders(raw: Record<string, string>): Record<string, string> {
 function validateSave(input: ProviderSaveInput): void {
   const name = charCount(input.name.trim())
   if (name === 0 || name > 80) throw badRequest('name', 'out_of_range', 80)
-  if (input.notes !== undefined && charCount(input.notes) > 10_000) throw badRequest('notes', 'out_of_range', 10_000)
-  if (input.endpoints.length > 20) throw badRequest('endpoints', 'out_of_range', 20)
+  if (input.notes !== undefined && charCount(input.notes) > 10_000)
+    throw badRequest('notes', 'out_of_range', 10_000)
+  if (input.endpoints.length > 20)
+    throw badRequest('endpoints', 'out_of_range', 20)
   const slugs = new Set<string>()
   const ids = new Set<string>()
   for (const endpoint of input.endpoints) {
-    if (!/^[a-z0-9-]{1,40}$/.test(endpoint.slug)) throw badRequest('slug', 'invalid_slug')
+    if (!/^[a-z0-9-]{1,40}$/.test(endpoint.slug))
+      throw badRequest('slug', 'invalid_slug')
     if (slugs.has(endpoint.slug)) throw badRequest('slug', 'duplicate')
     slugs.add(endpoint.slug)
     if (endpoint.id !== undefined) {
@@ -524,12 +680,17 @@ function validateSave(input: ProviderSaveInput): void {
       ids.add(endpoint.id)
     }
     const url = endpoint.baseUrl.trim()
-    if (new TextEncoder().encode(url).length > 2048) throw badRequest('baseUrl', 'out_of_range', 2048)
-    if (url && !url.startsWith('http://') && !url.startsWith('https://')) throw badRequest('baseUrl', 'invalid_url')
-    if (imageBase(endpoint.imageBaseUrl) === undefined) throw badRequest('imageBaseUrl', 'invalid_url')
-    if (imageBase(endpoint.imageEditBaseUrl) === undefined) throw badRequest('imageEditBaseUrl', 'invalid_url')
+    if (new TextEncoder().encode(url).length > 2048)
+      throw badRequest('baseUrl', 'out_of_range', 2048)
+    if (url && !url.startsWith('http://') && !url.startsWith('https://'))
+      throw badRequest('baseUrl', 'invalid_url')
+    if (imageBase(endpoint.imageBaseUrl) === undefined)
+      throw badRequest('imageBaseUrl', 'invalid_url')
+    if (imageBase(endpoint.imageEditBaseUrl) === undefined)
+      throw badRequest('imageEditBaseUrl', 'invalid_url')
     if (endpoint.headers !== undefined) cleanHeaders(endpoint.headers)
-    if (endpoint.models.length > 1000) throw badRequest('models', 'out_of_range', 1000)
+    if (endpoint.models.length > 1000)
+      throw badRequest('models', 'out_of_range', 1000)
     const models = new Set<string>()
     for (const model of endpoint.models) {
       if (!model.id) throw badRequest('models', 'empty_id')
@@ -540,7 +701,12 @@ function validateSave(input: ProviderSaveInput): void {
   }
 }
 
-export async function setProviderEnabled(env: Env, userId: string, id: string, enabled: boolean): Promise<Provider[]> {
+export async function setProviderEnabled(
+  env: Env,
+  userId: string,
+  id: string,
+  enabled: boolean,
+): Promise<Provider[]> {
   const result = await env.DB.prepare(
     'UPDATE ai_providers SET enabled = ?1, updated_at = ?2 WHERE id = ?3 AND user_id = ?4',
   )
@@ -550,20 +716,27 @@ export async function setProviderEnabled(env: Env, userId: string, id: string, e
   return listProviders(env, userId)
 }
 
-export async function saveProvider(env: Env, userId: string, input: ProviderSaveInput): Promise<Provider[]> {
+export async function saveProvider(
+  env: Env,
+  userId: string,
+  input: ProviderSaveInput,
+): Promise<Provider[]> {
   validateSave(input)
   const db = env.DB
   let priorEnabled: boolean | undefined
   if (input.id !== undefined) {
     const existing = await db
-      .prepare('SELECT enabled FROM ai_providers WHERE id = ?1 AND user_id = ?2')
+      .prepare(
+        'SELECT enabled FROM ai_providers WHERE id = ?1 AND user_id = ?2',
+      )
       .bind(input.id, userId)
       .first<{ enabled: number }>()
     if (!existing) throw notFound('provider')
     priorEnabled = existing.enabled !== 0
   }
   if (input.id === undefined && input.presetId !== undefined) {
-    const owned = 'SELECT 1 FROM ai_providers WHERE user_id = ?1 AND preset_id = ?2'
+    const owned =
+      'SELECT 1 FROM ai_providers WHERE user_id = ?1 AND preset_id = ?2'
     if (!(await db.prepare(owned).bind(userId, input.presetId).first())) {
       await db
         .prepare(
@@ -572,12 +745,15 @@ export async function saveProvider(env: Env, userId: string, input: ProviderSave
         .bind(userId, input.presetId, input.name.trim())
         .run()
     }
-    if (await db.prepare(owned).bind(userId, input.presetId).first()) return listProviders(env, userId)
+    if (await db.prepare(owned).bind(userId, input.presetId).first())
+      return listProviders(env, userId)
   }
   const providerId = input.id ?? newId()
   const enabled = input.enabled ?? priorEnabled ?? true
   const { results: old } = await db
-    .prepare('SELECT id FROM ai_endpoints WHERE provider_id = ?1 AND user_id = ?2')
+    .prepare(
+      'SELECT id FROM ai_endpoints WHERE provider_id = ?1 AND user_id = ?2',
+    )
     .bind(providerId, userId)
     .all<{ id: string }>()
   const oldIds = new Set(old.map((row) => row.id))
@@ -587,10 +763,23 @@ export async function saveProvider(env: Env, userId: string, input: ProviderSave
     )
     .bind(userId, providerId)
     .all<{ endpointId: string; modelId: string; reasoning: string | null }>()
-  const priorReasoning = new Map(priorModels.map((model) => [`${model.endpointId}\n${model.modelId}`, model.reasoning]))
-  if (input.endpoints.some((endpoint) => endpoint.id !== undefined && !oldIds.has(endpoint.id)))
+  const priorReasoning = new Map(
+    priorModels.map((model) => [
+      `${model.endpointId}\n${model.modelId}`,
+      model.reasoning,
+    ]),
+  )
+  if (
+    input.endpoints.some(
+      (endpoint) => endpoint.id !== undefined && !oldIds.has(endpoint.id),
+    )
+  )
     throw notFound('endpoint')
-  const kept = new Set(input.endpoints.flatMap((endpoint) => (endpoint.id === undefined ? [] : [endpoint.id])))
+  const kept = new Set(
+    input.endpoints.flatMap((endpoint) =>
+      endpoint.id === undefined ? [] : [endpoint.id],
+    ),
+  )
 
   const planned = input.endpoints.map((endpoint) => {
     const id = endpoint.id ?? newId()
@@ -600,10 +789,17 @@ export async function saveProvider(env: Env, userId: string, input: ProviderSave
         model.reasoning === undefined
           ? (priorReasoning.get(`${id}\n${model.id}`) ?? null)
           : model.reasoning === null
-            ? model.modelType === 'chat' ? 'none' : null
+            ? model.modelType === 'chat'
+              ? 'none'
+              : null
             : JSON.stringify(model.reasoning)
       if (reasoning !== null && reasoning !== 'none')
-        validateReasoning(ReasoningSchema.parse(JSON.parse(reasoning)), endpoint.protocol, model.modelType, model.maxOutput)
+        validateReasoning(
+          ReasoningSchema.parse(JSON.parse(reasoning)),
+          endpoint.protocol,
+          model.modelType,
+          model.maxOutput,
+        )
       return {
         ...model,
         name: label80('name', model.name),
@@ -622,10 +818,27 @@ export async function saveProvider(env: Env, userId: string, input: ProviderSave
           .prepare(
             'INSERT INTO ai_providers (id, user_id, name, enabled, notes, preset_id, position, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?6, ?7, (SELECT COALESCE(MAX(position) + 1, 0) FROM ai_providers WHERE user_id = ?2), ?5, ?5)',
           )
-          .bind(providerId, userId, input.name, enabled ? 1 : 0, now, input.notes ?? '', input.presetId ?? null)
+          .bind(
+            providerId,
+            userId,
+            input.name,
+            enabled ? 1 : 0,
+            now,
+            input.notes ?? '',
+            input.presetId ?? null,
+          )
       : db
-          .prepare('UPDATE ai_providers SET name = ?1, enabled = ?2, updated_at = ?3, notes = COALESCE(?6, notes) WHERE id = ?4 AND user_id = ?5')
-          .bind(input.name, enabled ? 1 : 0, now, providerId, userId, input.notes ?? null),
+          .prepare(
+            'UPDATE ai_providers SET name = ?1, enabled = ?2, updated_at = ?3, notes = COALESCE(?6, notes) WHERE id = ?4 AND user_id = ?5',
+          )
+          .bind(
+            input.name,
+            enabled ? 1 : 0,
+            now,
+            providerId,
+            userId,
+            input.notes ?? null,
+          ),
     db
       .prepare(
         'DELETE FROM ai_models WHERE user_id = ?1 AND endpoint_id IN (SELECT id FROM ai_endpoints WHERE user_id = ?1 AND provider_id = ?2)',
@@ -635,30 +848,71 @@ export async function saveProvider(env: Env, userId: string, input: ProviderSave
   for (const id of oldIds) {
     if (!kept.has(id))
       statements.push(
-        db.prepare('DELETE FROM ai_endpoint_keys WHERE endpoint_id = ?1 AND user_id = ?2').bind(id, userId),
-        db.prepare('DELETE FROM ai_endpoints WHERE id = ?1 AND user_id = ?2').bind(id, userId),
+        db
+          .prepare(
+            'DELETE FROM ai_endpoint_keys WHERE endpoint_id = ?1 AND user_id = ?2',
+          )
+          .bind(id, userId),
+        db
+          .prepare('DELETE FROM ai_endpoints WHERE id = ?1 AND user_id = ?2')
+          .bind(id, userId),
       )
   }
   statements.push(
-    db.prepare('UPDATE ai_endpoints SET slug = id WHERE provider_id = ?1 AND user_id = ?2').bind(providerId, userId),
+    db
+      .prepare(
+        'UPDATE ai_endpoints SET slug = id WHERE provider_id = ?1 AND user_id = ?2',
+      )
+      .bind(providerId, userId),
   )
   planned.forEach(({ endpoint, id, models }, position) => {
-    const values = [endpoint.slug, endpoint.baseUrl.trim(), endpoint.protocol, position, id, userId] as const
-    const image = endpoint.imageBaseUrl === undefined ? undefined : (imageBase(endpoint.imageBaseUrl) ?? null)
-    const edit = endpoint.imageEditBaseUrl === undefined ? undefined : (imageBase(endpoint.imageEditBaseUrl) ?? null)
-    const headers = endpoint.headers === undefined ? null : JSON.stringify(cleanHeaders(endpoint.headers))
+    const values = [
+      endpoint.slug,
+      endpoint.baseUrl.trim(),
+      endpoint.protocol,
+      position,
+      id,
+      userId,
+    ] as const
+    const image =
+      endpoint.imageBaseUrl === undefined
+        ? undefined
+        : (imageBase(endpoint.imageBaseUrl) ?? null)
+    const edit =
+      endpoint.imageEditBaseUrl === undefined
+        ? undefined
+        : (imageBase(endpoint.imageEditBaseUrl) ?? null)
+    const headers =
+      endpoint.headers === undefined
+        ? null
+        : JSON.stringify(cleanHeaders(endpoint.headers))
     statements.push(
       endpoint.id === undefined
         ? db
             .prepare(
               'INSERT INTO ai_endpoints (slug, base_url, protocol, position, id, user_id, provider_id, image_base_url, headers, image_edit_base_url, key_strategy) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)',
             )
-            .bind(...values, providerId, image ?? null, headers ?? '{}', edit ?? null, endpoint.keyStrategy ?? 'round_robin')
+            .bind(
+              ...values,
+              providerId,
+              image ?? null,
+              headers ?? '{}',
+              edit ?? null,
+              endpoint.keyStrategy ?? 'round_robin',
+            )
         : db
             .prepare(
               'UPDATE ai_endpoints SET slug = ?1, base_url = ?2, protocol = ?3, position = ?4, image_base_url = CASE WHEN ?7 = 1 THEN image_base_url ELSE ?8 END, headers = COALESCE(?9, headers), image_edit_base_url = CASE WHEN ?10 = 1 THEN image_edit_base_url ELSE ?11 END, key_strategy = COALESCE(?12, key_strategy) WHERE id = ?5 AND user_id = ?6',
             )
-            .bind(...values, image === undefined ? 1 : 0, image ?? null, headers, edit === undefined ? 1 : 0, edit ?? null, endpoint.keyStrategy ?? null),
+            .bind(
+              ...values,
+              image === undefined ? 1 : 0,
+              image ?? null,
+              headers,
+              edit === undefined ? 1 : 0,
+              edit ?? null,
+              endpoint.keyStrategy ?? null,
+            ),
       db
         .prepare(
           `INSERT INTO ai_models (user_id, endpoint_id, model_id, model_type, type_source, context_window, max_output, can_vision, supports_tools, reasoning, native_web_search, name, group_name, pricing, position)
@@ -681,42 +935,76 @@ export async function saveProvider(env: Env, userId: string, input: ProviderSave
   return listProviders(env, userId)
 }
 
-export async function removeProvider(env: Env, userId: string, id: string): Promise<Provider[]> {
+export async function removeProvider(
+  env: Env,
+  userId: string,
+  id: string,
+): Promise<Provider[]> {
   const db = env.DB
   const existing = await db
-    .prepare('SELECT preset_id AS presetId FROM ai_providers WHERE id = ?1 AND user_id = ?2')
+    .prepare(
+      'SELECT preset_id AS presetId FROM ai_providers WHERE id = ?1 AND user_id = ?2',
+    )
     .bind(id, userId)
     .first<{ presetId: string | null }>()
   if (!existing) throw notFound('provider')
   if (existing.presetId !== null) throw conflict('preset_provider')
-  const endpoints = 'SELECT id FROM ai_endpoints WHERE user_id = ?1 AND provider_id = ?2'
+  const endpoints =
+    'SELECT id FROM ai_endpoints WHERE user_id = ?1 AND provider_id = ?2'
   await db.batch([
-    db.prepare(`DELETE FROM ai_roles WHERE user_id = ?1 AND endpoint_id IN (${endpoints})`).bind(userId, id),
-    db.prepare(`DELETE FROM ai_models WHERE user_id = ?1 AND endpoint_id IN (${endpoints})`).bind(userId, id),
-    db.prepare(`DELETE FROM ai_endpoint_keys WHERE user_id = ?1 AND endpoint_id IN (${endpoints})`).bind(userId, id),
-    db.prepare('DELETE FROM ai_endpoints WHERE user_id = ?1 AND provider_id = ?2').bind(userId, id),
-    db.prepare('DELETE FROM ai_providers WHERE id = ?1 AND user_id = ?2').bind(id, userId),
+    db
+      .prepare(
+        `DELETE FROM ai_roles WHERE user_id = ?1 AND endpoint_id IN (${endpoints})`,
+      )
+      .bind(userId, id),
+    db
+      .prepare(
+        `DELETE FROM ai_models WHERE user_id = ?1 AND endpoint_id IN (${endpoints})`,
+      )
+      .bind(userId, id),
+    db
+      .prepare(
+        `DELETE FROM ai_endpoint_keys WHERE user_id = ?1 AND endpoint_id IN (${endpoints})`,
+      )
+      .bind(userId, id),
+    db
+      .prepare(
+        'DELETE FROM ai_endpoints WHERE user_id = ?1 AND provider_id = ?2',
+      )
+      .bind(userId, id),
+    db
+      .prepare('DELETE FROM ai_providers WHERE id = ?1 AND user_id = ?2')
+      .bind(id, userId),
   ])
   return listProviders(env, userId)
 }
 
-export async function saveKey(env: Env, userId: string, input: EndpointKeySaveInput): Promise<Provider[]> {
+export async function saveKey(
+  env: Env,
+  userId: string,
+  input: EndpointKeySaveInput,
+): Promise<Provider[]> {
   const db = env.DB
   await ownedEndpoint(db, userId, input.endpointId)
   const keys = await endpointKeys(db, userId, input.endpointId)
   const isNew = input.id === undefined
   if (!isNew && !keys.some((row) => row.id === input.id)) throw notFound('key')
-  if (isNew && keys.length >= MAX_KEYS) throw badRequest('keys', 'too_many', MAX_KEYS)
+  if (isNew && keys.length >= MAX_KEYS)
+    throw badRequest('keys', 'too_many', MAX_KEYS)
   const label = input.label?.trim()
-  if (label !== undefined && charCount(label) > 40) throw badRequest('label', 'too_long', 40)
+  if (label !== undefined && charCount(label) > 40)
+    throw badRequest('label', 'too_long', 40)
   const key = input.key?.trim()
-  if (key === '' || (isNew && key === undefined)) throw badRequest('apiKey', 'empty')
+  if (key === '' || (isNew && key === undefined))
+    throw badRequest('apiKey', 'empty')
   let cipher: string | null = null
   const id = input.id ?? newId()
   if (key !== undefined) {
-    if (new TextEncoder().encode(key).length > 4096) throw badRequest('apiKey', 'too_long', 4096)
+    if (new TextEncoder().encode(key).length > 4096)
+      throw badRequest('apiKey', 'too_long', 4096)
     for (const other of keys)
-      if (other.id !== id && (await plainKey(env, other)) === key) throw badRequest('apiKey', 'duplicate')
+      if (other.id !== id && (await plainKey(env, other)) === key)
+        throw badRequest('apiKey', 'duplicate')
     cipher = await encryptAiKey(env, id, key)
   }
   if (isNew) {
@@ -726,9 +1014,18 @@ export async function saveKey(env: Env, userId: string, input: EndpointKeySaveIn
          SELECT ?1, ?2, ?3, ?4, ?5, ?6, (SELECT COALESCE(MAX(position) + 1, 0) FROM ai_endpoint_keys WHERE user_id = ?2 AND endpoint_id = ?3)
          WHERE (SELECT COUNT(*) FROM ai_endpoint_keys WHERE user_id = ?2 AND endpoint_id = ?3) < ?7`,
       )
-      .bind(id, userId, input.endpointId, label ?? '', input.enabled === false ? 0 : 1, cipher, MAX_KEYS)
+      .bind(
+        id,
+        userId,
+        input.endpointId,
+        label ?? '',
+        input.enabled === false ? 0 : 1,
+        cipher,
+        MAX_KEYS,
+      )
       .run()
-    if (result.meta.changes !== 1) throw badRequest('keys', 'too_many', MAX_KEYS)
+    if (result.meta.changes !== 1)
+      throw badRequest('keys', 'too_many', MAX_KEYS)
   } else {
     await db
       .prepare(
@@ -737,23 +1034,45 @@ export async function saveKey(env: Env, userId: string, input: EndpointKeySaveIn
            exhausted_reason = CASE WHEN ?7 = 1 OR ?3 IS NOT NULL THEN NULL ELSE exhausted_reason END
          WHERE id = ?4 AND user_id = ?5 AND endpoint_id = ?6`,
       )
-      .bind(label ?? null, input.enabled === undefined ? null : input.enabled ? 1 : 0, cipher, id, userId, input.endpointId, input.restore ? 1 : 0)
+      .bind(
+        label ?? null,
+        input.enabled === undefined ? null : input.enabled ? 1 : 0,
+        cipher,
+        id,
+        userId,
+        input.endpointId,
+        input.restore ? 1 : 0,
+      )
       .run()
   }
   return listProviders(env, userId)
 }
 
-export async function removeKey(env: Env, userId: string, endpointId: string, keyId: string): Promise<Provider[]> {
+export async function removeKey(
+  env: Env,
+  userId: string,
+  endpointId: string,
+  keyId: string,
+): Promise<Provider[]> {
   await ownedEndpoint(env.DB, userId, endpointId)
-  const result = await env.DB.prepare('DELETE FROM ai_endpoint_keys WHERE id = ?1 AND user_id = ?2 AND endpoint_id = ?3')
+  const result = await env.DB.prepare(
+    'DELETE FROM ai_endpoint_keys WHERE id = ?1 AND user_id = ?2 AND endpoint_id = ?3',
+  )
     .bind(keyId, userId, endpointId)
     .run()
   if (result.meta.changes !== 1) throw notFound('key')
   return listProviders(env, userId)
 }
 
-export async function revealKey(env: Env, userId: string, keyId: string, currentPassword: unknown): Promise<string> {
-  const row = await env.DB.prepare('SELECT id, key_ciphertext AS keyCiphertext FROM ai_endpoint_keys WHERE id = ?1 AND user_id = ?2')
+export async function revealKey(
+  env: Env,
+  userId: string,
+  keyId: string,
+  currentPassword: unknown,
+): Promise<string> {
+  const row = await env.DB.prepare(
+    'SELECT id, key_ciphertext AS keyCiphertext FROM ai_endpoint_keys WHERE id = ?1 AND user_id = ?2',
+  )
     .bind(keyId, userId)
     .first<{ id: string; keyCiphertext: string }>()
   if (!row) throw notFound('key')
@@ -761,7 +1080,11 @@ export async function revealKey(env: Env, userId: string, keyId: string, current
   return openKey(env, row)
 }
 
-export async function modelOptions(db: D1Database, userId: string, filter: ModelFilter): Promise<ModelOption[]> {
+export async function modelOptions(
+  db: D1Database,
+  userId: string,
+  filter: ModelFilter,
+): Promise<ModelOption[]> {
   const { results } = await db
     .prepare(
       `SELECT p.name AS provider, e.slug, e.protocol, e.base_url AS baseUrl, m.endpoint_id AS endpointId, m.model_id AS modelId, m.name, m.model_type AS modelType, m.supports_tools AS supportsTools, m.context_window AS contextWindow, m.max_output AS maxOutput, m.reasoning, m.native_web_search AS nativeWebSearch, m.can_vision AS canVision
@@ -791,8 +1114,10 @@ export async function modelOptions(db: D1Database, userId: string, filter: Model
   return results
     .filter(
       (row) =>
-        (filter.modelType === undefined || row.modelType === filter.modelType) &&
-        (filter.supportsTools === undefined || flag(row.supportsTools) === filter.supportsTools),
+        (filter.modelType === undefined ||
+          row.modelType === filter.modelType) &&
+        (filter.supportsTools === undefined ||
+          flag(row.supportsTools) === filter.supportsTools),
     )
     .map((row) => ({
       endpointId: row.endpointId,
@@ -802,13 +1127,25 @@ export async function modelOptions(db: D1Database, userId: string, filter: Model
       modelType: row.modelType,
       supportsTools: flag(row.supportsTools),
       contextWindow: row.contextWindow,
-      reasoning: readReasoning(row.reasoning, row.modelId, row.modelType, row.protocol, row.baseUrl, row.maxOutput),
+      reasoning: readReasoning(
+        row.reasoning,
+        row.modelId,
+        row.modelType,
+        row.protocol,
+        row.baseUrl,
+        row.maxOutput,
+      ),
       nativeWebSearch: row.nativeWebSearch !== 0,
       canVision: row.canVision !== 0,
     }))
 }
 
-export async function resolveModel(env: Env, userId: string, model: ModelRef, deferExhausted = false): Promise<Connection> {
+export async function resolveModel(
+  env: Env,
+  userId: string,
+  model: ModelRef,
+  deferExhausted = false,
+): Promise<Connection> {
   const row = await env.DB.prepare(
     `SELECT e.id AS endpointId, e.base_url AS baseUrl, e.protocol, e.image_base_url AS imageBaseUrl, e.image_edit_base_url AS imageEditBaseUrl, e.headers, e.key_strategy AS keyStrategy, e.slug, p.name AS providerName,
        m.model_type AS modelType, m.context_window AS contextWindow, m.max_output AS maxOutput, m.supports_tools AS supportsTools, m.reasoning, m.native_web_search AS nativeWebSearch, m.can_vision AS canVision, m.pricing
@@ -841,30 +1178,53 @@ export async function resolveModel(env: Env, userId: string, model: ModelRef, de
   return {
     baseUrl: apiBase(row.baseUrl),
     imageBaseUrl: row.imageBaseUrl ? apiBase(row.imageBaseUrl) : null,
-    imageEditBaseUrl: row.imageEditBaseUrl ? apiBase(row.imageEditBaseUrl) : null,
+    imageEditBaseUrl: row.imageEditBaseUrl
+      ? apiBase(row.imageEditBaseUrl)
+      : null,
     headers: JSON.parse(row.headers) as Record<string, string>,
     protocol: row.protocol,
-    ...(await requestKeys(env, userId, row.endpointId, row.keyStrategy, `${row.providerName} · ${row.slug}`, deferExhausted)),
+    ...(await requestKeys(
+      env,
+      userId,
+      row.endpointId,
+      row.keyStrategy,
+      `${row.providerName} · ${row.slug}`,
+      deferExhausted,
+    )),
     modelId: model.modelId,
     endpointId: row.endpointId,
-    reasoning: readReasoning(row.reasoning, model.modelId, row.modelType, row.protocol, row.baseUrl, row.maxOutput),
+    reasoning: readReasoning(
+      row.reasoning,
+      model.modelId,
+      row.modelType,
+      row.protocol,
+      row.baseUrl,
+      row.maxOutput,
+    ),
     contextWindow: row.contextWindow,
     maxOutput: row.maxOutput,
     supportsTools: flag(row.supportsTools),
     nativeWebSearch: row.nativeWebSearch !== 0,
     canVision: row.canVision !== 0,
-    pricing: row.pricing === null ? null : (JSON.parse(row.pricing) as ModelPricing),
+    pricing:
+      row.pricing === null ? null : (JSON.parse(row.pricing) as ModelPricing),
   }
 }
 
 /** Keys a probe tries: just `keyId` when given, else the rotated enabled keys. */
-async function probeKeys(env: Env, userId: string, endpointId: string, keyId?: string): Promise<string[]> {
+async function probeKeys(
+  env: Env,
+  userId: string,
+  endpointId: string,
+  keyId?: string,
+): Promise<string[]> {
   if (keyId === undefined) return rotatedKeys(env, userId, endpointId)
-  const row = (await endpointKeys(env.DB, userId, endpointId)).find((key) => key.id === keyId)
+  const row = (await endpointKeys(env.DB, userId, endpointId)).find(
+    (key) => key.id === keyId,
+  )
   if (!row) throw notFound('key')
   return [await openKey(env, row)]
 }
-
 
 export async function probe(
   env: Env,
@@ -877,7 +1237,11 @@ export async function probe(
   let keys: string[] = []
   let headers: Record<string, string> = {}
   if (target.kind === 'saved') {
-    ;({ baseUrl, protocol, headers } = await ownedEndpoint(env.DB, userId, target.endpointId))
+    ;({ baseUrl, protocol, headers } = await ownedEndpoint(
+      env.DB,
+      userId,
+      target.endpointId,
+    ))
     keys = await probeKeys(env, userId, target.endpointId)
   } else {
     baseUrl = target.baseUrl
@@ -887,6 +1251,14 @@ export async function probe(
       keys = await probeKeys(env, userId, target.endpointId, target.keyId)
     } else if (target.keyId !== undefined) throw notFound('key')
   }
-  return probeProvider(outbound(env), { endpoint: { endpointId: target.endpointId ?? null, baseUrl, protocol, keys, headers }, signal })
+  return probeProvider(outbound(env), {
+    endpoint: {
+      endpointId: target.endpointId ?? null,
+      baseUrl,
+      protocol,
+      keys,
+      headers,
+    },
+    signal,
+  })
 }
-

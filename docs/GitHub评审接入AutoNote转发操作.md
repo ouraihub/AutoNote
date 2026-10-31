@@ -52,7 +52,7 @@ https://autonote.ouraihub.com/relay/v1/chat/completions
 - 例如，只有当 AutoNote 已添加 `gpt-6.1-sol` 且其线路使用 OpenAI Chat Completions 时，才填写 `gpt-6.1-sol`。
 - 可以通过已经配置好的 Cherry 获取模型列表；也可以调用转发的 `GET /relay/v1/models`，取 `data` 中 `protocol` 为 `openai-chat` 的条目的 `id`。
 - 列表返回 `服务商名/模型名` 形式时，完整复制这个 `id`，不要自行去掉服务商前缀。
-- 选择有足够上下文容量、能按要求返回 JSON 评审结论的模型；当前脚本允许的 diff 上限为 120000 字符，此外还会发送评审规则。
+- 选择有足够上下文容量、能按要求返回 JSON 评审结论的模型。以实际使用的 release-kit 版本为准；升级后的普通请求最多 1,000,000 字符，全局一致性请求最多 2,000,000，整次累计最多 6,000,000（含规则、元数据和转义）。这是脚本安全上限，不是模型容量保证；创建 PR 前运行 `pnpm exec release-kit review-size --base origin/main` 预检。
 
 ## 4. 只重跑失败的 AI 评审
 

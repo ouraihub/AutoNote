@@ -12,7 +12,9 @@
 </script>
 
 {#if variant === 'icon'}
-  <IconButton {label} title={label} onclick={open}><Search size={16} /></IconButton>
+  <IconButton {label} title={label} onclick={open}
+    ><Search size={16} /></IconButton
+  >
 {:else if variant === 'mobile'}
   <button
     type="button"
@@ -31,7 +33,9 @@
     class="flex h-9 w-full min-w-0 shrink-0 items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-inset)] px-2.5 text-[12px] text-[var(--text-tertiary)] transition-colors hover:border-[var(--border-default)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
   >
     <Search size={14} class="shrink-0" />
-    <span class="min-w-0 flex-1 truncate text-left">{i18n.t('shell.search')}</span>
+    <span class="min-w-0 flex-1 truncate text-left"
+      >{i18n.t('shell.search')}</span
+    >
     <Kbd combo="mod+k" />
   </button>
 {/if}

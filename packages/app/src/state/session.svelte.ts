@@ -1,5 +1,14 @@
-import type { BackendSession, ErrorCode, FlushResult } from '@shared/backend-types'
-import type { AppLocale, PublicUser, TotpLoginChallenge, TotpLoginResult } from '@shared/types'
+import type {
+  BackendSession,
+  ErrorCode,
+  FlushResult,
+} from '@shared/backend-types'
+import type {
+  AppLocale,
+  PublicUser,
+  TotpLoginChallenge,
+  TotpLoginResult,
+} from '@shared/types'
 import {
   BackendError,
   isBackendError,
@@ -19,7 +28,12 @@ export type SessionSite = BackendSession['site']
 
 export type LogoutResult =
   | { kind: 'signed-out' }
-  | { kind: 'blocked'; pending: number; failed: number; settingsPending: boolean }
+  | {
+      kind: 'blocked'
+      pending: number
+      failed: number
+      settingsPending: boolean
+    }
   | { kind: 'failed'; code: ErrorCode }
 
 export interface SessionStateOptions {
@@ -111,20 +125,28 @@ export class SessionState {
       this.#adopt(session)
     } catch (error) {
       if (!isBackendError(error)) throw error
-      if (request.sequence !== this.#sequence || error.code === 'cancelled') return
+      if (request.sequence !== this.#sequence || error.code === 'cancelled')
+        return
       this.#logger.warn('session.load.failed', { code: error.code })
-      if (error.code === 'unauthenticated' || this.#user === null) this.#becomeAnonymous(error.code)
+      if (error.code === 'unauthenticated' || this.#user === null)
+        this.#becomeAnonymous(error.code)
       else this.#authError = error.code
     } finally {
       this.#finish(request)
     }
   }
 
-  async login(username: string, password: string, options?: CallOptions): Promise<AuthOutcome> {
+  async login(
+    username: string,
+    password: string,
+    options?: CallOptions,
+  ): Promise<AuthOutcome> {
     const account = this.#account()
     const request = this.#begin(options, true)
     try {
-      const result = await account.login(username, password, { signal: request.signal })
+      const result = await account.login(username, password, {
+        signal: request.signal,
+      })
       if (request.sequence !== this.#sequence) return 'superseded'
       if ('twoFactorRequired' in result) {
         this.#challenge = result
@@ -140,7 +162,10 @@ export class SessionState {
     }
   }
 
-  async completeTotp(code: string, options?: CallOptions): Promise<AuthOutcome> {
+  async completeTotp(
+    code: string,
+    options?: CallOptions,
+  ): Promise<AuthOutcome> {
     const account = this.#account()
     const challenge = this.#challenge
     if (!challenge || this.#clock.now() >= challenge.expiresAt) {
@@ -150,7 +175,11 @@ export class SessionState {
     }
     const request = this.#begin(options, true)
     try {
-      const result = await account.completeTotpLogin(challenge.challengeToken, code, { signal: request.signal })
+      const result = await account.completeTotpLogin(
+        challenge.challengeToken,
+        code,
+        { signal: request.signal },
+      )
       if (request.sequence !== this.#sequence) return 'superseded'
       this.#adopt(result)
       if (result.recoveryCodeUsed) this.#notifyRecoveryCodeUsed(result)
@@ -162,11 +191,18 @@ export class SessionState {
     }
   }
 
-  async register(username: string, password: string, locale: AppLocale, options?: CallOptions): Promise<AuthOutcome> {
+  async register(
+    username: string,
+    password: string,
+    locale: AppLocale,
+    options?: CallOptions,
+  ): Promise<AuthOutcome> {
     const account = this.#account()
     const request = this.#begin(options, true)
     try {
-      const session = await account.register(username, password, locale, { signal: request.signal })
+      const session = await account.register(username, password, locale, {
+        signal: request.signal,
+      })
       if (request.sequence !== this.#sequence) return 'superseded'
       this.#adopt(session)
       return 'authed'
@@ -198,7 +234,9 @@ export class SessionState {
         this.#refreshQueued = false
         if (this.#busy || this.#status !== 'authed') return
         this.load().catch((error: unknown) => {
-          this.#logger.error('session.refresh.failed', { name: error instanceof Error ? error.name : 'unknown' })
+          this.#logger.error('session.refresh.failed', {
+            name: error instanceof Error ? error.name : 'unknown',
+          })
         })
       })
     })
@@ -210,7 +248,8 @@ export class SessionState {
   }
 
   async #runLogout(): Promise<LogoutResult> {
-    if (this.#port.account === undefined) return { kind: 'failed', code: 'forbidden' }
+    if (this.#port.account === undefined)
+      return { kind: 'failed', code: 'forbidden' }
     let settingsSaved: boolean
     let notes: FlushResult
     try {
@@ -223,7 +262,11 @@ export class SessionState {
     const settingsPending = !settingsSaved
     const count = notes.pending + notes.failed + (settingsPending ? 1 : 0)
     if (count > 0) {
-      this.#logger.info('session.logout.blocked', { pending: notes.pending, failed: notes.failed, settingsPending })
+      this.#logger.info('session.logout.blocked', {
+        pending: notes.pending,
+        failed: notes.failed,
+        settingsPending,
+      })
       this.#notifier.toast({
         id: 'session-logout-blocked',
         key: 'session.logout_blocked',
@@ -236,7 +279,12 @@ export class SessionState {
           },
         },
       })
-      return { kind: 'blocked', pending: notes.pending, failed: notes.failed, settingsPending }
+      return {
+        kind: 'blocked',
+        pending: notes.pending,
+        failed: notes.failed,
+        settingsPending,
+      }
     }
     try {
       await this.#port.logout()
@@ -251,13 +299,18 @@ export class SessionState {
 
   #logoutFailed(code: ErrorCode): LogoutResult {
     this.#logger.warn('session.logout.failed', { code })
-    this.#notifier.toast({ id: 'session-logout-failed', key: 'session.logout_failed', tone: 'error' })
+    this.#notifier.toast({
+      id: 'session-logout-failed',
+      key: 'session.logout_failed',
+      tone: 'error',
+    })
     return { kind: 'failed', code }
   }
 
   #account(): SessionAccountPort {
     const account = this.#port.account
-    if (!account) throw new BackendError('forbidden', 0, 'Accounts are not available')
+    if (!account)
+      throw new BackendError('forbidden', 0, 'Accounts are not available')
     return account
   }
 
@@ -266,7 +319,9 @@ export class SessionState {
     const controller = new AbortController()
     this.#request = controller
     this.#busy = busy
-    const signal = options?.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal
+    const signal = options?.signal
+      ? AbortSignal.any([controller.signal, options.signal])
+      : controller.signal
     return { sequence: ++this.#sequence, signal }
   }
 
@@ -285,7 +340,8 @@ export class SessionState {
 
   #rejectAuth(request: SessionRequest, error: unknown): AuthOutcome {
     if (!isBackendError(error)) throw error
-    if (request.sequence !== this.#sequence || error.code === 'cancelled') return 'superseded'
+    if (request.sequence !== this.#sequence || error.code === 'cancelled')
+      return 'superseded'
     if (error.code === 'two_factor_challenge_expired') this.#challenge = null
     this.#authError = error.code
     return 'rejected'

@@ -85,12 +85,17 @@ export class OutboxReplayer {
   }
 
   replay(): Promise<void> {
-    if (this.#controller.signal.aborted || this.#paused) return Promise.resolve()
+    if (this.#controller.signal.aborted || this.#paused)
+      return Promise.resolve()
     if (this.#running) return this.#running
     const userId = this.#deps.content.activeUserId()
-    const current = (): boolean => !this.#controller.signal.aborted && this.#deps.content.activeUserId() === userId
+    const current = (): boolean =>
+      !this.#controller.signal.aborted &&
+      this.#deps.content.activeUserId() === userId
     const running = this.#deps.lock
-      .run(this.#deps.clientId, async (valid) => this.#replayNow(async () => current() && (await valid()) && current()))
+      .run(this.#deps.clientId, async (valid) =>
+        this.#replayNow(async () => current() && (await valid()) && current()),
+      )
       .then(async (acquired) => {
         if (!acquired && current()) await this.#publishPending(current)
       })
@@ -115,7 +120,8 @@ export class OutboxReplayer {
       const result =
         message.type === 'outbox-base-advanced'
           ? this.#deps.pending.onOutboxBaseAdvanced(message)
-          : message.type === 'outbox-result' && message.targetClientId === this.#deps.clientId
+          : message.type === 'outbox-result' &&
+              message.targetClientId === this.#deps.clientId
             ? this.#deps.pending.onOutboxResult(message)
             : undefined
       void result?.catch((error: unknown) => {
@@ -130,17 +136,26 @@ export class OutboxReplayer {
   }
 
   async pendingCount(): Promise<number> {
-    return new Set((await this.#deps.outbox.list()).map((item) => item.noteId)).size
+    return new Set((await this.#deps.outbox.list()).map((item) => item.noteId))
+      .size
   }
 
-  async #publishPending(valid: () => boolean | Promise<boolean>): Promise<void> {
+  async #publishPending(
+    valid: () => boolean | Promise<boolean>,
+  ): Promise<void> {
     const count = await this.pendingCount()
-    if (await valid()) this.#deps.emitChange({ kind: 'write', payload: { kind: 'pending', count } })
+    if (await valid())
+      this.#deps.emitChange({
+        kind: 'write',
+        payload: { kind: 'pending', count },
+      })
   }
 
   async #current(item: OutboxItem): Promise<OutboxItem | undefined> {
     await this.#deps.pending.waitForQueued(item.noteId)
-    return (await this.#deps.outbox.list()).find((entry) => entry.id === item.id && entry.writeId === item.writeId)
+    return (await this.#deps.outbox.list()).find(
+      (entry) => entry.id === item.id && entry.writeId === item.writeId,
+    )
   }
 
   async #failure(
@@ -151,7 +166,9 @@ export class OutboxReplayer {
     this.#failedCount++
     this.#lastCode = typeof error === 'string' ? code : error.code
     const message = typeof error === 'string' ? error : error.message
-    await this.#deps.outbox.markFailure(item.id, item.writeId, message).catch(() => undefined)
+    await this.#deps.outbox
+      .markFailure(item.id, item.writeId, message)
+      .catch(() => undefined)
     this.#deps.emitChange({
       kind: 'write',
       payload: {
@@ -164,10 +181,20 @@ export class OutboxReplayer {
     })
   }
 
-  async #settle(item: OutboxItem, saved: Note, expectedRev: number, valid: () => Promise<boolean>): Promise<void> {
+  async #settle(
+    item: OutboxItem,
+    saved: Note,
+    expectedRev: number,
+    valid: () => Promise<boolean>,
+  ): Promise<void> {
     const { outbox, bus, clientId } = this.#deps
     if (!(await valid())) return
-    await outbox.advanceDependents(item.noteId, item.writeId, expectedRev, saved.rev)
+    await outbox.advanceDependents(
+      item.noteId,
+      item.writeId,
+      expectedRev,
+      saved.rev,
+    )
     if (await valid())
       bus.post({
         type: 'outbox-base-advanced',
@@ -179,7 +206,11 @@ export class OutboxReplayer {
       })
     const latest = (await outbox.list()).find((entry) => entry.id === item.id)
     if (!(await valid())) return
-    if (latest && latest.writeId !== item.writeId && latest.payload.rev === expectedRev) {
+    if (
+      latest &&
+      latest.writeId !== item.writeId &&
+      latest.payload.rev === expectedRev
+    ) {
       await outbox.updateRevision(latest.id, latest.writeId, saved.rev)
     }
     if (!(await valid())) return
@@ -196,7 +227,9 @@ export class OutboxReplayer {
         rev: saved.rev,
         updatedAt: saved.updatedAt,
         savedTitle: saved.title,
-        ...(!item.payload.contentDirty && saved.content !== item.payload.content ? { savedNote: saved } : {}),
+        ...(!item.payload.contentDirty && saved.content !== item.payload.content
+          ? { savedNote: saved }
+          : {}),
       })
     else {
       const latest = await this.#deps.pending.onOutboxResult({
@@ -209,13 +242,21 @@ export class OutboxReplayer {
       if (latest && (await valid()))
         this.#deps.emitChange({
           kind: 'write',
-          payload: { kind: 'settled', noteId: item.noteId, writeId: item.writeId, note: saved },
+          payload: {
+            kind: 'settled',
+            noteId: item.noteId,
+            writeId: item.writeId,
+            note: saved,
+          },
         })
     }
     if (await valid()) this.#deps.requestPull({ force: true })
   }
 
-  async #recover(item: OutboxItem, valid: () => Promise<boolean>): Promise<void> {
+  async #recover(
+    item: OutboxItem,
+    valid: () => Promise<boolean>,
+  ): Promise<void> {
     const { outbox, content, clientId, bus } = this.#deps
     const current = await this.#current(item)
     if (!(await valid())) return
@@ -224,7 +265,10 @@ export class OutboxReplayer {
       id: item.id,
       writeId: item.writeId,
       content: item.payload.content,
-      title: item.payload.title ?? (await content.getContent(item.noteId))?.pendingTitle ?? '',
+      title:
+        item.payload.title ??
+        (await content.getContent(item.noteId))?.pendingTitle ??
+        '',
     }
     if (!(await this.#current(current))) return
     let recoveryId = item.payload.recoveryId ?? current.payload.recoveryId
@@ -248,7 +292,11 @@ export class OutboxReplayer {
         path: '/api/notes',
         timeoutMs: 30_000,
         signal: this.#controller.signal,
-        body: { id: recoveryId, title: snapshot.title, content: snapshot.content },
+        body: {
+          id: recoveryId,
+          title: snapshot.title,
+          content: snapshot.content,
+        },
       })
       if (!(await valid())) return
       if (copy.id !== recoveryId) throw new Error('Recovery copy id mismatch')
@@ -260,7 +308,12 @@ export class OutboxReplayer {
             path: `/api/notes/${encodeURIComponent(copy.id)}`,
             timeoutMs: 30_000,
             signal: this.#controller.signal,
-            body: { rev: copy.rev, content: snapshot.content, title: snapshot.title, preserveVersion: true },
+            body: {
+              rev: copy.rev,
+              content: snapshot.content,
+              title: snapshot.title,
+              preserveVersion: true,
+            },
           })
         } catch (error) {
           if (!(
@@ -277,7 +330,8 @@ export class OutboxReplayer {
       if (copy.content !== snapshot.content || copy.title !== snapshot.title)
         throw new Error('Recovery copy does not match journal')
       this.#recovered.set(key, copy)
-      if (this.#recovered.size > 200) this.#recovered.delete(this.#recovered.keys().next().value!)
+      if (this.#recovered.size > 200)
+        this.#recovered.delete(this.#recovered.keys().next().value!)
     }
     if (!(await valid())) return
     await outbox.complete(snapshot.id, snapshot.writeId)
@@ -306,7 +360,13 @@ export class OutboxReplayer {
       if (latest && (await valid()))
         this.#deps.emitChange({
           kind: 'write',
-          payload: { kind: 'recovered', noteId: item.noteId, writeId: item.writeId, copy, reason: 'deleted' },
+          payload: {
+            kind: 'recovered',
+            noteId: item.noteId,
+            writeId: item.writeId,
+            copy,
+            reason: 'deleted',
+          },
         })
     }
     if (await valid()) this.#deps.requestPull({ force: true })
@@ -329,7 +389,8 @@ export class OutboxReplayer {
     for (let round = 0; round < 20 && !stopped; round++) {
       if (!(await valid())) break
       const batch = sortOutboxForReplay(await outbox.list()).filter(
-        (item) => !attempted.has(`${item.id}\0${item.writeId}\0${item.payload.rev}`),
+        (item) =>
+          !attempted.has(`${item.id}\0${item.writeId}\0${item.payload.rev}`),
       )
       if (!batch.length) break
       let restart = false
@@ -357,16 +418,24 @@ export class OutboxReplayer {
               stopped = true
               break
             }
-            await this.#failure(item, error instanceof BackendError ? error : String(error))
+            await this.#failure(
+              item,
+              error instanceof BackendError ? error : String(error),
+            )
           }
           continue
         }
-        const { rev, content, contentDirty, title, preserveVersion } = item.payload
-        if (!Number.isSafeInteger(rev) || rev < 1 || typeof content !== 'string') {
+        const { rev, content, contentDirty, title, preserveVersion } =
+          item.payload
+        if (
+          !Number.isSafeInteger(rev) ||
+          rev < 1 ||
+          typeof content !== 'string'
+        ) {
           await this.#failure(item, 'invalid offline journal payload')
           continue
         }
-        // IDB is authoritative. Freeze exactly this writeId's payload, not a later in-memory edit.
+        // IDB is authoritative. Freeze this writeId's payload, not a later edit.
         const frozen = { ...item, payload: { ...item.payload } }
         if (!(await valid())) {
           stopped = true
@@ -394,10 +463,17 @@ export class OutboxReplayer {
           if (error instanceof BackendError && error.status === 409) {
             const server = error.details?.server
             if (!server) {
-              await this.#failure(item, 'conflict response did not include the server note', 'conflict')
+              await this.#failure(
+                item,
+                'conflict response did not include the server note',
+                'conflict',
+              )
               continue
             }
-            if ((!contentDirty || server.content === content) && (title === undefined || server.title === title)) {
+            if (
+              (!contentDirty || server.content === content) &&
+              (title === undefined || server.title === title)
+            ) {
               saved = server
             } else {
               if (!(await this.#current(item))) continue
@@ -406,7 +482,12 @@ export class OutboxReplayer {
                 break
               }
               try {
-                await outbox.updateRevision(item.id, item.writeId, server.rev, true)
+                await outbox.updateRevision(
+                  item.id,
+                  item.writeId,
+                  server.rev,
+                  true,
+                )
                 logger.warn('outbox.replay.rebased', {
                   noteId: item.noteId,
                   writeId: item.writeId,
@@ -421,7 +502,10 @@ export class OutboxReplayer {
                   stopped = true
                   break
                 }
-                await this.#failure(item, 'could not rebase the offline journal')
+                await this.#failure(
+                  item,
+                  'could not rebase the offline journal',
+                )
                 continue
               }
             }
@@ -433,16 +517,22 @@ export class OutboxReplayer {
                 stopped = true
                 break
               }
-              await this.#failure(item, failure instanceof BackendError ? failure : String(failure))
+              await this.#failure(
+                item,
+                failure instanceof BackendError ? failure : String(failure),
+              )
             }
             continue
           } else if (
             error instanceof BackendError &&
-            (error.code === 'offline' || error.code === 'request_timeout' || error.status === 401)
+            (error.code === 'offline' ||
+              error.code === 'request_timeout' ||
+              error.status === 401)
           ) {
             this.#failedCount++
             this.#lastCode = error.code
-            if (error.code === 'offline') this.#deps.emitChange({ kind: 'connectivity', online: false })
+            if (error.code === 'offline')
+              this.#deps.emitChange({ kind: 'connectivity', online: false })
             if (error.status === 401) {
               this.#paused = true
               this.#deps.onUnauthenticated?.()
@@ -450,12 +540,21 @@ export class OutboxReplayer {
             }
             this.#deps.emitChange({
               kind: 'write',
-              payload: { kind: 'failed', noteId: item.noteId, writeId: item.writeId, code: error.code, retained: true },
+              payload: {
+                kind: 'failed',
+                noteId: item.noteId,
+                writeId: item.writeId,
+                code: error.code,
+                retained: true,
+              },
             })
             stopped = true
             break
           } else {
-            await this.#failure(item, error instanceof BackendError ? error : String(error))
+            await this.#failure(
+              item,
+              error instanceof BackendError ? error : String(error),
+            )
             continue
           }
         }
@@ -466,14 +565,21 @@ export class OutboxReplayer {
         try {
           await this.#settle(frozen, saved, rev, valid)
           count++
-          if ((await outbox.list()).some((entry) => entry.id === item.id && entry.writeId !== item.writeId))
+          if (
+            (await outbox.list()).some(
+              (entry) => entry.id === item.id && entry.writeId !== item.writeId,
+            )
+          )
             restart = true
         } catch (error) {
           if (!(await valid())) {
             stopped = true
             break
           }
-          await this.#failure(item, error instanceof BackendError ? error : String(error))
+          await this.#failure(
+            item,
+            error instanceof BackendError ? error : String(error),
+          )
         }
       }
       if (restart) continue
@@ -482,8 +588,17 @@ export class OutboxReplayer {
       await this.#publishPending(valid)
       const pending = await this.pendingCount()
       if (this.#failedCount)
-        logger.error('outbox.replay.failed', { pending, attempts: this.#failedCount, code: this.#lastCode })
-      else logger.info('outbox.replay.completed', { count, pending, durationMs: this.#deps.clock.now() - startedAt })
+        logger.error('outbox.replay.failed', {
+          pending,
+          attempts: this.#failedCount,
+          code: this.#lastCode,
+        })
+      else
+        logger.info('outbox.replay.completed', {
+          count,
+          pending,
+          durationMs: this.#deps.clock.now() - startedAt,
+        })
     }
   }
 }

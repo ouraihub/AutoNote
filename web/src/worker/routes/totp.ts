@@ -18,7 +18,10 @@ import { requireAuth, writeSessionCookie } from '../middleware/auth'
 export const totpRoutes = new Hono<AppBindings>()
 
 totpRoutes.post('/login', async (c) => {
-  const body = await readJson<{ challengeToken?: unknown; code?: unknown }>(c, 4096)
+  const body = await readJson<{ challengeToken?: unknown; code?: unknown }>(
+    c,
+    4096,
+  )
   const result = await completeTotpLogin({
     env: c.env,
     challengeToken: body.challengeToken,
@@ -28,7 +31,7 @@ totpRoutes.post('/login', async (c) => {
   if (!user) throw ApiError.unauthenticated()
   writeSessionCookie(c, result.sessionToken)
   return c.json({
-    ...await sessionInfo(c.env, user),
+    ...(await sessionInfo(c.env, user)),
     recoveryCodeUsed: result.recoveryCodeUsed,
     recoveryCodesRemaining: result.recoveryCodesRemaining,
   })
@@ -42,24 +45,28 @@ totpRoutes.post('/setup', requireAuth, async (c) => {
   const body = await readJson<{ currentPassword?: unknown }>(c, 4096)
   await requireCurrentPassword(c.env.DB, c.get('userId'), body.currentPassword)
   const user = c.get('user')
-  return c.json(await startTotpSetup({
-    env: c.env,
-    userId: user.id,
-    sessionId: c.get('sessionId'),
-    issuer: c.env.APP_NAME || 'AutoNote',
-    account: user.login,
-  }))
+  return c.json(
+    await startTotpSetup({
+      env: c.env,
+      userId: user.id,
+      sessionId: c.get('sessionId'),
+      issuer: c.env.APP_NAME || 'AutoNote',
+      account: user.login,
+    }),
+  )
 })
 
 totpRoutes.post('/setup/confirm', requireAuth, async (c) => {
   const body = await readJson<{ setupToken?: unknown; code?: unknown }>(c, 4096)
-  return c.json(await confirmTotpSetup({
-    env: c.env,
-    userId: c.get('userId'),
-    sessionId: c.get('sessionId'),
-    setupToken: body.setupToken,
-    code: body.code,
-  }))
+  return c.json(
+    await confirmTotpSetup({
+      env: c.env,
+      userId: c.get('userId'),
+      sessionId: c.get('sessionId'),
+      setupToken: body.setupToken,
+      code: body.code,
+    }),
+  )
 })
 
 totpRoutes.delete('/setup', requireAuth, async (c) => {
@@ -74,17 +81,25 @@ totpRoutes.delete('/setup', requireAuth, async (c) => {
 })
 
 totpRoutes.post('/recovery-codes', requireAuth, async (c) => {
-  const body = await readJson<{ currentPassword?: unknown; code?: unknown }>(c, 4096)
+  const body = await readJson<{ currentPassword?: unknown; code?: unknown }>(
+    c,
+    4096,
+  )
   await requireCurrentPassword(c.env.DB, c.get('userId'), body.currentPassword)
-  return c.json(await regenerateRecoveryCodes({
-    env: c.env,
-    userId: c.get('userId'),
-    code: body.code,
-  }))
+  return c.json(
+    await regenerateRecoveryCodes({
+      env: c.env,
+      userId: c.get('userId'),
+      code: body.code,
+    }),
+  )
 })
 
 totpRoutes.delete('/', requireAuth, async (c) => {
-  const body = await readJson<{ currentPassword?: unknown; code?: unknown }>(c, 4096)
+  const body = await readJson<{ currentPassword?: unknown; code?: unknown }>(
+    c,
+    4096,
+  )
   await requireCurrentPassword(c.env.DB, c.get('userId'), body.currentPassword)
   await disableTotp({
     env: c.env,

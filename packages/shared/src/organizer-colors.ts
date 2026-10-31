@@ -27,7 +27,10 @@ export const ORGANIZER_COLOR_NAMES: Record<OrganizerColor, string> = {
 }
 
 export function isOrganizerColor(value: unknown): value is OrganizerColor {
-  return typeof value === 'string' && (ORGANIZER_COLORS as readonly string[]).includes(value)
+  return (
+    typeof value === 'string' &&
+    (ORGANIZER_COLORS as readonly string[]).includes(value)
+  )
 }
 
 export function organizerColorOrNull(value: unknown): OrganizerColor | null {

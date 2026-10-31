@@ -5,7 +5,12 @@
   import { PreviewEnhancer } from '../../markdown/enhance'
   import { renderMarkdown, type Heading } from '../../markdown/renderer'
   import { getI18n, getNotifier } from '../../root/context'
-  import { bindArticleInteractions, captureArticleState, prepareArticle, type ArticleState } from './article'
+  import {
+    bindArticleInteractions,
+    captureArticleState,
+    prepareArticle,
+    type ArticleState,
+  } from './article'
 
   interface Props {
     noteId: string
@@ -47,22 +52,37 @@
     const root = article
     const id = noteId
     const committedSource = source
-    const options = { math, mermaid, dark, services, collapseLines, publicReadonly }
+    const options = {
+      math,
+      mermaid,
+      dark,
+      services,
+      collapseLines,
+      publicReadonly,
+    }
     void i18n.locale
     const epoch = ++generation
     const controller = new AbortController()
     const rendered = renderMarkdown(committedSource)
     const template = document.createElement('template')
     template.innerHTML = rendered.html
-    for (const image of template.content.querySelectorAll<HTMLImageElement>('img')) {
-      const url = options.services.resolveAssetUrl(image.getAttribute('src') ?? '')
+    for (const image of template.content.querySelectorAll<HTMLImageElement>(
+      'img',
+    )) {
+      const url = options.services.resolveAssetUrl(
+        image.getAttribute('src') ?? '',
+      )
       if (/^(?:https?:|blob:|data:image\/|\/|\.?\.\/)/i.test(url.trim())) {
         image.src = url
         image.dataset.assetResolved = 'true'
       } else image.removeAttribute('src')
     }
-    for (const link of template.content.querySelectorAll<HTMLAnchorElement>('a[href]')) {
-      const url = options.services.resolveAssetUrl(link.getAttribute('href') ?? '')
+    for (const link of template.content.querySelectorAll<HTMLAnchorElement>(
+      'a[href]',
+    )) {
+      const url = options.services.resolveAssetUrl(
+        link.getAttribute('href') ?? '',
+      )
       if (/^(?:https?:|\/|\.?\.\/)/i.test(url.trim())) link.href = url
       else link.removeAttribute('href')
     }
@@ -106,7 +126,8 @@
       .then(() => {
         if (epoch !== generation || controller.signal.aborted) return
         const interaction = new SvelteMap(states.get(id) ?? [])
-        for (const [key, value] of captureArticleState(root)) interaction.set(key, value)
+        for (const [key, value] of captureArticleState(root))
+          interaction.set(key, value)
         prepareArticle(root, {
           noteId: id,
           services: options.services,
@@ -118,7 +139,8 @@
         onReady()
       })
       .catch(() => {
-        if (!controller.signal.aborted) notifier.toast({ key: 'common.action_failed', tone: 'error' })
+        if (!controller.signal.aborted)
+          notifier.toast({ key: 'common.action_failed', tone: 'error' })
       })
     return () => {
       states.set(id, captureArticleState(root))

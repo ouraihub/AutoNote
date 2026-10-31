@@ -64,14 +64,32 @@ export interface LocalDb {
   saveShell(data: ShellData, userId?: string): Promise<void>
   scheduleShellSave(data: ShellData, userId?: string): void
   getContent(id: string): Promise<CachedNoteContent | undefined>
-  setContent(id: string, value: CachedNoteContent, userId?: string): Promise<void>
+  setContent(
+    id: string,
+    value: CachedNoteContent,
+    userId?: string,
+  ): Promise<void>
   dropContent(id: string, userId?: string): Promise<void>
   getOutbox(): Promise<OutboxItem[]>
   enqueueOutbox(item: OutboxItem): Promise<void>
   completeOutboxItem(id: string, writeId: string): Promise<void>
-  updateOutboxRevision(id: string, writeId: string, rev: number, preserveVersion?: boolean): Promise<void>
-  setOutboxRecoveryId(id: string, writeId: string, recoveryId: string): Promise<void>
-  advanceOutboxDependents(noteId: string, sourceWriteId: string, expectedRev: number, nextRev: number): Promise<void>
+  updateOutboxRevision(
+    id: string,
+    writeId: string,
+    rev: number,
+    preserveVersion?: boolean,
+  ): Promise<void>
+  setOutboxRecoveryId(
+    id: string,
+    writeId: string,
+    recoveryId: string,
+  ): Promise<void>
+  advanceOutboxDependents(
+    noteId: string,
+    sourceWriteId: string,
+    expectedRev: number,
+    nextRev: number,
+  ): Promise<void>
   markOutboxFailure(id: string, writeId: string, message: string): Promise<void>
   getAllOutbox(): Promise<OutboxItem[]>
   clear(): Promise<void>

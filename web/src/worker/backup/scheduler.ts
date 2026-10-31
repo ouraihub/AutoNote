@@ -14,7 +14,6 @@ const CHANGE_LOG_TRIM_INTERVAL_MS = 24 * 60 * 60 * 1000
 const CHANGE_LOG_TRIM_META_KEY = 'change-log-trim-last-success-v1'
 const CHANGE_LOG_TRIM_LEASE_KEY = 'change-log-trim-lease-v1'
 
-
 export async function runScheduledBackups(env: Env): Promise<void> {
   try {
     await initializeDatabase(env)
@@ -25,7 +24,6 @@ export async function runScheduledBackups(env: Env): Promise<void> {
 
   const now = Date.now()
 
-
   let afterUserId = ''
   while (true) {
     const { results: users } = await env.DB.prepare(
@@ -33,11 +31,13 @@ export async function runScheduledBackups(env: Env): Promise<void> {
               (SELECT MAX(br.started_at) FROM backup_runs br
                 WHERE br.user_id = u.id) AS last_attempt_at,
               (SELECT MAX(br.started_at) FROM backup_runs br
-                WHERE br.user_id = u.id AND br.status = 'success') AS last_success_at
+                WHERE br.user_id = u.id AND br.status = 'success')
+                AS last_success_at
          FROM users u
         WHERE u.id > ?1
           AND EXISTS (
-            SELECT 1 FROM backup_targets bt WHERE bt.user_id = u.id AND bt.enabled = 1
+            SELECT 1 FROM backup_targets bt
+             WHERE bt.user_id = u.id AND bt.enabled = 1
           )
         ORDER BY u.id LIMIT ?2`,
     )
@@ -56,20 +56,26 @@ export async function runScheduledBackups(env: Env): Promise<void> {
         const interval = BACKUP_INTERVALS[settings.backup.schedule] ?? 0
         if (!interval) return
 
-
-        if (!isScheduledBackupDue(
-          interval,
-          user.last_success_at,
-          user.last_attempt_at,
-          now,
-        )) return
+        if (
+          !isScheduledBackupDue(
+            interval,
+            user.last_success_at,
+            user.last_attempt_at,
+            now,
+          )
+        )
+          return
 
         const run = await runBackup(env, user.id, { trigger: 'cron' })
         console.log(
-          `[autonote] Scheduled backup ${user.id}: ${run.status}, ${run.results.length} targets, ${run.bytes} bytes`,
+          `[autonote] Scheduled backup ${user.id}: ${run.status}, `
+            + `${run.results.length} targets, ${run.bytes} bytes`,
         )
       } catch (err) {
-        console.error(`[autonote] User ${user.id} scheduled backup failed:`, err)
+        console.error(
+          `[autonote] User ${user.id} scheduled backup failed:`,
+          err,
+        )
       }
     })
 
@@ -91,14 +97,18 @@ function isScheduledBackupDue(
   now: number,
 ): boolean {
   if (interval <= 0) return false
-  const successDelay = Math.max(0, interval - BACKUP_SCHEDULE_EARLY_TOLERANCE_MS)
+  const successDelay = Math.max(
+    0,
+    interval - BACKUP_SCHEDULE_EARLY_TOLERANCE_MS,
+  )
   if (lastSuccessAt !== null && now - lastSuccessAt < successDelay) return false
   const retryDelay = Math.min(successDelay, BACKUP_RETRY_INTERVAL_MS)
   return lastAttemptAt === null || now - lastAttemptAt >= retryDelay
 }
 
 async function trimChangeLogIfDue(env: Env, now: number): Promise<void> {
-  if (!isChangeLogTrimDue(await getMeta(env.DB, CHANGE_LOG_TRIM_META_KEY), now)) return
+  if (!isChangeLogTrimDue(await getMeta(env.DB, CHANGE_LOG_TRIM_META_KEY), now))
+    return
 
   let release: (() => Promise<void>) | null = null
   try {
@@ -114,7 +124,10 @@ async function trimChangeLogIfDue(env: Env, now: number): Promise<void> {
   }
 
   try {
-    if (!isChangeLogTrimDue(await getMeta(env.DB, CHANGE_LOG_TRIM_META_KEY), now)) return
+    if (
+      !isChangeLogTrimDue(await getMeta(env.DB, CHANGE_LOG_TRIM_META_KEY), now)
+    )
+      return
     await trimChangeLog(env)
     await setMeta(env.DB, CHANGE_LOG_TRIM_META_KEY, String(now))
   } finally {
@@ -122,9 +135,16 @@ async function trimChangeLogIfDue(env: Env, now: number): Promise<void> {
   }
 }
 
-export function isChangeLogTrimDue(lastSuccess: string | null, now: number): boolean {
+export function isChangeLogTrimDue(
+  lastSuccess: string | null,
+  now: number,
+): boolean {
   const last = Number(lastSuccess)
-  return !Number.isFinite(last) || last < 0 || now - last >= CHANGE_LOG_TRIM_INTERVAL_MS
+  return (
+    !Number.isFinite(last) ||
+    last < 0 ||
+    now - last >= CHANGE_LOG_TRIM_INTERVAL_MS
+  )
 }
 
 async function trimChangeLog(env: Env): Promise<void> {
@@ -141,7 +161,8 @@ async function trimChangeLog(env: Env): Promise<void> {
         `DELETE FROM changes WHERE seq IN (
            SELECT seq FROM changes WHERE user_id = ?1 AND seq < (
              SELECT MIN(seq) FROM (
-               SELECT seq FROM changes WHERE user_id = ?1 ORDER BY seq DESC LIMIT ?2
+               SELECT seq FROM changes WHERE user_id = ?1
+                ORDER BY seq DESC LIMIT ?2
              )
            ) ORDER BY seq LIMIT 1000
          )`,

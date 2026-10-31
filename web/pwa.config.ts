@@ -3,9 +3,25 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Plugin } from 'vite'
 
-const CORE_PUBLIC = ['manifest.webmanifest', 'favicon.ico', 'autonote-logo.png', 'apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png', 'pwa-maskable-512x512.png']
+const CORE_PUBLIC = [
+  'manifest.webmanifest',
+  'favicon.ico',
+  'autonote-logo.png',
+  'apple-touch-icon.png',
+  'pwa-192x192.png',
+  'pwa-512x512.png',
+  'pwa-maskable-512x512.png',
+]
 const PUBLIC = [...CORE_PUBLIC, 'autonote-markdown-demo.svg']
-const CORE_MODULES = ['/src/client/App.svelte', '/packages/app/src/root/AppRoot.svelte', '/packages/app/src/features/workspace/Workspace.svelte', '/packages/app/src/features/auth/LoginPage.svelte', '/packages/app/src/editor/CodeEditor.svelte', '/packages/shared/src/locales/en-US.ts', '/packages/shared/src/locales/zh-CN.ts']
+const CORE_MODULES = [
+  '/src/client/App.svelte',
+  '/packages/app/src/root/AppRoot.svelte',
+  '/packages/app/src/features/workspace/Workspace.svelte',
+  '/packages/app/src/features/auth/LoginPage.svelte',
+  '/packages/app/src/editor/CodeEditor.svelte',
+  '/packages/shared/src/locales/en-US.ts',
+  '/packages/shared/src/locales/zh-CN.ts',
+]
 
 interface BuildChunk {
   type: 'chunk'
@@ -17,7 +33,11 @@ interface BuildChunk {
   viteMetadata?: { importedCss?: Set<string>; importedAssets?: Set<string> }
   facadeModuleId?: string | null
 }
-interface BuildAsset { type: 'asset'; fileName: string; source: string | Uint8Array }
+interface BuildAsset {
+  type: 'asset'
+  fileName: string
+  source: string | Uint8Array
+}
 type BuildBundle = Record<string, BuildChunk | BuildAsset>
 
 /** Generates the same-origin static shell; never caches application data. */
@@ -27,30 +47,65 @@ export function autonotePwa(): Plugin {
     apply: 'build',
     applyToEnvironment: (environment) => environment.name === 'client',
     generateBundle(_options, bundle) {
-      const entries = Object.values(bundle).filter((entry) => !entry.fileName.endsWith('.map'))
-      const allFiles = [...new Set(['index.html', ...entries.map((entry) => entry.fileName), ...PUBLIC])].sort()
+      const entries = Object.values(bundle).filter(
+        (entry) => !entry.fileName.endsWith('.map'),
+      )
+      const allFiles = [
+        ...new Set([
+          'index.html',
+          ...entries.map((entry) => entry.fileName),
+          ...PUBLIC,
+        ]),
+      ].sort()
       const hash = createHash('sha256')
-      for (const entry of entries.sort((a, b) => a.fileName.localeCompare(b.fileName))) {
+      for (const entry of entries.sort((a, b) =>
+        a.fileName.localeCompare(b.fileName),
+      )) {
         hash.update(entry.fileName)
         hash.update(entry.type === 'chunk' ? entry.code : entry.source)
       }
       for (const file of PUBLIC) {
         hash.update(file)
-        hash.update(readFileSync(fileURLToPath(new URL(`./public/${file}`, import.meta.url))))
+        hash.update(
+          readFileSync(
+            fileURLToPath(new URL(`./public/${file}`, import.meta.url)),
+          ),
+        )
       }
-      this.emitFile({ type: 'asset', fileName: 'sw.js', source: serviceWorkerSource(hash.digest('hex').slice(0, 16), collectCoreFiles(bundle as BuildBundle).map((file) => `/${file}`), allFiles.map((file) => `/${file}`)) })
+      this.emitFile({
+        type: 'asset',
+        fileName: 'sw.js',
+        source: serviceWorkerSource(
+          hash.digest('hex').slice(0, 16),
+          collectCoreFiles(bundle as BuildBundle).map((file) => `/${file}`),
+          allFiles.map((file) => `/${file}`),
+        ),
+      })
     },
   }
 }
 
 export function collectCoreFiles(bundle: BuildBundle): string[] {
   const files = new Set(['index.html', ...CORE_PUBLIC])
-  const pending = Object.values(bundle).filter((entry): entry is BuildChunk => entry.type === 'chunk' && (entry.isEntry || Object.keys(entry.modules).some((id) => CORE_MODULES.some((suffix) => id.replaceAll('\\', '/').endsWith(suffix)))))
+  const pending = Object.values(bundle).filter(
+    (entry): entry is BuildChunk =>
+      entry.type === 'chunk' &&
+      (entry.isEntry ||
+        Object.keys(entry.modules).some((id) =>
+          CORE_MODULES.some((suffix) =>
+            id.replaceAll('\\', '/').endsWith(suffix),
+          ),
+        )),
+  )
   while (pending.length) {
     const chunk = pending.pop()
     if (!chunk || files.has(chunk.fileName)) continue
     files.add(chunk.fileName)
-    for (const asset of [...chunk.viteMetadata?.importedCss ?? [], ...chunk.viteMetadata?.importedAssets ?? []]) files.add(asset)
+    for (const asset of [
+      ...(chunk.viteMetadata?.importedCss ?? []),
+      ...(chunk.viteMetadata?.importedAssets ?? []),
+    ])
+      files.add(asset)
     for (const imported of chunk.imports) {
       const dependency = bundle[imported]
       if (dependency?.type === 'chunk') pending.push(dependency)
@@ -59,7 +114,10 @@ export function collectCoreFiles(bundle: BuildBundle): string[] {
   }
   const index = bundle['index.html']
   if (index?.type === 'asset') {
-    const html = typeof index.source === 'string' ? index.source : new TextDecoder().decode(index.source)
+    const html =
+      typeof index.source === 'string'
+        ? index.source
+        : new TextDecoder().decode(index.source)
     for (const match of html.matchAll(/(?:src|href)=["']\/?([^"'#?]+)["']/g)) {
       const file = match[1]
       if (file && (bundle[file] || CORE_PUBLIC.includes(file))) files.add(file)
@@ -68,7 +126,11 @@ export function collectCoreFiles(bundle: BuildBundle): string[] {
   return [...files].sort()
 }
 
-export function serviceWorkerSource(buildId: string, coreUrls: string[], allUrls: string[]): string {
+export function serviceWorkerSource(
+  buildId: string,
+  coreUrls: string[],
+  allUrls: string[],
+): string {
   return `const BUILD_ID = ${JSON.stringify(buildId)}
 const SHELL_CACHE = 'autonote-shell-' + BUILD_ID
 const ASSET_CACHE = 'autonote-assets-v1'

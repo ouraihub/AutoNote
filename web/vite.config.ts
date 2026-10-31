@@ -14,24 +14,41 @@ const config: UserConfigFnPromise = async ({ mode, command }) => ({
     tailwindcss(),
     themeBootstrapPlugin('autonote.ui:layout'),
     autonotePwa(),
-    ...(mode === 'demo' ? [] : cloudflare({
-      configPath: mode === 'kv' ? './wrangler.kv.toml' : './wrangler.toml',
-      persistState: !ephemeralDevState,
-      ...(command === 'serve' && mode !== 'ai'
-        ? {
-            config: (worker) => {
-              delete worker.ai
-            },
-          }
-        : {}),
-    })),
+    ...(mode === 'demo'
+      ? []
+      : cloudflare({
+          configPath: mode === 'kv' ? './wrangler.kv.toml' : './wrangler.toml',
+          persistState: !ephemeralDevState,
+          ...(command === 'serve' && mode !== 'ai'
+            ? {
+                config: (worker) => {
+                  delete worker.ai
+                },
+              }
+            : {}),
+        })),
   ],
 
   resolve: {
     alias: [
-      { find: '$lib', replacement: fileURLToPath(new URL('./src/client/lib', import.meta.url)) },
-      { find: '@app', replacement: fileURLToPath(new URL('../packages/app/src', import.meta.url)) },
-      { find: '@shared', replacement: fileURLToPath(new URL('../packages/shared/src', import.meta.url)) },
+      {
+        find: '$lib',
+        replacement: fileURLToPath(
+          new URL('./src/client/lib', import.meta.url),
+        ),
+      },
+      {
+        find: '@app',
+        replacement: fileURLToPath(
+          new URL('../packages/app/src', import.meta.url),
+        ),
+      },
+      {
+        find: '@shared',
+        replacement: fileURLToPath(
+          new URL('../packages/shared/src', import.meta.url),
+        ),
+      },
     ],
   },
 

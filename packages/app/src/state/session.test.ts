@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { DEFAULT_SETTINGS } from '@shared/constants'
 import type { BackendSession, FlushResult } from '@shared/backend-types'
-import type { PasswordLoginResult, PublicUser, SessionInfo, TotpLoginResult, UserSettings } from '@shared/types'
+import type {
+  PasswordLoginResult,
+  PublicUser,
+  SessionInfo,
+  TotpLoginResult,
+  UserSettings,
+} from '@shared/types'
 import {
   BackendError,
   ChangeFeedEmitter,
@@ -35,7 +41,10 @@ interface Call<T> {
   signal: AbortSignal | undefined
 }
 
-function call<T>(calls: Call<T>[], signal: AbortSignal | undefined): Promise<T> {
+function call<T>(
+  calls: Call<T>[],
+  signal: AbortSignal | undefined,
+): Promise<T> {
   const reply = deferred<T>()
   calls.push({ reply, signal })
   return reply.promise
@@ -47,7 +56,10 @@ function unexpected(): never {
 
 class FakeAccountPort implements SessionAccountPort {
   readonly logins: Call<PasswordLoginResult>[] = []
-  readonly totpLogins: (Call<TotpLoginResult> & { token: string; code: string })[] = []
+  readonly totpLogins: (Call<TotpLoginResult> & {
+    token: string
+    code: string
+  })[] = []
   readonly registrations: Call<BackendSession>[] = []
   readonly totp = {
     status: unexpected,
@@ -58,15 +70,28 @@ class FakeAccountPort implements SessionAccountPort {
     disable: unexpected,
   }
 
-  register(_username: string, _password: string, _locale: string, options?: { signal?: AbortSignal }) {
+  register(
+    _username: string,
+    _password: string,
+    _locale: string,
+    options?: { signal?: AbortSignal },
+  ) {
     return call(this.registrations, options?.signal)
   }
 
-  login(_username: string, _password: string, options?: { signal?: AbortSignal }) {
+  login(
+    _username: string,
+    _password: string,
+    options?: { signal?: AbortSignal },
+  ) {
     return call(this.logins, options?.signal)
   }
 
-  completeTotpLogin(token: string, code: string, options?: { signal?: AbortSignal }) {
+  completeTotpLogin(
+    token: string,
+    code: string,
+    options?: { signal?: AbortSignal },
+  ) {
     const reply = deferred<TotpLoginResult>()
     this.totpLogins.push({ reply, signal: options?.signal, token, code })
     return reply.promise
@@ -124,10 +149,21 @@ class RecordingNotifier implements Notifier {
 const silentLogger: Logger = { debug() {}, info() {}, warn() {}, error() {} }
 
 function user(id: string): PublicUser {
-  return { id, login: id, username: id, name: id, avatarUrl: '', role: 'member', createdAt: 0 }
+  return {
+    id,
+    login: id,
+    username: id,
+    name: id,
+    avatarUrl: '',
+    role: 'member',
+    createdAt: 0,
+  }
 }
 
-function session(id: string | null, settings: UserSettings | null = DEFAULT_SETTINGS): SessionInfo {
+function session(
+  id: string | null,
+  settings: UserSettings | null = DEFAULT_SETTINGS,
+): SessionInfo {
   return {
     user: id ? user(id) : null,
     site: {
@@ -149,9 +185,16 @@ function setup(options: { accounts?: boolean; flush?: FlushResult } = {}) {
   const port = new FakeSessionPort(account)
   const settingsPort = new FakeSettingsPort()
   const notifier = new RecordingNotifier()
-  const settings = new SettingsState({ port: settingsPort, notifier, logger: silentLogger })
+  const settings = new SettingsState({
+    port: settingsPort,
+    notifier,
+    logger: silentLogger,
+  })
   let now = 1_000
-  const flushNotes = vi.fn(async (): Promise<FlushResult> => options.flush ?? { pending: 0, failed: 0 })
+  const flushNotes = vi.fn(
+    async (): Promise<FlushResult> =>
+      options.flush ?? { pending: 0, failed: 0 },
+  )
   const state = new SessionState({
     port,
     settings,
@@ -189,7 +232,10 @@ describe('SessionState', () => {
     expect(state.status).toBe('loading')
 
     port.loads[0]?.reply.resolve(
-      session('user-a', { ...DEFAULT_SETTINGS, editor: { ...DEFAULT_SETTINGS.editor, fontSize: 19 } }),
+      session('user-a', {
+        ...DEFAULT_SETTINGS,
+        editor: { ...DEFAULT_SETTINGS.editor, fontSize: 19 },
+      }),
     )
     await loading
 
@@ -232,14 +278,18 @@ describe('SessionState', () => {
     expect(state.epoch).toBe(oldEpoch + 1)
     expect(oldSignal.aborted).toBe(true)
     expect(state.epochSignal.aborted).toBe(false)
-    expect(settings.current.appearance.theme).toBe(DEFAULT_SETTINGS.appearance.theme)
+    expect(settings.current.appearance.theme).toBe(
+      DEFAULT_SETTINGS.appearance.theme,
+    )
 
     settingsPort.saves[0]?.resolve({
       ...DEFAULT_SETTINGS,
       appearance: { ...DEFAULT_SETTINGS.appearance, theme: 'dark' },
     })
     await vi.advanceTimersByTimeAsync(0)
-    expect(settings.current.appearance.theme).toBe(DEFAULT_SETTINGS.appearance.theme)
+    expect(settings.current.appearance.theme).toBe(
+      DEFAULT_SETTINGS.appearance.theme,
+    )
   })
 
   test('reloading the same account keeps the epoch', async () => {
@@ -272,27 +322,46 @@ describe('SessionState', () => {
   test('a password login that needs TOTP stores the challenge and completes with the code', async () => {
     const { account, notifier, state } = setup()
     const signingIn = state.login('user-a', 'pw')
-    account?.logins[0]?.reply.resolve({ twoFactorRequired: true, challengeToken: 'challenge-1', expiresAt: 5_000 })
+    account?.logins[0]?.reply.resolve({
+      twoFactorRequired: true,
+      challengeToken: 'challenge-1',
+      expiresAt: 5_000,
+    })
     await expect(signingIn).resolves.toBe('challenge')
     expect(state.status).toBe('loading')
     expect(state.challenge?.challengeToken).toBe('challenge-1')
 
     const verifying = state.completeTotp('123456')
-    expect(account?.totpLogins[0]).toMatchObject({ token: 'challenge-1', code: '123456' })
-    account?.totpLogins[0]?.reply.resolve({ ...session('user-a'), recoveryCodeUsed: true, recoveryCodesRemaining: 1 })
+    expect(account?.totpLogins[0]).toMatchObject({
+      token: 'challenge-1',
+      code: '123456',
+    })
+    account?.totpLogins[0]?.reply.resolve({
+      ...session('user-a'),
+      recoveryCodeUsed: true,
+      recoveryCodesRemaining: 1,
+    })
     await expect(verifying).resolves.toBe('authed')
 
     expect(state.status).toBe('authed')
     expect(state.challenge).toBeNull()
     expect(notifier.toasts).toContainEqual(
-      expect.objectContaining({ key: 'auth.recovery_codes_remaining', params: { count: 1 }, tone: 'error' }),
+      expect.objectContaining({
+        key: 'auth.recovery_codes_remaining',
+        params: { count: 1 },
+        tone: 'error',
+      }),
     )
   })
 
   test('an expired challenge is rejected locally with the challenge-expired code', async () => {
     const { account, setNow, state } = setup()
     const signingIn = state.login('user-a', 'pw')
-    account?.logins[0]?.reply.resolve({ twoFactorRequired: true, challengeToken: 'challenge-1', expiresAt: 5_000 })
+    account?.logins[0]?.reply.resolve({
+      twoFactorRequired: true,
+      challengeToken: 'challenge-1',
+      expiresAt: 5_000,
+    })
     await signingIn
 
     setNow(5_000)
@@ -306,17 +375,25 @@ describe('SessionState', () => {
   test('a server-side challenge expiry clears the challenge, while a wrong code keeps it', async () => {
     const { account, state } = setup()
     const signingIn = state.login('user-a', 'pw')
-    account?.logins[0]?.reply.resolve({ twoFactorRequired: true, challengeToken: 'challenge-1', expiresAt: 50_000 })
+    account?.logins[0]?.reply.resolve({
+      twoFactorRequired: true,
+      challengeToken: 'challenge-1',
+      expiresAt: 50_000,
+    })
     await signingIn
 
     const wrong = state.completeTotp('000000')
-    account?.totpLogins[0]?.reply.reject(new BackendError('invalid_two_factor_code', 401, 'bad code'))
+    account?.totpLogins[0]?.reply.reject(
+      new BackendError('invalid_two_factor_code', 401, 'bad code'),
+    )
     await expect(wrong).resolves.toBe('rejected')
     expect(state.authError).toBe('invalid_two_factor_code')
     expect(state.challenge?.challengeToken).toBe('challenge-1')
 
     const expired = state.completeTotp('111111')
-    account?.totpLogins[1]?.reply.reject(new BackendError('two_factor_challenge_expired', 401, 'expired'))
+    account?.totpLogins[1]?.reply.reject(
+      new BackendError('two_factor_challenge_expired', 401, 'expired'),
+    )
     await expect(expired).resolves.toBe('rejected')
     expect(state.authError).toBe('two_factor_challenge_expired')
     expect(state.challenge).toBeNull()
@@ -326,7 +403,9 @@ describe('SessionState', () => {
   test('unauthenticated load becomes anonymous; offline reload keeps the signed-in user', async () => {
     const { port, state } = setup()
     const first = state.load()
-    port.loads[0]?.reply.reject(new BackendError('unauthenticated', 401, 'no session'))
+    port.loads[0]?.reply.reject(
+      new BackendError('unauthenticated', 401, 'no session'),
+    )
     await first
     expect(state.status).toBe('anonymous')
     expect(state.authError).toBe('unauthenticated')
@@ -349,14 +428,21 @@ describe('SessionState', () => {
     await loading
 
     expect(state.canSignIn).toBe(false)
-    await expect(state.login('user', 'pw')).rejects.toMatchObject({ code: 'forbidden' })
-    await expect(state.logout()).resolves.toEqual({ kind: 'failed', code: 'forbidden' })
+    await expect(state.login('user', 'pw')).rejects.toMatchObject({
+      code: 'forbidden',
+    })
+    await expect(state.logout()).resolves.toEqual({
+      kind: 'failed',
+      code: 'forbidden',
+    })
     expect(port.logouts).toHaveLength(0)
     expect(state.status).toBe('authed')
   })
 
   test('logout is refused while notes or settings are unsynced and the queue is kept', async () => {
-    const { port, notifier, settings, settingsPort, state } = setup({ flush: { pending: 2, failed: 1 } })
+    const { port, notifier, settings, settingsPort, state } = setup({
+      flush: { pending: 2, failed: 1 },
+    })
     const loading = state.load()
     port.loads[0]?.reply.resolve(session('user-a'))
     await loading
@@ -366,12 +452,20 @@ describe('SessionState', () => {
     await vi.advanceTimersByTimeAsync(0)
     settingsPort.saves[0]?.reject(new BackendError('offline', 0, 'offline'))
 
-    await expect(leaving).resolves.toEqual({ kind: 'blocked', pending: 2, failed: 1, settingsPending: true })
+    await expect(leaving).resolves.toEqual({
+      kind: 'blocked',
+      pending: 2,
+      failed: 1,
+      settingsPending: true,
+    })
     expect(port.logouts).toHaveLength(0)
     expect(state.status).toBe('authed')
     expect(settings.current.editor.fontSize).toBe(18)
     expect(notifier.toasts).toContainEqual(
-      expect.objectContaining({ key: 'session.logout_blocked', params: { count: 4 } }),
+      expect.objectContaining({
+        key: 'session.logout_blocked',
+        params: { count: 4 },
+      }),
     )
   })
 
@@ -408,7 +502,9 @@ describe('SessionState', () => {
 
     await expect(leaving).resolves.toEqual({ kind: 'failed', code: 'offline' })
     expect(state.status).toBe('authed')
-    expect(notifier.toasts).toContainEqual(expect.objectContaining({ key: 'session.logout_failed' }))
+    expect(notifier.toasts).toContainEqual(
+      expect.objectContaining({ key: 'session.logout_failed' }),
+    )
   })
 
   test('settings change events coalesce into one reload and stop after unsubscribe', async () => {

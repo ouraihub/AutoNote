@@ -29,6 +29,8 @@
     "../packages/app/src/theme/bootstrap.ts",
     "../packages/shared/src/constants.ts",
     "../packages/shared/src/types.ts",
+    "../packages/shared/src/types-base.ts",
+    "../packages/shared/src/types-extra.ts",
     "pwa.config.ts"
   ]
 }

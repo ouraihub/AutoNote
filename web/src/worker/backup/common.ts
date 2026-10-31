@@ -5,15 +5,16 @@ export interface DeliverResult {
   bytes: number
 }
 
-
-export const BACKUP_USER_AGENT = `Mozilla/5.0 (compatible; AutoNoteBackup/${APP_VERSION})`
-
+export const BACKUP_USER_AGENT =
+  `Mozilla/5.0 (compatible; AutoNoteBackup/${APP_VERSION})`
 
 export function friendlyError(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err)
-  if (/SignatureDoesNotMatch/i.test(message)) return 'Signature mismatch. Check the Secret Key and region'
+  if (/SignatureDoesNotMatch/i.test(message))
+    return 'Signature mismatch. Check the Secret Key and region'
   if (/InvalidAccessKeyId/i.test(message)) return 'The Access Key is invalid'
-  if (/aborted|timeout/i.test(message)) return 'Connection timed out. Check the network and URL'
+  if (/aborted|timeout/i.test(message))
+    return 'Connection timed out. Check the network and URL'
   if (/fetch failed|Network|ENOTFOUND|getaddrinfo/i.test(message)) {
     return 'Could not connect. Check the URL'
   }
@@ -23,15 +24,15 @@ export function friendlyError(err: unknown): string {
   return message
 }
 
-
 export function isTransientBackupError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err)
   return (
     /\bHTTP\s+(?:408|425|429|5\d\d)\b/i.test(message) ||
-    /aborted|timeout|fetch failed|network|enotfound|getaddrinfo|internal error; reference/i.test(message)
+    /aborted|timeout|fetch failed|network|enotfound|getaddrinfo/i.test(
+      message,
+    ) || /internal error; reference/i.test(message)
   )
 }
-
 
 export async function readResponseBytesWithinLimit(
   response: Response,

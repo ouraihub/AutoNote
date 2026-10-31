@@ -22,16 +22,28 @@ export async function seedWorkspace(
       const excerpt = deriveExcerpt(content)
       const { words, chars } = countText(content)
       const hash = await sha256Hex(content)
-      return { id, content, title, excerpt, words, chars, hash, createdAt, position: 1000 - index }
+      return {
+        id,
+        content,
+        title,
+        excerpt,
+        words,
+        chars,
+        hash,
+        createdAt,
+        position: 1000 - index,
+      }
     }),
   )
   const statements: D1PreparedStatement[] = []
   for (const note of notes) {
     statements.push(
       env.DB.prepare(
-        `INSERT INTO notes (id, user_id, folder_id, title, content, excerpt, rev, word_count, char_count,
-           is_pinned, is_starred, is_archived, position, content_hash, created_at, updated_at)
-         VALUES (?1, ?2, NULL, ?3, ?4, ?5, 1, ?6, ?7, 1, 1, 0, ?8, ?9, ?10, ?10)`,
+        `INSERT INTO notes (id, user_id, folder_id, title, content, excerpt, ` +
+          `rev, word_count, char_count, is_pinned, is_starred, is_archived, ` +
+          `position, content_hash, created_at, updated_at) ` +
+          `VALUES (?1, ?2, NULL, ?3, ?4, ?5, 1, ?6, ?7, 1, 1, 0, ` +
+          `?8, ?9, ?10, ?10)`,
       ).bind(
         note.id,
         userId,
@@ -56,7 +68,14 @@ export async function seedWorkspace(
         expectedTitle: note.title,
         expectedUpdatedAt: note.createdAt,
       }).statements,
-      changeStatement(env.DB, userId, 'note', note.id, 'upsert', note.createdAt),
+      changeStatement(
+        env.DB,
+        userId,
+        'note',
+        note.id,
+        'upsert',
+        note.createdAt,
+      ),
     )
   }
   await env.DB.batch(statements)

@@ -12,7 +12,10 @@ import McpSection from './McpSection.svelte'
 import LogSettings from '../log/LogSettings.svelte'
 import { aiHostExtensions } from '@app/features/ai'
 
-export function desktopSettingsSections(backend: Backend, notifier: Notifier): HostExtensions {
+export function desktopSettingsSections(
+  backend: Backend,
+  notifier: Notifier,
+): HostExtensions {
   const { capabilities } = backend
   const ai = aiHostExtensions(backend)
   return {
@@ -51,20 +54,33 @@ export function desktopSettingsSections(backend: Backend, notifier: Notifier): H
         component: LogSettings,
       },
     ],
-    aboutPanels: [{ id: 'desktop', order: 1, titleKey: 'settings.about', component: DesktopAboutPanel }],
+    aboutPanels: [
+      {
+        id: 'desktop',
+        order: 1,
+        titleKey: 'settings.about',
+        component: DesktopAboutPanel,
+      },
+    ],
     ...(ai.workspacePanel ? { workspacePanel: ai.workspacePanel } : {}),
     ...(ai.writingToolbar ? { writingToolbar: ai.writingToolbar } : {}),
     ...(capabilities.remoteSync
       ? {
           // The local library has no account: the account menu signs in to, or unbinds from, remote sync.
-          subscribeAccountAction(listener: (action: HostAccountAction | null) => void) {
+          subscribeAccountAction(
+            listener: (action: HostAccountAction | null) => void,
+          ) {
             let active = true
             let unlisten: (() => void) | undefined
             const show = (status: SyncStatus) => {
               if (!active) return
               listener(
                 status.phase === 'unbound'
-                  ? { labelKey: 'desktopSync.menuSignIn', destructive: false, run: { settingsSection: 'desktop-sync' } }
+                  ? {
+                      labelKey: 'desktopSync.menuSignIn',
+                      destructive: false,
+                      run: { settingsSection: 'desktop-sync' },
+                    }
                   : {
                       labelKey: 'desktopSync.menuUnbind',
                       destructive: true,

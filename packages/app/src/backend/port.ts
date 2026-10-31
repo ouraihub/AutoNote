@@ -78,7 +78,10 @@ export interface BackendCapabilities {
 
 export interface TotpPort {
   status(options?: CallOptions): Promise<TotpStatus>
-  startSetup(currentPassword: string, options?: CallOptions): Promise<TotpSetupInfo>
+  startSetup(
+    currentPassword: string,
+    options?: CallOptions,
+  ): Promise<TotpSetupInfo>
   confirmSetup(
     setupToken: string,
     code: string,
@@ -90,7 +93,11 @@ export interface TotpPort {
     code: string,
     options?: CallOptions,
   ): Promise<TotpRecoveryCodesResult>
-  disable(currentPassword: string, code: string, options?: CallOptions): Promise<{ ok: true }>
+  disable(
+    currentPassword: string,
+    code: string,
+    options?: CallOptions,
+  ): Promise<{ ok: true }>
 }
 
 export interface SessionAccountPort {
@@ -101,9 +108,20 @@ export interface SessionAccountPort {
     locale: 'zh-CN' | 'en-US',
     options?: CallOptions,
   ): Promise<BackendSession>
-  login(username: string, password: string, options?: CallOptions): Promise<PasswordLoginResult>
-  completeTotpLogin(challengeToken: string, code: string, options?: CallOptions): Promise<TotpLoginResult>
-  setPassword(body: { currentPassword: string; newPassword: string }, options?: CallOptions): Promise<{ ok: true }>
+  login(
+    username: string,
+    password: string,
+    options?: CallOptions,
+  ): Promise<PasswordLoginResult>
+  completeTotpLogin(
+    challengeToken: string,
+    code: string,
+    options?: CallOptions,
+  ): Promise<TotpLoginResult>
+  setPassword(
+    body: { currentPassword: string; newPassword: string },
+    options?: CallOptions,
+  ): Promise<{ ok: true }>
   updateRegistration(
     enabled: boolean,
     password: string,
@@ -114,7 +132,10 @@ export interface SessionAccountPort {
 export interface SessionPort {
   readonly account?: SessionAccountPort
   load(options?: CallOptions): Promise<BackendSession>
-  updateProfile(body: { name?: string; avatarUrl?: string }, options?: CallOptions): Promise<PublicUser>
+  updateProfile(
+    body: { name?: string; avatarUrl?: string },
+    options?: CallOptions,
+  ): Promise<PublicUser>
   logout(options?: CallOptions): Promise<void>
 }
 
@@ -123,15 +144,34 @@ export interface NotesPort {
   list(query: ListNotesQuery, options?: CallOptions): Promise<ListNotesResponse>
   get(id: string, options?: CallOptions): Promise<Note>
   create(body: CreateNoteBody, options?: CallOptions): Promise<Note>
-  patch(id: string, body: PatchNoteBody, options: NoteWriteOptions): Promise<NoteWriteResult>
+  patch(
+    id: string,
+    body: PatchNoteBody,
+    options: NoteWriteOptions,
+  ): Promise<NoteWriteResult>
   remove(id: string, options?: CallOptions): Promise<Note>
   restore(id: string, options?: CallOptions): Promise<Note>
-  purge(id: string, options?: CallOptions): Promise<{ ok: true; cursor: number }>
-  duplicate(id: string, body?: { id?: string }, options?: CallOptions): Promise<Note>
+  purge(
+    id: string,
+    options?: CallOptions,
+  ): Promise<{ ok: true; cursor: number }>
+  duplicate(
+    id: string,
+    body?: { id?: string },
+    options?: CallOptions,
+  ): Promise<Note>
   emptyTrash(options?: CallOptions): Promise<{ purged: number }>
   versions(id: string, options?: CallOptions): Promise<NoteVersionMeta[]>
-  version(id: string, versionId: string, options?: CallOptions): Promise<NoteVersion>
-  restoreVersion(id: string, versionId: string, options?: CallOptions): Promise<Note>
+  version(
+    id: string,
+    versionId: string,
+    options?: CallOptions,
+  ): Promise<NoteVersion>
+  restoreVersion(
+    id: string,
+    versionId: string,
+    options?: CallOptions,
+  ): Promise<Note>
   backlinks(id: string, options?: CallOptions): Promise<Backlink[]>
   flush(noteId?: string, options?: CallOptions): Promise<FlushResult>
   syncNow?(options?: CallOptions): Promise<void>
@@ -141,25 +181,44 @@ export interface FoldersPort {
   list(options?: CallOptions): Promise<Folder[]>
   create(body: FolderCreate, options?: CallOptions): Promise<Folder>
   patch(id: string, body: FolderPatch, options?: CallOptions): Promise<Folder>
-  remove(id: string, strategy: 'move-up' | 'delete', options?: CallOptions): Promise<{ ok: true }>
+  remove(
+    id: string,
+    strategy: 'move-up' | 'delete',
+    options?: CallOptions,
+  ): Promise<{ ok: true }>
 }
 
 export interface TagsPort {
   list(options?: CallOptions): Promise<Tag[]>
   create(body: TagCreate, options?: CallOptions): Promise<Tag>
-  patch(id: string, body: TagPatch, options?: CallOptions): Promise<TagPatchResult>
-  remove(id: string, options?: CallOptions): Promise<{ ok: true; affected: number }>
+  patch(
+    id: string,
+    body: TagPatch,
+    options?: CallOptions,
+  ): Promise<TagPatchResult>
+  remove(
+    id: string,
+    options?: CallOptions,
+  ): Promise<{ ok: true; affected: number }>
 }
 
 export interface SearchPort {
-  query(query: string, limit?: number, options?: CallOptions): Promise<SearchResponse>
+  query(
+    query: string,
+    limit?: number,
+    options?: CallOptions,
+  ): Promise<SearchResponse>
   graph(query: GraphQuery, options?: CallOptions): Promise<GraphResponse>
   reindex(options?: CallOptions): Promise<{ ok: true; indexed: number }>
 }
 
 export interface FilesPort {
   list(cursor?: string, options?: CallOptions): Promise<AttachmentPage>
-  upload(file: File, noteId?: string, options?: CallOptions): Promise<Attachment>
+  upload(
+    file: File,
+    noteId?: string,
+    options?: CallOptions,
+  ): Promise<Attachment>
   remove(id: string, options?: CallOptions): Promise<{ ok: true }>
   prune(options?: CallOptions): Promise<{ removed: number; freedBytes: number }>
   resolveUrl(url: string): string
@@ -173,7 +232,10 @@ export interface SettingsPort {
 
 export interface TransferPort {
   readonly sources: readonly ('files' | 'folder')[]
-  exportTo(format: 'zip' | 'json', options?: TransferOptions): Promise<{ saved: true } | null>
+  exportTo(
+    format: 'zip' | 'json',
+    options?: TransferOptions,
+  ): Promise<{ saved: true } | null>
   importFrom(
     source: 'files' | 'folder',
     conflict: 'skip' | 'newer' | 'duplicate',
@@ -184,24 +246,42 @@ export interface TransferPort {
 export interface SharePort {
   list(options?: CallOptions): Promise<ShareListItem[]>
   get(noteId: string, options?: CallOptions): Promise<ShareInfo | null>
-  create(noteId: string, body: { password?: string; expiresIn?: number }, options?: CallOptions): Promise<ShareInfo>
+  create(
+    noteId: string,
+    body: { password?: string; expiresIn?: number },
+    options?: CallOptions,
+  ): Promise<ShareInfo>
   remove(noteId: string, options?: CallOptions): Promise<{ ok: true }>
 }
 
 export interface BackupPort {
   targets(options?: CallOptions): Promise<BackupTarget[]>
   create(body: BackupTargetInput, options?: CallOptions): Promise<BackupTarget>
-  patch(id: string, body: BackupTargetPatchInput, options?: CallOptions): Promise<BackupTarget>
+  patch(
+    id: string,
+    body: BackupTargetPatchInput,
+    options?: CallOptions,
+  ): Promise<BackupTarget>
   remove(id: string, options?: CallOptions): Promise<{ ok: true }>
-  test(id: string, body: Partial<BackupTargetInput>, options?: CallOptions): Promise<TestConnectionResult>
-  testDraft(body: BackupTargetInput, options?: CallOptions): Promise<TestConnectionResult>
+  test(
+    id: string,
+    body: Partial<BackupTargetInput>,
+    options?: CallOptions,
+  ): Promise<TestConnectionResult>
+  testDraft(
+    body: BackupTargetInput,
+    options?: CallOptions,
+  ): Promise<TestConnectionResult>
   run(targetIds?: readonly string[], options?: CallOptions): Promise<BackupRun>
   runs(options?: CallOptions): Promise<BackupRun[]>
 }
 
 export interface McpBasePort {
   listKeys(options?: CallOptions): Promise<McpApiKey[]>
-  createKey(name: string, options?: CallOptions): Promise<{ key: McpApiKey; token: string }>
+  createKey(
+    name: string,
+    options?: CallOptions,
+  ): Promise<{ key: McpApiKey; token: string }>
   revokeKey(id: string, options?: CallOptions): Promise<{ ok: true }>
   getPreferences(options?: CallOptions): Promise<McpPreferences>
   savePreferences(
@@ -215,11 +295,20 @@ export interface RemoteMcpPort extends McpBasePort {
   setEnabled(
     enabled: boolean,
     options?: CallOptions,
-  ): Promise<{ enabled: boolean; preferences: McpPreferences; reconnectRequired: boolean }>
+  ): Promise<{
+    enabled: boolean
+    preferences: McpPreferences
+    reconnectRequired: boolean
+  }>
   revokeGrant(id: string, options?: CallOptions): Promise<{ ok: true }>
   revokeAllGrants(options?: CallOptions): Promise<{ ok: true; revoked: number }>
-  saveAiSearch(enabled: boolean, options?: CallOptions): Promise<McpAiSearchStatus>
-  reindexAiSearch(options?: CallOptions): Promise<McpAiSearchStatus & { ok: true; enqueued: number }>
+  saveAiSearch(
+    enabled: boolean,
+    options?: CallOptions,
+  ): Promise<McpAiSearchStatus>
+  reindexAiSearch(
+    options?: CallOptions,
+  ): Promise<McpAiSearchStatus & { ok: true; enqueued: number }>
   clearAiSearch(options?: CallOptions): Promise<{ ok: true; removed: number }>
 }
 
@@ -261,11 +350,25 @@ export interface RelaySettingsInfo {
 
 export interface RelayPort {
   get(options?: CallOptions): Promise<RelaySettingsInfo>
-  setEnabled(enabled: boolean, options?: CallOptions): Promise<{ enabled: boolean }>
-  createKey(name: string, options?: CallOptions): Promise<{ key: RelayKey; token: string }>
+  setEnabled(
+    enabled: boolean,
+    options?: CallOptions,
+  ): Promise<{ enabled: boolean }>
+  createKey(
+    name: string,
+    options?: CallOptions,
+  ): Promise<{ key: RelayKey; token: string }>
   revokeKey(id: string, options?: CallOptions): Promise<{ ok: true }>
-  addRepo(repo: string, workflow: string, ref: string, options?: CallOptions): Promise<{ repos: RelayRepo[] }>
-  removeRepo(repo: string, options?: CallOptions): Promise<{ repos: RelayRepo[] }>
+  addRepo(
+    repo: string,
+    workflow: string,
+    ref: string,
+    options?: CallOptions,
+  ): Promise<{ repos: RelayRepo[] }>
+  removeRepo(
+    repo: string,
+    options?: CallOptions,
+  ): Promise<{ repos: RelayRepo[] }>
 }
 
 export type AiRole = 'chat' | 'writing' | 'painting'
@@ -279,7 +382,11 @@ export interface AiRoleBinding {
 export interface AiHostPort {
   readonly kit: KitPorts
   roles(options?: CallOptions): Promise<AiRoleBinding[]>
-  setRole(role: AiRole, binding: ModelRef | null, options?: CallOptions): Promise<AiRoleBinding[]>
+  setRole(
+    role: AiRole,
+    binding: ModelRef | null,
+    options?: CallOptions,
+  ): Promise<AiRoleBinding[]>
   exportMarkdown?(markdown: string): Promise<void>
   readImage(url: string, options?: CallOptions): Promise<Blob>
 }

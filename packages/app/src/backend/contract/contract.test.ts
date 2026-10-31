@@ -1,8 +1,16 @@
 import { describe, expect, test } from 'vitest'
 import { backendContractCases, runBackendContractCases } from './index'
-import { referenceFixture, type ReferenceFault } from '../testing/reference-backend'
+import {
+  referenceFixture,
+  type ReferenceFault,
+} from '../testing/reference-backend'
 
-const faultyCases: readonly { name: string; fault: ReferenceFault; mode: 'reject' | 'rebase'; message: string }[] = [
+const faultyCases: readonly {
+  name: string
+  fault: ReferenceFault
+  mode: 'reject' | 'rebase'
+  message: string
+}[] = [
   {
     name: 'create-read-source',
     fault: 'mutate-source-on-read',
@@ -62,14 +70,21 @@ const faultyCases: readonly { name: string; fault: ReferenceFault; mode: 'reject
 describe('contract assertions against deliberately incorrect test substitutes (not real backends)', () => {
   for (const { name, fault, mode, message } of faultyCases) {
     test(`${name} detects ${fault}`, async () => {
-      const contractCase = backendContractCases.find((item) => item.name === name)
-      if (!contractCase) throw new Error(`Missing backend contract case: ${name}`)
-      await expect(contractCase.run(referenceFixture({ mode, faults: [fault] }))).rejects.toThrow(message)
+      const contractCase = backendContractCases.find(
+        (item) => item.name === name,
+      )
+      if (!contractCase)
+        throw new Error(`Missing backend contract case: ${name}`)
+      await expect(
+        contractCase.run(referenceFixture({ mode, faults: [fault] })),
+      ).rejects.toThrow(message)
     })
   }
 
   test('runner reports failures without turning a failed behavior into a pass', async () => {
-    const cases = backendContractCases.filter((item) => item.name === 'create-read-source')
+    const cases = backendContractCases.filter(
+      (item) => item.name === 'create-read-source',
+    )
     const results = await runBackendContractCases(
       referenceFixture({ mode: 'reject', faults: ['mutate-source-on-read'] }),
       cases,

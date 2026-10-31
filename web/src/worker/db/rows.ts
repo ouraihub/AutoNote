@@ -1,6 +1,11 @@
-import type { Folder, Note, NoteSummary, NoteVersionMeta, Tag } from '@shared/types'
+import type {
+  Folder,
+  Note,
+  NoteSummary,
+  NoteVersionMeta,
+  Tag,
+} from '@shared/types'
 import { sortTagNames } from '@shared/markdown-utils'
-
 
 export interface NoteRow {
   id: string
@@ -109,20 +114,21 @@ export function toVersionMeta(row: {
   }
 }
 
-
 export const TAG_SEP_CODE = 1
 
 export function splitTags(joined: string | null | undefined): string[] {
   if (!joined) return []
-  return sortTagNames(joined.split(String.fromCharCode(TAG_SEP_CODE)).filter(Boolean))
+  return sortTagNames(
+    joined.split(String.fromCharCode(TAG_SEP_CODE)).filter(Boolean),
+  )
 }
 
-
-export const NOTE_COLUMNS = `n.id, n.user_id, n.folder_id, n.title, n.excerpt, n.rev,
-  n.word_count, n.char_count, n.is_pinned, n.is_starred, n.is_archived, n.position,
-  n.content_hash, n.created_at, n.updated_at, n.deleted_at,
-  (SELECT GROUP_CONCAT(t.name, char(1)) FROM note_tags nt
-     JOIN tags t ON t.id = nt.tag_id
-    WHERE nt.note_id = n.id AND t.user_id = n.user_id) AS tag_names`
+export const NOTE_COLUMNS =
+  `n.id, n.user_id, n.folder_id, n.title, n.excerpt, n.rev, ` +
+  `n.word_count, n.char_count, n.is_pinned, n.is_starred, n.is_archived, ` +
+  `n.position, n.content_hash, n.created_at, n.updated_at, n.deleted_at, ` +
+  `(SELECT GROUP_CONCAT(t.name, char(1)) FROM note_tags nt ` +
+  `JOIN tags t ON t.id = nt.tag_id ` +
+  `WHERE nt.note_id = n.id AND t.user_id = n.user_id) AS tag_names`
 
 export const NOTE_COLUMNS_FULL = `${NOTE_COLUMNS}, n.content`

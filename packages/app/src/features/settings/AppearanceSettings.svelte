@@ -1,7 +1,11 @@
 <script lang="ts">
   import { Check, Monitor, Moon, Sun } from '@lucide/svelte'
   import { ACCENTS } from '@shared/constants'
-  import type { AccentName, AppearanceSettings as Appearance, BackgroundName } from '@shared/types'
+  import type {
+    AccentName,
+    AppearanceSettings as Appearance,
+    BackgroundName,
+  } from '@shared/types'
   import type { MessageKey } from '@shared/locales/en-US'
   import { getI18n, getSettings } from '@app/root/context'
   import { messageKeyForError } from '@app/i18n/errors'
@@ -20,18 +24,28 @@
     wisteria: 'settings.accent.wisteria',
     graphite: 'settings.accent.graphite',
   }
-  const backgrounds: { name: BackgroundName; label: MessageKey; swatch: string }[] = [
+  const backgrounds: {
+    name: BackgroundName
+    label: MessageKey
+    swatch: string
+  }[] = [
     { name: 'paper', label: 'settings.background_paper', swatch: '#f7f5f1' },
     { name: 'white', label: 'settings.background_white', swatch: '#ffffff' },
   ]
   const appearance = $derived(settings.current.appearance)
-  function update<K extends keyof Appearance>(key: K, value: Appearance[K]): void {
+  function update<K extends keyof Appearance>(
+    key: K,
+    value: Appearance[K],
+  ): void {
     settings.update({ appearance: { [key]: value } })
   }
 </script>
 
 <div>
-  {#if settings.error}<p role="alert" class="mb-2 text-[11.5px] text-[var(--danger)]">
+  {#if settings.error}<p
+      role="alert"
+      class="mb-2 text-[11.5px] text-[var(--danger)]"
+    >
       {i18n.t(messageKeyForError(settings.error))}
     </p>{/if}
   <section>
@@ -61,7 +75,11 @@
     </SettingRow>
 
     <SettingRow title={i18n.t('settings.accent_color')}>
-      <div role="group" aria-label={i18n.t('settings.accent_color')} class="flex items-center gap-1.5">
+      <div
+        role="group"
+        aria-label={i18n.t('settings.accent_color')}
+        class="flex items-center gap-1.5"
+      >
         {#each ACCENTS as accent (accent.name)}
           {@const selected = appearance.accent === accent.name}
           <button
@@ -73,19 +91,28 @@
             class={[
               'relative flex size-6 items-center justify-center rounded-full transition-transform duration-[var(--dur-fast)] ease-[var(--ease-spring)]',
               'hover:scale-110 active:scale-95',
-              selected && 'ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--bg-overlay)]',
+              selected &&
+                'ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--bg-overlay)]',
             ]}
             style:background={accent.swatch}
             style:color={accent.foreground}
           >
-            {#if selected}<Check size={12} strokeWidth={3} class="drop-shadow-sm" />{/if}
+            {#if selected}<Check
+                size={12}
+                strokeWidth={3}
+                class="drop-shadow-sm"
+              />{/if}
           </button>
         {/each}
       </div>
     </SettingRow>
 
     <SettingRow title={i18n.t('settings.background_color')}>
-      <div role="group" aria-label={i18n.t('settings.background_color')} class="flex items-center gap-2">
+      <div
+        role="group"
+        aria-label={i18n.t('settings.background_color')}
+        class="flex items-center gap-2"
+      >
         {#each backgrounds as background (background.name)}
           {@const selected = appearance.background === background.name}
           <button
@@ -105,7 +132,10 @@
               style:background={background.swatch}
             ></span>
             <span>{i18n.t(background.label as MessageKey)}</span>
-            {#if selected}<Check size={11} class="ml-auto text-[var(--accent)]" />{/if}
+            {#if selected}<Check
+                size={11}
+                class="ml-auto text-[var(--accent)]"
+              />{/if}
           </button>
         {/each}
       </div>
@@ -125,7 +155,9 @@
   </section>
 
   <section>
-    <h3 class="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+    <h3
+      class="mb-1 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]"
+    >
       {i18n.t('settings.preview_typography')}
     </h3>
 
@@ -161,7 +193,8 @@
         min={1.4}
         max={2.2}
         step={0.05}
-        onChange={(proseLineHeight) => update('proseLineHeight', proseLineHeight)}
+        onChange={(proseLineHeight) =>
+          update('proseLineHeight', proseLineHeight)}
       />
     </SettingRow>
 
@@ -181,15 +214,27 @@
   </section>
 
   <section>
-    <h3 class="mb-2 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]">
+    <h3
+      class="mb-2 text-[11px] font-semibold tracking-[0.06em] text-[var(--text-quaternary)]"
+    >
       {i18n.t('settings.preview')}
     </h3>
-    <div class="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-base)] px-4 py-3">
-      <div class="ink-prose" data-font={appearance.proseFont} style:max-width="none" style:padding-block="0">
+    <div
+      class="rounded-[var(--r-lg)] border border-[var(--border-subtle)] bg-[var(--bg-base)] px-4 py-3"
+    >
+      <div
+        class="ink-prose"
+        data-font={appearance.proseFont}
+        style:max-width="none"
+        style:padding-block="0"
+      >
         <h3 style:margin-top="0">{i18n.t('settings.q_a_in_the_mountains')}</h3>
         <p>
-          {i18n.t('settings.asked_why_i_wanted_to_live_in_the_green_mountains_i_smiled_without_answe')}
-          {i18n.t('settings.chinese_english_and')} <code>{i18n.t('common.inline_code')}</code>
+          {i18n.t(
+            'settings.asked_why_i_wanted_to_live_in_the_green_mountains_i_smiled_without_answe',
+          )}
+          {i18n.t('settings.chinese_english_and')}
+          <code>{i18n.t('common.inline_code')}</code>
           {i18n.t('settings.look_at_home_together')}
         </p>
       </div>

@@ -23,22 +23,32 @@ export class HttpSettingsPort implements SettingsPort {
   }
 
   get(options?: CallOptions): Promise<UserSettings> {
-    return this.#transport.json({ path: '/api/settings', signal: options?.signal })
+    return this.#transport.json({
+      path: '/api/settings',
+      signal: options?.signal,
+    })
   }
 
-  async save(patch: SettingsPatch, options?: CallOptions): Promise<UserSettings> {
+  async save(
+    patch: SettingsPatch,
+    options?: CallOptions,
+  ): Promise<UserSettings> {
     const result = await this.#transport.json<UserSettings>({
       method: 'PUT',
       path: '/api/settings',
       body: patch,
       signal: options?.signal,
     })
-    if (!options?.signal?.aborted) this.#bus.post({ type: 'settings-changed', clientId: this.#clientId })
+    if (!options?.signal?.aborted)
+      this.#bus.post({ type: 'settings-changed', clientId: this.#clientId })
     return result
   }
 
   stats(options?: CallOptions): Promise<Record<string, number>> {
-    return this.#transport.json({ path: '/api/settings/stats', signal: options?.signal })
+    return this.#transport.json({
+      path: '/api/settings/stats',
+      signal: options?.signal,
+    })
   }
 }
 

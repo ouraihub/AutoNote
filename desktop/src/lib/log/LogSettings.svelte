@@ -9,7 +9,9 @@
 
   const preferenceKey = 'autonote.desktop.showLogs'
   let showLogs = $state(false)
-  let preferenceError = $state<'desktop.prefsReadFailed' | 'desktop.prefsSaveFailed' | null>(null)
+  let preferenceError = $state<
+    'desktop.prefsReadFailed' | 'desktop.prefsSaveFailed' | null
+  >(null)
 
   onMount(() => {
     try {
@@ -31,10 +33,21 @@
 </script>
 
 <section>
-  <SettingRow title={i18n.t('desktop.showLogs')} description={i18n.t('desktop.showLogsHint')}>
-    <Switch id="desktop-show-logs" checked={showLogs} onChange={setVisibility} label={i18n.t('desktop.showLogs')} />
+  <SettingRow
+    title={i18n.t('desktop.showLogs')}
+    description={i18n.t('desktop.showLogsHint')}
+  >
+    <Switch
+      id="desktop-show-logs"
+      checked={showLogs}
+      onChange={setVisibility}
+      label={i18n.t('desktop.showLogs')}
+    />
   </SettingRow>
-  {#if preferenceError}<p class="mt-2 text-[11.5px] text-[var(--danger)]" role="alert">
+  {#if preferenceError}<p
+      class="mt-2 text-[11.5px] text-[var(--danger)]"
+      role="alert"
+    >
       {i18n.t(preferenceError)}
     </p>{/if}
   {#if showLogs}<div class="mt-3"><LogPanel /></div>{/if}

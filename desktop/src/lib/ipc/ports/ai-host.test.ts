@@ -23,8 +23,12 @@ test('cancelled skill acquisition and authoring never reach the desktop runtime'
   mockIPC(invoke)
   const sources = host().kit.skillSources!
   const signal = AbortSignal.abort()
-  await expect(sources.search('invoice', { signal })).rejects.toMatchObject({ code: 'cancelled' })
-  await expect(sources.authoring!.create({ signal })).rejects.toMatchObject({ code: 'cancelled' })
+  await expect(sources.search('invoice', { signal })).rejects.toMatchObject({
+    code: 'cancelled',
+  })
+  await expect(sources.authoring!.create({ signal })).rejects.toMatchObject({
+    code: 'cancelled',
+  })
   expect(invoke).not.toHaveBeenCalled()
 })
 
@@ -49,8 +53,12 @@ test('desktop images decode locally and reject remote URLs without fetching', as
     const port = host()
     const image = await port.readImage!('data:image/png;base64,AQID')
     expect(image.type).toBe('image/png')
-    expect(new Uint8Array(await image.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]))
-    await expect(port.readImage!('https://private.example/image')).rejects.toMatchObject({ code: 'bad_request' })
+    expect(new Uint8Array(await image.arrayBuffer())).toEqual(
+      new Uint8Array([1, 2, 3]),
+    )
+    await expect(
+      port.readImage!('https://private.example/image'),
+    ).rejects.toMatchObject({ code: 'bad_request' })
     expect(fetch).not.toHaveBeenCalled()
   } finally {
     fetch.mockRestore()

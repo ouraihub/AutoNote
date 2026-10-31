@@ -18,7 +18,9 @@
       },
       entries: logger.entries(),
     }
-    const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }))
+    const url = URL.createObjectURL(
+      new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }),
+    )
     const link = document.createElement('a')
     link.href = url
     link.download = 'autonote-diagnostics.json'
@@ -32,7 +34,11 @@
   }
 </script>
 
-<p class="text-sm text-[var(--text-tertiary)]">{i18n.t('host.diagnostics_notice')}</p>
-<button type="button" class="mt-3 rounded border border-[var(--border-default)] p-2" onclick={download}
-  >{i18n.t('host.diagnostics_export')}</button
+<p class="text-sm text-[var(--text-tertiary)]">
+  {i18n.t('host.diagnostics_notice')}
+</p>
+<button
+  type="button"
+  class="mt-3 rounded border border-[var(--border-default)] p-2"
+  onclick={download}>{i18n.t('host.diagnostics_export')}</button
 >

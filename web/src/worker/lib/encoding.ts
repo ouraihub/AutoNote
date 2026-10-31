@@ -1,5 +1,3 @@
-
-
 const enc = new TextEncoder()
 const dec = new TextDecoder()
 
@@ -29,7 +27,10 @@ export function fromBase64(text: string): Uint8Array {
 }
 
 export function toBase64Url(bytes: ArrayBuffer | Uint8Array): string {
-  return toBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  return toBase64(bytes)
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '')
 }
 
 export function fromBase64Url(text: string): Uint8Array {
@@ -44,7 +45,6 @@ export function toHex(bytes: ArrayBuffer | Uint8Array): string {
   for (const b of view) out += b.toString(16).padStart(2, '0')
   return out
 }
-
 
 export function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false

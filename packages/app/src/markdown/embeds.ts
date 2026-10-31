@@ -66,16 +66,35 @@ async function resolveWithin(
     const rendered = renderMarkdown(note.content)
     let body = htmlFragment(rendered.html)
     if (parsed.heading || parsed.blockId) {
-      const id = parsed.blockId ? `^${parsed.blockId}` : slugifyHeading(parsed.heading ?? '')
-      const local = [...(embed.closest('[data-markdown-example]')?.querySelectorAll<HTMLElement>('[id]') ?? [])].find((element) => element.id === id)
-      const selected = local ?? [...body.querySelectorAll<HTMLElement>('[id]')].find((element) => element.id === id)
-      if (!selected) { showEmbedError(embed, parsed.raw); continue }
+      const id = parsed.blockId
+        ? `^${parsed.blockId}`
+        : slugifyHeading(parsed.heading ?? '')
+      const local = [
+        ...(embed
+          .closest('[data-markdown-example]')
+          ?.querySelectorAll<HTMLElement>('[id]') ?? []),
+      ].find((element) => element.id === id)
+      const selected =
+        local ??
+        [...body.querySelectorAll<HTMLElement>('[id]')].find(
+          (element) => element.id === id,
+        )
+      if (!selected) {
+        showEmbedError(embed, parsed.raw)
+        continue
+      }
       const section = document.createDocumentFragment()
       section.append(selected.cloneNode(true))
       if (parsed.heading) {
         let next = selected.nextElementSibling
         const level = Number(selected.tagName.slice(1))
-        while (next && !(/^H[1-6]$/.test(next.tagName) && Number(next.tagName.slice(1)) <= level)) {
+        while (
+          next &&
+          !(
+            /^H[1-6]$/.test(next.tagName) &&
+            Number(next.tagName.slice(1)) <= level
+          )
+        ) {
           section.append(next.cloneNode(true))
           next = next.nextElementSibling
         }
@@ -85,13 +104,22 @@ async function resolveWithin(
     embed.classList.remove('loading')
     embed.replaceChildren(createEmbedHeader(note.title), body)
     // Embedded source lines belong to another note, never the host document.
-    for (const task of embed.querySelectorAll<HTMLElement>('[role="checkbox"]')) {
+    for (const task of embed.querySelectorAll<HTMLElement>(
+      '[role="checkbox"]',
+    )) {
       task.setAttribute('aria-disabled', 'true')
       task.tabIndex = -1
     }
     const nextAncestors = new Set(ancestors)
     nextAncestors.add(identity)
-    await resolveWithin(embed, services, options, depth + 1, nextAncestors, scope)
+    await resolveWithin(
+      embed,
+      services,
+      options,
+      depth + 1,
+      nextAncestors,
+      scope,
+    )
   }
 }
 

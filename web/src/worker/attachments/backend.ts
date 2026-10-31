@@ -16,17 +16,24 @@ export interface AttachmentObjectStream {
   metadata: Partial<AttachmentObjectMetadata> | null
 }
 
-export function selectAttachmentStorage(env: Env): AttachmentObjectStorage | null {
+export function selectAttachmentStorage(
+  env: Env,
+): AttachmentObjectStorage | null {
   if (env.FILES) return 'r2'
   if (env.FILES_KV) return 'kv'
   return null
 }
 
-export function isAttachmentObjectStorage(value: string): value is AttachmentObjectStorage {
+export function isAttachmentObjectStorage(
+  value: string,
+): value is AttachmentObjectStorage {
   return value === 'r2' || value === 'kv'
 }
 
-export function hasAttachmentStorage(env: Env, storage: AttachmentObjectStorage): boolean {
+export function hasAttachmentStorage(
+  env: Env,
+  storage: AttachmentObjectStorage,
+): boolean {
   return storage === 'r2' ? Boolean(env.FILES) : Boolean(env.FILES_KV)
 }
 
@@ -40,7 +47,10 @@ export async function putAttachmentObject(
   if (storage === 'r2') {
     if (!env.FILES) throw new Error('R2 attachment storage is not configured')
     await env.FILES.put(key, bytes, {
-      httpMetadata: { contentType: metadata.mime, cacheControl: 'private, no-store' },
+      httpMetadata: {
+        contentType: metadata.mime,
+        cacheControl: 'private, no-store',
+      },
       customMetadata: {
         userId: metadata.userId,
         objectId: metadata.objectId,
@@ -106,7 +116,10 @@ export async function readAttachmentObjectStream(
       ? { body: body as ReadableStream<Uint8Array>, size: null, metadata: null }
       : null
   }
-  const object = await env.FILES_KV.getWithMetadata<AttachmentObjectMetadata>(key, 'stream')
+  const object = await env.FILES_KV.getWithMetadata<AttachmentObjectMetadata>(
+    key,
+    'stream',
+  )
   return object.value
     ? {
         body: object.value as ReadableStream<Uint8Array>,
@@ -130,6 +143,8 @@ export async function deleteAttachmentObjects(
 
   if (!env.FILES_KV) throw new Error('KV attachment storage is not configured')
   for (let offset = 0; offset < keys.length; offset += 25) {
-    await Promise.all(keys.slice(offset, offset + 25).map((key) => env.FILES_KV!.delete(key)))
+    await Promise.all(
+      keys.slice(offset, offset + 25).map((key) => env.FILES_KV!.delete(key)),
+    )
   }
 }

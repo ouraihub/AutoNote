@@ -13,7 +13,16 @@
     class?: string
   }
 
-  let { label, value, min, max, onChange, onReset, invert = false, class: className }: Props = $props()
+  let {
+    label,
+    value,
+    min,
+    max,
+    onChange,
+    onReset,
+    invert = false,
+    class: className,
+  }: Props = $props()
   let dragging = $state(false)
   let start = { x: 0, value: 0 }
   const clamp = (next: number) => Math.min(max, Math.max(min, next))
@@ -27,7 +36,8 @@
   function finish(event: PointerEvent): void {
     const target = event.currentTarget as HTMLElement
     dragging = false
-    if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId)
+    if (target.hasPointerCapture(event.pointerId))
+      target.releasePointerCapture(event.pointerId)
     restoreDocument()
   }
 
@@ -68,14 +78,20 @@
     document.body.style.userSelect = 'none'
   }}
   onpointermove={(event) => {
-    if (dragging) onChange(clamp(start.value + (event.clientX - start.x) * (invert ? -1 : 1)))
+    if (dragging)
+      onChange(
+        clamp(start.value + (event.clientX - start.x) * (invert ? -1 : 1)),
+      )
   }}
   onpointerup={finish}
   onpointercancel={finish}
   onlostpointercapture={finish}
   onkeydown={keydown}
   ondblclick={() => onReset?.()}
-  class={cn('group relative z-10 -mx-[4px] w-[9px] shrink-0 cursor-col-resize touch-none outline-none', className)}
+  class={cn(
+    'group relative z-10 -mx-[4px] w-[9px] shrink-0 cursor-col-resize touch-none outline-none',
+    className,
+  )}
 >
   <span
     class={cn(

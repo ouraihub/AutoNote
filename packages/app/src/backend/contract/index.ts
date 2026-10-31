@@ -1,11 +1,19 @@
-import { verifiesAttachmentHash, verifiesFolderAndTagFiltering, verifiesSettingsPersist } from './library-cases'
+import {
+  verifiesAttachmentHash,
+  verifiesFolderAndTagFiltering,
+  verifiesSettingsPersist,
+} from './library-cases'
 import {
   verifiesCreateReadSource,
   verifiesEmptyTrashTombstones,
   verifiesTrashRestoreAndPurge,
   verifiesWriteRevisionAndConflict,
 } from './note-cases'
-import type { BackendContractCase, BackendContractFixture, BackendContractResult } from './types'
+import type {
+  BackendContractCase,
+  BackendContractFixture,
+  BackendContractResult,
+} from './types'
 
 export { BackendContractFailure } from './assertions'
 export type {

@@ -10,7 +10,10 @@ import {
 describe('cosineSimilarity', () => {
   it('returns 1 for identical vectors', () => {
     const a = new Float32Array([1, 2, 3, 4])
-    expect(cosineSimilarity(a, new Float32Array([1, 2, 3, 4]))).toBeCloseTo(1, 6)
+    expect(cosineSimilarity(a, new Float32Array([1, 2, 3, 4]))).toBeCloseTo(
+      1,
+      6,
+    )
   })
 
   it('returns 0 for orthogonal vectors', () => {
@@ -20,8 +23,12 @@ describe('cosineSimilarity', () => {
 
   it('is positive for similar and negative for opposite vectors', () => {
     const a = new Float32Array([1, 1, 1])
-    expect(cosineSimilarity(a, new Float32Array([2, 2, 2]))).toBeGreaterThan(0.9)
-    expect(cosineSimilarity(a, new Float32Array([-1, -1, -1]))).toBeLessThan(-0.9)
+    expect(cosineSimilarity(a, new Float32Array([2, 2, 2]))).toBeGreaterThan(
+      0.9,
+    )
+    expect(cosineSimilarity(a, new Float32Array([-1, -1, -1]))).toBeLessThan(
+      -0.9,
+    )
   })
 
   it('returns 0 for zero vectors', () => {

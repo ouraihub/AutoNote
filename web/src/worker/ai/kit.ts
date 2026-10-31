@@ -5,7 +5,11 @@ import { newId } from '../lib/id'
 
 export class KitFailure extends CoreFailure {
   // Set by `upstreamFailure`; drives fill-first key set-aside, never serialized.
-  upstream: { usedUp: boolean; retryAfterMs: number | null; reason: string } | null = null
+  upstream: {
+    usedUp: boolean
+    retryAfterMs: number | null
+    reason: string
+  } | null = null
   // Set by requestKeys when every key of a line is set aside: epoch ms of the earliest recovery.
   resumeAt: number | null = null
 
@@ -43,14 +47,26 @@ export const HTTP_STATUS: Record<KitErrorCode, number> = {
   internal: 500,
 }
 
-export const badRequest = (field: string, reason: string, limit?: number): KitFailure =>
-  new KitFailure('bad_request', `invalid ${field}: ${reason}`, limit === undefined ? { field, reason } : { field, reason, limit })
-export const notFound = (entity: string): KitFailure => new KitFailure('not_found', `${entity} not found`, { entity })
-export const conflict = (reason: string): KitFailure => new KitFailure('conflict', `conflict: ${reason}`, { reason })
+export const badRequest = (
+  field: string,
+  reason: string,
+  limit?: number,
+): KitFailure =>
+  new KitFailure(
+    'bad_request',
+    `invalid ${field}: ${reason}`,
+    limit === undefined ? { field, reason } : { field, reason, limit },
+  )
+export const notFound = (entity: string): KitFailure =>
+  new KitFailure('not_found', `${entity} not found`, { entity })
+export const conflict = (reason: string): KitFailure =>
+  new KitFailure('conflict', `conflict: ${reason}`, { reason })
 export const needsConfig = (reason: string): KitFailure =>
   new KitFailure('needs_config', `needs configuration: ${reason}`, { reason })
-export const unsupported = (reason: string): KitFailure => new KitFailure('unsupported', `unsupported: ${reason}`, { reason })
-export const cancelled = (): KitFailure => new KitFailure('cancelled', 'cancelled')
+export const unsupported = (reason: string): KitFailure =>
+  new KitFailure('unsupported', `unsupported: ${reason}`, { reason })
+export const cancelled = (): KitFailure =>
+  new KitFailure('cancelled', 'cancelled')
 
 export function internal(cause: unknown): KitFailure {
   const errorId = newId().slice(-10)
@@ -60,29 +76,65 @@ export function internal(cause: unknown): KitFailure {
 
 // Wording looked for in the first 4 KB of a failed response (docs/43 §3.1). "exceeded"/"limit" are left out on
 // purpose: "rate limit exceeded" and per-minute quotas are plain rate limits, not a used-up key.
-const BILLING_WORDS = /insufficient|balance|billing|credit|余额|欠费|用尽|不足|过期/i
+const BILLING_WORDS =
+  /insufficient|balance|billing|credit|余额|欠费|用尽|不足|过期/i
 const QUOTA_WORDS = /quota|额度/i
 
-export function upstreamFailure(status: number, body: string, known: readonly string[], retryAfter: string | null = null): KitFailure {
-  const code = status === 401 || status === 403 ? 'unauthorized' : status === 429 ? 'rate_limited' : 'upstream'
+export function upstreamFailure(
+  status: number,
+  body: string,
+  known: readonly string[],
+  retryAfter: string | null = null,
+): KitFailure {
+  const code =
+    status === 401 || status === 403
+      ? 'unauthorized'
+      : status === 429
+        ? 'rate_limited'
+        : 'upstream'
   const text = excerpt(body, known)
-  const failure = new KitFailure(code, text ? `${status}: ${text}` : `upstream returned ${status}`, { status })
+  const failure = new KitFailure(
+    code,
+    text ? `${status}: ${text}` : `upstream returned ${status}`,
+    { status },
+  )
   const seconds = Number(retryAfter)
   const date = retryAfter ? Date.parse(retryAfter) - Date.now() : NaN
-  const parsed = retryAfter && Number.isFinite(seconds) ? seconds * 1000 : Number.isFinite(date) ? Math.max(date, 0) : null
+  const parsed =
+    retryAfter && Number.isFinite(seconds)
+      ? seconds * 1000
+      : Number.isFinite(date)
+        ? Math.max(date, 0)
+        : null
   // An absurd Retry-After never pauses a key longer than a used-up key (24 hours).
   const retryAfterMs = parsed === null ? null : Math.min(parsed, 86_400_000)
   const head = body.slice(0, 4096)
   const billing = BILLING_WORDS.test(head)
-  const usedUp = [401, 402, 403].includes(status) || (status === 429 ? billing : (status === 400 || status >= 500) && (billing || QUOTA_WORDS.test(head)))
-  failure.upstream = { usedUp, retryAfterMs, reason: [...(text ? `HTTP ${status} ${text}` : `HTTP ${status}`)].slice(0, 120).join('') }
+  const usedUp =
+    [401, 402, 403].includes(status) ||
+    (status === 429
+      ? billing
+      : (status === 400 || status >= 500) &&
+        (billing || QUOTA_WORDS.test(head)))
+  failure.upstream = {
+    usedUp,
+    retryAfterMs,
+    reason: [...(text ? `HTTP ${status} ${text}` : `HTTP ${status}`)]
+      .slice(0, 120)
+      .join(''),
+  }
   return failure
 }
 
 export const charCount = (value: string): number => [...value].length
 
-export function checkLength(field: string, value: string | null | undefined, limit: number): void {
-  if (value && charCount(value) > limit) throw badRequest(field, 'too_long', limit)
+export function checkLength(
+  field: string,
+  value: string | null | undefined,
+  limit: number,
+): void {
+  if (value && charCount(value) > limit)
+    throw badRequest(field, 'too_long', limit)
 }
 
 export function at(value: unknown, ...path: (string | number)[]): unknown {
@@ -100,15 +152,28 @@ export function maskSecret(secret: string): string {
   return `${chars.slice(0, 4).join('')}${'*'.repeat(chars.length - 8)}${chars.slice(-4).join('')}`
 }
 
-const SECRET_PREFIXES = ['sk-', 'ghp_', 'gho_', 'github_pat_', 'xoxb-', 'xoxp-', 'AKIA', 'AIza', 'glpat-']
+const SECRET_PREFIXES = [
+  'sk-',
+  'ghp_',
+  'gho_',
+  'github_pat_',
+  'xoxb-',
+  'xoxp-',
+  'AKIA',
+  'AIza',
+  'glpat-',
+]
 
 export function excerpt(body: string, known: readonly string[]): string {
   let text = body.split(/\s+/u).filter(Boolean).join(' ')
-  for (const secret of known.map((value) => value.trim()).filter(Boolean)) text = text.replaceAll(secret, '***')
+  for (const secret of known.map((value) => value.trim()).filter(Boolean))
+    text = text.replaceAll(secret, '***')
   let afterBearer = false
   text = text.replace(/[A-Za-z0-9\-_./+=]+/g, (token) => {
     const secret =
-      token.length >= 20 && (SECRET_PREFIXES.some((prefix) => token.startsWith(prefix)) || afterBearer)
+      token.length >= 20 &&
+      (SECRET_PREFIXES.some((prefix) => token.startsWith(prefix)) ||
+        afterBearer)
     afterBearer = token.toLowerCase() === 'bearer'
     return secret ? '***' : token
   })
@@ -170,7 +235,8 @@ export function parseTarget(raw: string): URL {
     throw badRequest('url', 'invalid_url')
   }
   if (url.username || url.password) throw badRequest('url', 'userinfo')
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw badRequest('url', 'scheme')
+  if (url.protocol !== 'http:' && url.protocol !== 'https:')
+    throw badRequest('url', 'scheme')
   return url
 }
 
@@ -180,8 +246,12 @@ export function isLoopback(url: URL): boolean {
 }
 
 function isPrivateHost(host: string): boolean {
-  if (host === 'localhost' || host.endsWith('.localhost') || host === '::1') return true
-  if (host.includes(':')) return host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80:')
+  if (host === 'localhost' || host.endsWith('.localhost') || host === '::1')
+    return true
+  if (host.includes(':'))
+    return (
+      host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80:')
+    )
   return (
     host.startsWith('127.') ||
     host.startsWith('10.') ||
@@ -191,10 +261,18 @@ function isPrivateHost(host: string): boolean {
   )
 }
 
-export async function addressAllowed(db: D1Database, url: URL): Promise<boolean> {
+export async function addressAllowed(
+  db: D1Database,
+  url: URL,
+): Promise<boolean> {
   if (url.protocol !== 'https:') return false
-  if (!isPrivateHost(url.hostname.toLowerCase().replace(/^\[|\]$/g, ''))) return true
-  const allow = await db.prepare("SELECT value FROM app_meta WHERE key = 'setting:ai_allow_private'").first<{ value: string }>()
+  if (!isPrivateHost(url.hostname.toLowerCase().replace(/^\[|\]$/g, '')))
+    return true
+  const allow = await db
+    .prepare(
+      "SELECT value FROM app_meta WHERE key = 'setting:ai_allow_private'",
+    )
+    .first<{ value: string }>()
   return allow?.value === '1'
 }
 
@@ -206,8 +284,12 @@ export function acquireSlot(userId: string): () => void {
   const window = windows.get(userId)
   const fresh = !window || now - window.at >= 60_000
   const running = active.get(userId) ?? 0
-  if ((!fresh && window.count >= 20) || running >= 2) throw new KitFailure('rate_limited', 'too many AI requests')
-  windows.set(userId, fresh ? { at: now, count: 1 } : { at: window.at, count: window.count + 1 })
+  if ((!fresh && window.count >= 20) || running >= 2)
+    throw new KitFailure('rate_limited', 'too many AI requests')
+  windows.set(
+    userId,
+    fresh ? { at: now, count: 1 } : { at: window.at, count: window.count + 1 },
+  )
   active.set(userId, running + 1)
   let released = false
   return () => {

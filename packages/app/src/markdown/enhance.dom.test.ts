@@ -26,7 +26,8 @@ test('keeps math source readable when optional math enhancement is disabled', as
 
 test('resolves bounded note embeds and stops a circular embed', async () => {
   const root = document.createElement('div')
-  root.innerHTML = '<div data-embed-target="Child"></div><div data-embed-target="Loop"></div>'
+  root.innerHTML =
+    '<div data-embed-target="Child"></div><div data-embed-target="Loop"></div>'
 
   await enhancePreview(root, options())
 
@@ -36,11 +37,16 @@ test('resolves bounded note embeds and stops a circular embed', async () => {
 
 test('does not mutate a stale preview after its signal aborts', async () => {
   const root = document.createElement('div')
-  root.innerHTML = '<div class="code-block" data-lang="typescript"><pre><code>const value = 1</code></pre></div>'
+  root.innerHTML =
+    '<div class="code-block" data-lang="typescript"><pre><code>const value = 1</code></pre></div>'
   const controller = new AbortController()
   const enhancer = new PreviewEnhancer()
 
-  const pending = enhancer.enhance(root, { ...options(controller.signal), math: false, mermaid: false })
+  const pending = enhancer.enhance(root, {
+    ...options(controller.signal),
+    math: false,
+    mermaid: false,
+  })
   controller.abort()
   enhancer.invalidate()
   await pending

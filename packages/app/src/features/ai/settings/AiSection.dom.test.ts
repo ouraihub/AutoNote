@@ -1,18 +1,31 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/svelte'
 import { afterEach, expect, test, vi } from 'vitest'
 import type { Backend, AiRoleBinding } from '@app/backend'
 import type { I18nState } from '@app/i18n/runtime.svelte'
-import type { ModelOption, Provider, ProviderSave } from '@ouraihub/aether-ui/ports'
+import type {
+  ModelOption,
+  Provider,
+  ProviderSave,
+} from '@ouraihub/aether-ui/ports'
 import type * as ProvidersModule from '@ouraihub/aether-ui/providers'
 import { EN_US_MESSAGES } from '@shared/locales/en-US'
 import AiSectionHarness from './AiSectionHarness.svelte'
 
 const captured = vi.hoisted(() => ({
-  usedBy: undefined as ((endpointId: string, modelId: string) => string[]) | undefined,
+  usedBy: undefined as
+    ((endpointId: string, modelId: string) => string[]) | undefined,
 }))
 vi.mock('@ouraihub/aether-ui/providers', async (importOriginal) => {
   const actual = await importOriginal<typeof ProvidersModule>()
-  const ProvidersSettings = (...args: Parameters<typeof actual.ProvidersSettings>) => {
+  const ProvidersSettings = (
+    ...args: Parameters<typeof actual.ProvidersSettings>
+  ) => {
     captured.usedBy = args[1].usedBy
     return actual.ProvidersSettings(...args)
   }
@@ -28,16 +41,25 @@ test('usedBy lists localized roles bound to a model, including fallback writing'
   const roles: AiRoleBinding[] = [
     { role: 'chat', binding, isFallback: false },
     { role: 'writing', binding, isFallback: true },
-    { role: 'painting', binding: { ...binding, modelId: 'img' }, isFallback: false },
+    {
+      role: 'painting',
+      binding: { ...binding, modelId: 'img' },
+      isFallback: false,
+    },
   ]
   const backend = {
     aiHost: {
       roles: async () => roles,
       setRole: async () => roles,
-      kit: { providers: { list: async () => [], modelOptions: async () => [] } },
+      kit: {
+        providers: { list: async () => [], modelOptions: async () => [] },
+      },
     },
   } as unknown as Backend
-  const i18n = { locale: 'en-US', t: (key: keyof typeof EN_US_MESSAGES) => EN_US_MESSAGES[key] } as I18nState
+  const i18n = {
+    locale: 'en-US',
+    t: (key: keyof typeof EN_US_MESSAGES) => EN_US_MESSAGES[key],
+  } as I18nState
   render(AiSectionHarness, { props: { backend, i18n } })
   await waitFor(() =>
     expect(captured.usedBy?.('endpoint', 'm')).toEqual([
@@ -45,7 +67,9 @@ test('usedBy lists localized roles bound to a model, including fallback writing'
       EN_US_MESSAGES['ai.role_writing'],
     ]),
   )
-  expect(captured.usedBy?.('endpoint', 'img')).toEqual([EN_US_MESSAGES['ai.role_painting']])
+  expect(captured.usedBy?.('endpoint', 'img')).toEqual([
+    EN_US_MESSAGES['ai.role_painting'],
+  ])
   expect(captured.usedBy?.('other', 'm')).toEqual([])
 })
 
@@ -119,7 +143,11 @@ test('saving a provider refreshes both role selectors and deleting it clears sta
             roles = [
               {
                 role: 'chat',
-                binding: { endpointId: 'endpoint', modelId: 'saved-model', label: 'Saved model' },
+                binding: {
+                  endpointId: 'endpoint',
+                  modelId: 'saved-model',
+                  label: 'Saved model',
+                },
                 isFallback: false,
               },
             ]
@@ -130,29 +158,48 @@ test('saving a provider refreshes both role selectors and deleting it clears sta
       },
     },
   } as unknown as Backend
-  const i18n = { locale: 'en-US', t: (key: keyof typeof EN_US_MESSAGES) => EN_US_MESSAGES[key] } as I18nState
+  const i18n = {
+    locale: 'en-US',
+    t: (key: keyof typeof EN_US_MESSAGES) => EN_US_MESSAGES[key],
+  } as I18nState
   render(AiSectionHarness, { props: { backend, i18n } })
-  const selectors = await screen.findAllByRole('button', { name: 'Select a model' })
-  await waitFor(() => expect(selectors.every((button) => (button as HTMLButtonElement).disabled)).toBe(true))
+  const selectors = await screen.findAllByRole('button', {
+    name: 'Select a model',
+  })
+  await waitFor(() =>
+    expect(
+      selectors.every((button) => (button as HTMLButtonElement).disabled),
+    ).toBe(true),
+  )
   await fireEvent.click(screen.getByRole('button', { name: 'Add provider' }))
-  await fireEvent.input(await screen.findByRole('textbox', { name: 'Name' }), { target: { value: 'Saved provider' } })
+  await fireEvent.input(await screen.findByRole('textbox', { name: 'Name' }), {
+    target: { value: 'Saved provider' },
+  })
   await fireEvent.click(screen.getByRole('button', { name: 'OK' }))
   await waitFor(() => {
     const refreshed = screen.getAllByRole('button', { name: 'Select a model' })
-    expect(refreshed.every((button) => !(button as HTMLButtonElement).disabled)).toBe(true)
+    expect(
+      refreshed.every((button) => !(button as HTMLButtonElement).disabled),
+    ).toBe(true)
     expect(refreshed.map((button) => button.textContent?.trim())).toEqual([
       'saved-model | Saved model',
       EN_US_MESSAGES['ai.role_follow_chat'],
       EN_US_MESSAGES['ai.role_none'],
     ])
   })
-  await fireEvent.click(await screen.findByRole('button', { name: 'Provider settings' }))
-  await fireEvent.click(await screen.findByRole('button', { name: 'Delete provider' }))
+  await fireEvent.click(
+    await screen.findByRole('button', { name: 'Provider settings' }),
+  )
+  await fireEvent.click(
+    await screen.findByRole('button', { name: 'Delete provider' }),
+  )
   await waitFor(() => {
     expect(remove).toHaveBeenCalledOnce()
     expect(remove).toHaveBeenCalledWith('provider')
     const refreshed = screen.getAllByRole('button', { name: 'Select a model' })
-    expect(refreshed.every((button) => (button as HTMLButtonElement).disabled)).toBe(true)
+    expect(
+      refreshed.every((button) => (button as HTMLButtonElement).disabled),
+    ).toBe(true)
     expect(refreshed[0]?.textContent).not.toContain('Saved model')
   })
 })

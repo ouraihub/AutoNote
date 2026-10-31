@@ -2,7 +2,14 @@ import type { NoteWriteResult, WriteQueueEvent } from '@shared/backend-types'
 import type { PatchNoteBody } from '@shared/types'
 import type { NotesPort } from '@app/backend'
 
-export type NoteSaveState = 'idle' | 'dirty' | 'persisting' | 'saved-local' | 'synced' | 'failed' | 'recovered'
+export type NoteSaveState =
+  | 'idle'
+  | 'dirty'
+  | 'persisting'
+  | 'saved-local'
+  | 'synced'
+  | 'failed'
+  | 'recovered'
 
 export interface PendingContentWrite {
   readonly noteId: string
@@ -15,7 +22,10 @@ export interface NoteWriteStateOptions {
   readonly port: NotesPort
   readonly kind: 'web' | 'desktop'
   readonly debounceMs?: number
-  readonly onResult?: (result: NoteWriteResult, submitted: PendingContentWrite) => void
+  readonly onResult?: (
+    result: NoteWriteResult,
+    submitted: PendingContentWrite,
+  ) => void
   readonly onError?: (error: unknown, submitted: PendingContentWrite) => void
   readonly onStateChange?: (noteId: string, state: NoteSaveState) => void
   readonly makeWriteId?: () => string
@@ -39,16 +49,23 @@ export class NoteWriteState {
   readonly #port: NotesPort
   readonly #kind: 'web' | 'desktop'
   readonly #debounceMs: number
-  readonly #onResult: ((result: NoteWriteResult, submitted: PendingContentWrite) => void) | undefined
-  readonly #onError: ((error: unknown, submitted: PendingContentWrite) => void) | undefined
-  readonly #onStateChange: ((noteId: string, state: NoteSaveState) => void) | undefined
+  readonly #onResult:
+    | ((result: NoteWriteResult, submitted: PendingContentWrite) => void)
+    | undefined
+  readonly #onError:
+    ((error: unknown, submitted: PendingContentWrite) => void) | undefined
+  readonly #onStateChange:
+    ((noteId: string, state: NoteSaveState) => void) | undefined
   readonly #makeWriteId: () => string
   readonly #records = new Map<string, WriteRecord>()
 
   constructor(options: NoteWriteStateOptions) {
     this.#port = options.port
     this.#kind = options.kind
-    this.#debounceMs = Math.max(0, options.debounceMs ?? DEFAULT_DESKTOP_DEBOUNCE_MS)
+    this.#debounceMs = Math.max(
+      0,
+      options.debounceMs ?? DEFAULT_DESKTOP_DEBOUNCE_MS,
+    )
     this.#onResult = options.onResult
     this.#onError = options.onError
     this.#onStateChange = options.onStateChange
@@ -65,7 +82,11 @@ export class NoteWriteState {
 
   get dirtyIds(): ReadonlySet<string> {
     return new Set(
-      [...this.#records].filter(([, record]) => record.state !== 'idle' && record.state !== 'synced').map(([id]) => id),
+      [...this.#records]
+        .filter(
+          ([, record]) => record.state !== 'idle' && record.state !== 'synced',
+        )
+        .map(([id]) => id),
     )
   }
 
@@ -81,7 +102,12 @@ export class NoteWriteState {
       body: { ...body },
       state: 'dirty',
     }
-    const record: WriteRecord = previous ?? { latest: submitted, timer: null, sending: new Map(), state: 'dirty' }
+    const record: WriteRecord = previous ?? {
+      latest: submitted,
+      timer: null,
+      sending: new Map(),
+      state: 'dirty',
+    }
     record.latest = submitted
     record.state = 'dirty'
     record.timer = null
@@ -115,12 +141,23 @@ export class NoteWriteState {
     }
     await this.#waitForSends(ids)
     const result = await this.#port.flush(noteId)
-    const localFailed = ids.reduce((count, id) => count + (this.#records.get(id)?.state === 'failed' ? 1 : 0), 0)
-    const finalResult = { pending: result.pending, failed: Math.max(result.failed, localFailed) }
+    const localFailed = ids.reduce(
+      (count, id) =>
+        count + (this.#records.get(id)?.state === 'failed' ? 1 : 0),
+      0,
+    )
+    const finalResult = {
+      pending: result.pending,
+      failed: Math.max(result.failed, localFailed),
+    }
     for (const id of ids) {
       const record = this.#records.get(id)
       if (!record || record.sending.size > 0) continue
-      if (record.state === 'saved-local' && finalResult.pending === 0 && finalResult.failed === 0) {
+      if (
+        record.state === 'saved-local' &&
+        finalResult.pending === 0 &&
+        finalResult.failed === 0
+      ) {
         record.state = 'synced'
         this.#notify(id, 'synced')
       }
@@ -145,7 +182,8 @@ export class NoteWriteState {
   }
 
   dispose(): void {
-    for (const record of this.#records.values()) if (record.timer !== null) clearTimeout(record.timer)
+    for (const record of this.#records.values())
+      if (record.timer !== null) clearTimeout(record.timer)
     this.#records.clear()
   }
 
@@ -162,37 +200,45 @@ export class NoteWriteState {
     }
     record.state = 'persisting'
     this.#notify(noteId, 'persisting')
-    const task = this.#port.patch(noteId, submitted.body, { writeId: submitted.writeId }).then(
-      (result) => {
-        const current = this.#records.get(noteId)
-        if (!current || current.latest.writeId !== submitted.writeId) {
+    const task = this.#port
+      .patch(noteId, submitted.body, { writeId: submitted.writeId })
+      .then(
+        (result) => {
+          const current = this.#records.get(noteId)
+          if (!current || current.latest.writeId !== submitted.writeId) {
+            this.#onResult?.(result, submitted)
+            return
+          }
+          current.state = result.queued ? 'saved-local' : 'synced'
+          this.#notify(noteId, current.state)
           this.#onResult?.(result, submitted)
-          return
-        }
-        current.state = result.queued ? 'saved-local' : 'synced'
-        this.#notify(noteId, current.state)
-        this.#onResult?.(result, submitted)
-      },
-      (error: unknown) => {
-        const current = this.#records.get(noteId)
-        if (current?.latest.writeId === submitted.writeId) {
-          current.state = 'failed'
-          this.#notify(noteId, 'failed')
-        }
-        this.#onError?.(error, submitted)
-      },
-    )
+        },
+        (error: unknown) => {
+          const current = this.#records.get(noteId)
+          if (current?.latest.writeId === submitted.writeId) {
+            current.state = 'failed'
+            this.#notify(noteId, 'failed')
+          }
+          this.#onError?.(error, submitted)
+        },
+      )
     record.sending.set(submitted.writeId, task)
     await task
     const current = this.#records.get(noteId)
     current?.sending.delete(submitted.writeId)
-    if (current && current.latest.writeId !== submitted.writeId && current.state === 'dirty')
+    if (
+      current &&
+      current.latest.writeId !== submitted.writeId &&
+      current.state === 'dirty'
+    )
       void this.#send(noteId, current.latest)
   }
 
   async #waitForSends(ids: readonly string[]): Promise<void> {
     while (true) {
-      const sends = ids.flatMap((id) => [...(this.#records.get(id)?.sending.values() ?? [])])
+      const sends = ids.flatMap((id) => [
+        ...(this.#records.get(id)?.sending.values() ?? []),
+      ])
       if (sends.length === 0) return
       await Promise.all(sends)
     }

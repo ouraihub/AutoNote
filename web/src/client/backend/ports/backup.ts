@@ -23,10 +23,22 @@ export class HttpBackupPort implements BackupPort {
     })
     return result.targets
   }
-  create(body: BackupTargetInput, options?: CallOptions): Promise<BackupTarget> {
-    return this.#transport.json({ method: 'POST', path: '/api/backup/targets', body, signal: options?.signal })
+  create(
+    body: BackupTargetInput,
+    options?: CallOptions,
+  ): Promise<BackupTarget> {
+    return this.#transport.json({
+      method: 'POST',
+      path: '/api/backup/targets',
+      body,
+      signal: options?.signal,
+    })
   }
-  patch(id: string, body: BackupTargetPatchInput, options?: CallOptions): Promise<BackupTarget> {
+  patch(
+    id: string,
+    body: BackupTargetPatchInput,
+    options?: CallOptions,
+  ): Promise<BackupTarget> {
     return this.#transport.json({
       method: 'PATCH',
       path: `/api/backup/targets/${encodeURIComponent(id)}`,
@@ -41,7 +53,11 @@ export class HttpBackupPort implements BackupPort {
       signal: options?.signal,
     })
   }
-  test(id: string, body: Partial<BackupTargetInput>, options?: CallOptions): Promise<TestConnectionResult> {
+  test(
+    id: string,
+    body: Partial<BackupTargetInput>,
+    options?: CallOptions,
+  ): Promise<TestConnectionResult> {
     return this.#transport.json({
       method: 'POST',
       path: `/api/backup/targets/${encodeURIComponent(id)}/test`,
@@ -49,10 +65,21 @@ export class HttpBackupPort implements BackupPort {
       signal: options?.signal,
     })
   }
-  testDraft(body: BackupTargetInput, options?: CallOptions): Promise<TestConnectionResult> {
-    return this.#transport.json({ method: 'POST', path: '/api/backup/test', body, signal: options?.signal })
+  testDraft(
+    body: BackupTargetInput,
+    options?: CallOptions,
+  ): Promise<TestConnectionResult> {
+    return this.#transport.json({
+      method: 'POST',
+      path: '/api/backup/test',
+      body,
+      signal: options?.signal,
+    })
   }
-  run(targetIds?: readonly string[], options?: CallOptions): Promise<BackupRun> {
+  run(
+    targetIds?: readonly string[],
+    options?: CallOptions,
+  ): Promise<BackupRun> {
     return this.#transport.json({
       method: 'POST',
       path: '/api/backup/run',

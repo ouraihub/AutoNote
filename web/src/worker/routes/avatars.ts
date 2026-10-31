@@ -1,13 +1,18 @@
 import { Hono } from 'hono'
 import { parseStoredAvatarUrl } from '@shared/avatar'
-import { hasAttachmentStorage, readAttachmentObject } from '../attachments/backend'
+import {
+  hasAttachmentStorage,
+  readAttachmentObject,
+} from '../attachments/backend'
 import type { AppBindings } from '../env'
 import { ApiError } from '../lib/errors'
 
 export const avatarRoutes = new Hono<AppBindings>()
 
 avatarRoutes.get('/:storage/:userId/:file', async (c) => {
-  const preference = `/api/avatars/${c.req.param('storage')}/${c.req.param('userId')}/${c.req.param('file')}`
+  const preference = `/api/avatars/${c.req.param('storage')}/${
+    c.req.param('userId')
+  }/${c.req.param('file')}`
   const location = parseStoredAvatarUrl(preference)
   if (!location) throw ApiError.notFound('Avatar not found')
 
@@ -18,16 +23,22 @@ avatarRoutes.get('/:storage/:userId/:file', async (c) => {
     .first<{ id: string }>()
   if (!owner) throw ApiError.notFound('Avatar not found')
   if (!hasAttachmentStorage(c.env, location.storage)) {
+    const storageName = location.storage === 'r2' ? 'R2' : 'Workers KV'
     throw new ApiError(
       503,
       'storage_unavailable',
-      `${location.storage === 'r2' ? 'R2' : 'Workers KV'} avatar storage is not bound`,
+      `${storageName} avatar storage is not bound`,
     )
   }
 
-  const bytes = await readAttachmentObject(c.env, location.storage, location.key)
+  const bytes = await readAttachmentObject(
+    c.env,
+    location.storage,
+    location.key,
+  )
   if (!bytes) throw ApiError.notFound('Avatar data is missing')
-  const contentType = location.extension === 'jpg' ? 'image/jpeg' : `image/${location.extension}`
+  const contentType =
+    location.extension === 'jpg' ? 'image/jpeg' : `image/${location.extension}`
   return new Response(bytes as BodyInit, {
     headers: {
       'Content-Type': contentType,

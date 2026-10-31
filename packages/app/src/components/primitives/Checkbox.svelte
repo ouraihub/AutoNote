@@ -23,7 +23,10 @@
   aria-checked={checked}
   {disabled}
   onclick={() => onChange(!checked)}
-  class={cn('inline-flex min-h-10 items-center gap-2 text-[13px] disabled:opacity-45 md:min-h-0', className)}
+  class={cn(
+    'inline-flex min-h-10 items-center gap-2 text-[13px] disabled:opacity-45 md:min-h-0',
+    className,
+  )}
 >
   <span
     class={cn(

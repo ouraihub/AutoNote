@@ -94,7 +94,9 @@ export class SyncEngine {
   }
 
   updateConfig(realtimeEnabled: boolean, pollIntervalMs: number): void {
-    const interval = Number.isFinite(pollIntervalMs) ? Math.max(5_000, pollIntervalMs) : 15_000
+    const interval = Number.isFinite(pollIntervalMs)
+      ? Math.max(5_000, pollIntervalMs)
+      : 15_000
     if (interval !== this.#interval) {
       this.#interval = interval
       if (this.#controller) this.#startPolling()
@@ -119,13 +121,20 @@ export class SyncEngine {
   pullNow(options: { force?: boolean } = {}): Promise<void> {
     const controller = this.#controller
     if (!controller || controller.signal.aborted || this.#paused)
-      return Promise.reject(new BackendError(this.#paused ? 'unauthenticated' : 'cancelled', 0, 'Sync is stopped'))
+      return Promise.reject(
+        new BackendError(
+          this.#paused ? 'unauthenticated' : 'cancelled',
+          0,
+          'Sync is stopped',
+        ),
+      )
     this.#force ||= options.force ?? false
     if (this.#running) {
       this.#again = true
       return this.#running
     }
-    const current = () => this.#controller === controller && !controller.signal.aborted
+    const current = () =>
+      this.#controller === controller && !controller.signal.aborted
     let pulling = true
     const running = (async () => {
       do {
@@ -142,7 +151,11 @@ export class SyncEngine {
         this.#lastPull = this.#deps.clock.now()
         this.#deps.emitChange({ kind: 'connectivity', online: true })
         if (announce && result.cursor > before)
-          this.#deps.bus.post({ type: 'pulled', cursor: result.cursor, clientId: this.#deps.clientId })
+          this.#deps.bus.post({
+            type: 'pulled',
+            cursor: result.cursor,
+            clientId: this.#deps.clientId,
+          })
         pulling = false
         await this.#deps.replay(controller.signal)
       } while (current() && (this.#force || this.#again))
@@ -165,7 +178,11 @@ export class SyncEngine {
     this.#listeners = []
     const { timers } = this.#deps
     if (this.#poll !== null) timers.clearInterval(this.#poll)
-    for (const timer of [this.#claimTimer, this.#pullTimer, this.#settingsTimer])
+    for (const timer of [
+      this.#claimTimer,
+      this.#pullTimer,
+      this.#settingsTimer,
+    ])
       if (timer !== null) timers.clearTimeout(timer)
     this.#poll = this.#claimTimer = this.#pullTimer = this.#settingsTimer = null
     this.#disconnect()
@@ -179,13 +196,19 @@ export class SyncEngine {
 
   #claimLeadership(): void {
     if (!this.#controller || this.#deps.page.isHidden || this.#paused) return
-    const claim = { type: 'claim-leader' as const, clientId: this.#deps.clientId, at: this.#deps.clock.now() }
+    const claim = {
+      type: 'claim-leader' as const,
+      clientId: this.#deps.clientId,
+      at: this.#deps.clock.now(),
+    }
     this.#claim = claim
     this.#deps.bus.post(claim)
-    if (this.#claimTimer !== null) this.#deps.timers.clearTimeout(this.#claimTimer)
+    if (this.#claimTimer !== null)
+      this.#deps.timers.clearTimeout(this.#claimTimer)
     this.#claimTimer = this.#deps.timers.setTimeout(() => {
       this.#claimTimer = null
-      this.#leader = this.#claim?.clientId === claim.clientId && this.#claim.at === claim.at
+      this.#leader =
+        this.#claim?.clientId === claim.clientId && this.#claim.at === claim.at
       if (this.#leader) this.#connect()
       else this.#disconnect()
     }, 260)
@@ -211,10 +234,12 @@ export class SyncEngine {
       this.#handshake = this.#deps.timers.setTimeout(() => {
         if (this.#socket === socket) this.#socketFailure('request_timeout')
       }, 30_000)
-      const current = () => this.#controller === controller && this.#socket === socket
+      const current = () =>
+        this.#controller === controller && this.#socket === socket
       socket.onopen = () => {
         if (!current()) return
-        if (this.#handshake !== null) this.#deps.timers.clearTimeout(this.#handshake)
+        if (this.#handshake !== null)
+          this.#deps.timers.clearTimeout(this.#handshake)
         this.#handshake = null
         this.#failures = 0
         this.#lastPong = this.#deps.clock.now()
@@ -225,7 +250,9 @@ export class SyncEngine {
             return
           }
           if (this.#invalidMessages) {
-            this.#deps.logger.debug('sync.socket.invalid', { count: this.#invalidMessages })
+            this.#deps.logger.debug('sync.socket.invalid', {
+              count: this.#invalidMessages,
+            })
             this.#invalidMessages = 0
           }
           try {
@@ -267,7 +294,11 @@ export class SyncEngine {
           'origin' in value &&
           (value.origin === null || typeof value.origin === 'string')
         ) {
-          if (value.origin !== this.#deps.clientId && value.cursor > this.#cursor) this.#schedule(180)
+          if (
+            value.origin !== this.#deps.clientId &&
+            value.cursor > this.#cursor
+          )
+            this.#schedule(180)
         } else this.#invalidMessages++
       }
       socket.onclose = socket.onerror = () => {
@@ -285,17 +316,27 @@ export class SyncEngine {
       socket.onopen = socket.onmessage = socket.onclose = socket.onerror = null
       socket.close()
     }
-    if (this.#heartbeat !== null) this.#deps.timers.clearInterval(this.#heartbeat)
-    if (this.#handshake !== null) this.#deps.timers.clearTimeout(this.#handshake)
+    if (this.#heartbeat !== null)
+      this.#deps.timers.clearInterval(this.#heartbeat)
+    if (this.#handshake !== null)
+      this.#deps.timers.clearTimeout(this.#handshake)
     this.#handshake = null
-    if (this.#reconnect !== null) this.#deps.timers.clearTimeout(this.#reconnect)
+    if (this.#reconnect !== null)
+      this.#deps.timers.clearTimeout(this.#reconnect)
     this.#heartbeat = this.#reconnect = null
     this.#invalidMessages = 0
   }
 
   #socketFailure(code: string): void {
     this.#disconnect()
-    if (!this.#controller || this.#paused || !this.#leader || !this.#realtime || !this.#deps.page.isOnline) return
+    if (
+      !this.#controller ||
+      this.#paused ||
+      !this.#leader ||
+      !this.#realtime ||
+      !this.#deps.page.isOnline
+    )
+      return
     const delayMs = Math.min(30_000, 800 * 2 ** Math.min(this.#failures++, 16))
     this.#deps.logger.warn('sync.socket.fallback', { code, delayMs })
     this.#reconnect = this.#deps.timers.setTimeout(() => {
@@ -307,9 +348,19 @@ export class SyncEngine {
   #startPolling(): void {
     if (this.#poll !== null) this.#deps.timers.clearInterval(this.#poll)
     this.#poll = this.#deps.timers.setInterval(() => {
-      if (this.#deps.page.isHidden || !this.#deps.page.isOnline || !this.#leader) return
+      if (
+        this.#deps.page.isHidden ||
+        !this.#deps.page.isOnline ||
+        !this.#leader
+      )
+        return
       const now = this.#deps.clock.now()
-      if (this.#socket?.readyState === 1 && now - this.#lastPong < 75_000 && now - this.#lastPull < 300_000) return
+      if (
+        this.#socket?.readyState === 1 &&
+        now - this.#lastPong < 75_000 &&
+        now - this.#lastPull < 300_000
+      )
+        return
       this.#schedule(0)
     }, this.#interval)
   }
@@ -319,7 +370,8 @@ export class SyncEngine {
     this.#announce ||= announce
     const due = this.#deps.clock.now() + delay
     if (this.#pullTimer !== null && this.#dueAt <= due) return
-    if (this.#pullTimer !== null) this.#deps.timers.clearTimeout(this.#pullTimer)
+    if (this.#pullTimer !== null)
+      this.#deps.timers.clearTimeout(this.#pullTimer)
     this.#dueAt = due
     this.#pullTimer = this.#deps.timers.setTimeout(() => {
       this.#pullTimer = null
@@ -339,7 +391,12 @@ export class SyncEngine {
       } else if (this.#claim.clientId === this.#deps.clientId)
         this.#deps.bus.post({ type: 'claim-leader', ...this.#claim })
     } else if (message.type === 'pulled') {
-      if (!own && Number.isSafeInteger(message.cursor) && message.cursor > this.#cursor) this.#schedule(150, false)
+      if (
+        !own &&
+        Number.isSafeInteger(message.cursor) &&
+        message.cursor > this.#cursor
+      )
+        this.#schedule(150, false)
     } else if (message.type === 'local-write') this.#schedule(own ? 700 : 400)
     else if (
       message.type === 'settings-changed' ||
@@ -349,7 +406,8 @@ export class SyncEngine {
       const delay = message.type === 'profile-changed' ? 300 : 400
       const due = this.#deps.clock.now() + delay
       if (!own && (this.#settingsTimer === null || due < this.#settingsDueAt)) {
-        if (this.#settingsTimer !== null) this.#deps.timers.clearTimeout(this.#settingsTimer)
+        if (this.#settingsTimer !== null)
+          this.#deps.timers.clearTimeout(this.#settingsTimer)
         this.#settingsDueAt = due
         this.#settingsTimer = this.#deps.timers.setTimeout(() => {
           this.#settingsTimer = null
@@ -357,7 +415,8 @@ export class SyncEngine {
           this.#deps.emitChange({ kind: 'settings' })
         }, delay)
       }
-      if (message.type !== 'site-changed') this.#schedule(own ? 700 : delay, false)
+      if (message.type !== 'site-changed')
+        this.#schedule(own ? 700 : delay, false)
     }
   }
 
@@ -371,6 +430,8 @@ export class SyncEngine {
       this.#deps.onUnauthenticated?.()
       this.#deps.emitChange({ kind: 'settings' })
     }
-    this.#deps.logger.warn('sync.pull.failed', { code: error instanceof BackendError ? error.code : 'internal' })
+    this.#deps.logger.warn('sync.pull.failed', {
+      code: error instanceof BackendError ? error.code : 'internal',
+    })
   }
 }

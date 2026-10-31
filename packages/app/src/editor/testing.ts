@@ -4,13 +4,20 @@ import type { AttachmentServices } from './paste'
 import type { EditorServices } from './services'
 
 const i18n = new I18nState({
-  prefs: { load: async () => null, save: async () => {}, remove: async () => {} },
+  prefs: {
+    load: async () => null,
+    save: async () => {},
+    remove: async () => {},
+  },
   systemLocale: 'en-US',
 })
 
 /** Test-only editor services: empty completion lists and uploads that fail unless overridden. */
 export function createEditorServices(
-  overrides: { completion?: Partial<CompletionSources>; attachments?: Partial<AttachmentServices> } = {},
+  overrides: {
+    completion?: Partial<CompletionSources>
+    attachments?: Partial<AttachmentServices>
+  } = {},
 ): EditorServices {
   return {
     completion: { notes: () => [], tags: () => [], ...overrides.completion },

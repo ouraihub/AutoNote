@@ -1,3 +1,11 @@
+export {
+  collectReferences as collectObsidianReferences,
+  normalizePath as normalizeObsidianPath,
+  rewriteReferences as rewriteObsidianReferences,
+  stripComments as stripObsidianComments,
+} from './obsidian-reference'
+import { normalizePath } from './obsidian-reference'
+
 export interface ObsidianAsset {
   path: string
   name: string
@@ -9,18 +17,14 @@ export interface ObsidianAssetIndex {
   byName: Map<string, ObsidianAsset>
 }
 
-const MD_IMAGE_RE = /!\[([^\]]*)\]\(([^)]+)\)/g
-const WIKI_ASSET_RE = /!\[\[([^[\]#^|]{1,300}?)(?:\|([^\]\n]{0,100}))?\]\]/g
-const ASSET_EXT_RE = /\.(?:png|jpe?g|gif|webp|avif|svg|pdf)$/i
-
 export function buildObsidianAssetIndex(
   entries: readonly { path: string; data: Uint8Array }[],
 ): ObsidianAssetIndex {
   const byPath = new Map<string, ObsidianAsset>()
   const byName = new Map<string, ObsidianAsset>()
   for (const entry of entries) {
-    const path = normalizeObsidianPath(entry.path)
-    const name = pathBasename(path)
+    const path = normalizePath(entry.path)
+    const name = path.split('/').pop() ?? path
     const asset: ObsidianAsset = { path, name, bytes: entry.data }
     if (!byPath.has(path.toLowerCase())) byPath.set(path.toLowerCase(), asset)
     if (!byName.has(name.toLowerCase())) byName.set(name.toLowerCase(), asset)
@@ -33,64 +37,17 @@ export function findObsidianAsset(
   reference: string,
   dir: string,
 ): ObsidianAsset | null {
-  const normalized = normalizeObsidianPath(reference)
+  const normalized = normalizePath(reference)
   if (!normalized) return null
   const direct = index.byPath.get(normalized.toLowerCase())
   if (direct) return direct
   if (dir) {
-    const relative = index.byPath.get(normalizeObsidianPath(`${dir}/${normalized}`).toLowerCase())
+    const relative = index.byPath.get(
+      normalizePath(`${dir}/${normalized}`).toLowerCase(),
+    )
     if (relative) return relative
   }
-  return index.byName.get(pathBasename(normalized).toLowerCase()) ?? null
-}
-
-export function collectObsidianReferences(content: string): string[] {
-  const seen = new Set<string>()
-  const out: string[] = []
-  const consider = (href: string) => {
-    const normalized = normalizeObsidianPath(href)
-    if (normalized && !isManagedReference(href) && !seen.has(normalized)) {
-      seen.add(normalized)
-      out.push(normalized)
-    }
-  }
-  content.replace(MD_IMAGE_RE, (_full, _alt, href) => {
-    consider(href)
-    return _full
-  })
-  content.replace(WIKI_ASSET_RE, (full, target, _alias) => {
-    if (ASSET_EXT_RE.test(target)) consider(target)
-    return full
-  })
-  return out
-}
-
-export function rewriteObsidianReferences(
-  content: string,
-  resolve: (reference: string) => string | null,
-): string {
-  let next = content.replace(MD_IMAGE_RE, (full, alt, href) => {
-    if (isManagedReference(href)) return full
-    const url = resolve(normalizeObsidianPath(href))
-    return url ? `![${alt}](${url})` : full
-  })
-  next = next.replace(WIKI_ASSET_RE, (full, target, alias) => {
-    if (!ASSET_EXT_RE.test(target)) return full
-    const url = resolve(normalizeObsidianPath(target))
-    return url ? `![${alias?.trim() || assetDisplayName(target)}](${url})` : full
-  })
-  return next
-}
-
-export function stripObsidianComments(content: string): string {
-  return content.replace(/%%([\s\S]*?)%%/g, (_full, inner: string) => `<!--${inner.replace(/--/g, '—')}-->`)
-}
-
-export function normalizeObsidianPath(value: string): string {
-  return value
-    .replace(/\\/g, '/')
-    .replace(/^\.\/+/, '')
-    .trim()
+  return index.byName.get(normalized.split('/').pop()!.toLowerCase()) ?? null
 }
 
 export function mimeForAttachmentName(name: string): string {
@@ -106,17 +63,4 @@ export function mimeForAttachmentName(name: string): string {
     pdf: 'application/pdf',
   }
   return byExt[ext] ?? 'application/octet-stream'
-}
-
-function isManagedReference(href: string): boolean {
-  const clean = href.trim()
-  return /^(?:https?:|data:|file:|\/api\/)/i.test(clean) || clean.startsWith('#') || clean.startsWith('^')
-}
-
-function pathBasename(path: string): string {
-  return path.split('/').pop() ?? path
-}
-
-function assetDisplayName(path: string): string {
-  return pathBasename(path).replace(/\.[a-z0-9]+$/i, '')
 }

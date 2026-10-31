@@ -11,9 +11,12 @@ import { ConsoleRingLogger, DiagnosticsPanel } from './log'
 import { browserPageSignals, browserTimers, WebPrefsStore } from './platform'
 import type { ReplayLock } from './outbox/replay-lock'
 
-export const CLIENT_DATABASE_NAME = import.meta.env.MODE === 'demo' ? 'autonote-demo' : 'autonote'
+export const CLIENT_DATABASE_NAME =
+  import.meta.env.MODE === 'demo' ? 'autonote-demo' : 'autonote'
 export const IS_DEMO_MODE = import.meta.env.MODE === 'demo'
-export function createClientId(randomUuid: () => string = () => crypto.randomUUID()): string {
+export function createClientId(
+  randomUuid: () => string = () => crypto.randomUUID(),
+): string {
   return randomUuid()
 }
 export const CLIENT_ID = createClientId()
@@ -39,12 +42,17 @@ export async function createWebServices(): Promise<WebServices> {
     load: (key) => storage.load(key),
     save: async (key, value) => {
       await storage.save(key, value)
-      if (key === 'appearance.language' && (value === 'en-US' || value === 'zh-CN'))
+      if (
+        key === 'appearance.language' &&
+        (value === 'en-US' || value === 'zh-CN')
+      )
         await language.setLocale(value, false)
     },
     remove: (key) => storage.remove(key),
   }
-  const notifier = new OverlayNotifier((key, params) => language.t(key as Parameters<I18nState['t']>[0], params))
+  const notifier = new OverlayNotifier((key, params) =>
+    language.t(key as Parameters<I18nState['t']>[0], params),
+  )
   const kv = new IdbKvStore({ databaseName: CLIENT_DATABASE_NAME })
   if (IS_DEMO_MODE) {
     const { createDemoRuntime } = await import('./demo')
@@ -77,7 +85,9 @@ export function createWebRuntime(services: WebServices): AppDeps {
   let replay: Promise<void> = Promise.resolve()
   const lock: ReplayLock = {
     run: async (_owner, task) => {
-      const next = replay.catch(() => undefined).then(() => task(async () => true))
+      const next = replay
+        .catch(() => undefined)
+        .then(() => task(async () => true))
       replay = next
       await next
       return true
@@ -87,8 +97,12 @@ export function createWebRuntime(services: WebServices): AppDeps {
     fetch: services.fetch,
     kv: services.kv,
     sockets: IS_DEMO_MODE ? null : browserSocketFactory,
-    ...(services.demoUserId ? { bus: new MemoryTabBus(services.demoUserId), lock } : {}),
-    ...(services.resolveFileUrl ? { resolveFileUrl: services.resolveFileUrl } : {}),
+    ...(services.demoUserId
+      ? { bus: new MemoryTabBus(services.demoUserId), lock }
+      : {}),
+    ...(services.resolveFileUrl
+      ? { resolveFileUrl: services.resolveFileUrl }
+      : {}),
     timers: browserTimers,
     page: browserPageSignals,
     clock: { now: () => Date.now() },
@@ -117,10 +131,23 @@ export function createWebRuntime(services: WebServices): AppDeps {
     notifier: services.notifier,
     extensions: {
       settingsSections: [...aiExtensions.settingsSections],
-      aboutPanels: [{ id: 'diagnostics', order: 100, titleKey: 'host.diagnostics', component: DiagnosticsPanel }],
-      ...(aiExtensions.workspacePanel ? { workspacePanel: aiExtensions.workspacePanel } : {}),
-      ...(aiExtensions.writingToolbar ? { writingToolbar: aiExtensions.writingToolbar } : {}),
+      aboutPanels: [
+        {
+          id: 'diagnostics',
+          order: 100,
+          titleKey: 'host.diagnostics',
+          component: DiagnosticsPanel,
+        },
+      ],
+      ...(aiExtensions.workspacePanel
+        ? { workspacePanel: aiExtensions.workspacePanel }
+        : {}),
+      ...(aiExtensions.writingToolbar
+        ? { writingToolbar: aiExtensions.writingToolbar }
+        : {}),
     },
-    ...(IS_DEMO_MODE ? { authDefaults: { username: 'admin', password: 'password' } } : {}),
+    ...(IS_DEMO_MODE
+      ? { authDefaults: { username: 'admin', password: 'password' } }
+      : {}),
   }
 }

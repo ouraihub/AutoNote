@@ -1,8 +1,6 @@
-
 import type { OAuthHelpers } from '@cloudflare/workers-oauth-provider'
 
 export interface Env {
-
   DB: D1Database
 
   ASSETS: Fetcher
@@ -23,7 +21,8 @@ export interface Env {
 
   PUBLIC_URL?: string
 
-  /** Workers AI binding for semantic search; optional so AI search degrades gracefully. */
+  /** Workers AI binding for semantic search; optional so AI search degrades */
+  /** gracefully. */
   AI?: {
     run: <T = unknown>(model: string, inputs: unknown) => Promise<T>
   }
@@ -33,9 +32,7 @@ export interface DatabaseState {
   ftsEnabled: boolean
 }
 
-
 export interface Variables {
-
   database: DatabaseState
   userId: string
 

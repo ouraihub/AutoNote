@@ -2,9 +2,23 @@ import { SvelteMap } from 'svelte/reactivity'
 import type { NoteWriteResult } from '@shared/backend-types'
 import { isBackendError, type Backend, type ChangeEvent } from '@app/backend'
 import { logFailure, type Logger } from '@app/log/logger'
-import type { Note, NoteSummary, PatchNoteBody, SyncResponse } from '@shared/types'
-import { mergeSync, EMPTY_SYNC_SHELL, type LocalNoteStates, type SyncShell } from './merge'
-import { NoteWriteState, type NoteSaveState, type PendingContentWrite } from './note-writes'
+import type {
+  Note,
+  NoteSummary,
+  PatchNoteBody,
+  SyncResponse,
+} from '@shared/types'
+import {
+  mergeSync,
+  EMPTY_SYNC_SHELL,
+  type LocalNoteStates,
+  type SyncShell,
+} from './merge'
+import {
+  NoteWriteState,
+  type NoteSaveState,
+  type PendingContentWrite,
+} from './note-writes'
 import type { WorkspacePane } from './layout-prefs'
 import type { OrganizeSnapshot } from './mutations'
 
@@ -37,7 +51,10 @@ export class NotesState {
   readonly #backend: Backend
   readonly #logger: Logger
   readonly #write: NoteWriteState
-  readonly #generation: Record<WorkspacePane, number> = { primary: 0, secondary: 0 }
+  readonly #generation: Record<WorkspacePane, number> = {
+    primary: 0,
+    secondary: 0,
+  }
   readonly #writeIds: Record<string, string> = {}
   #unsubscribe: (() => void) | null = null
   #tombstones: Record<string, number | null> = {}
@@ -50,7 +67,9 @@ export class NotesState {
     this.#write = new NoteWriteState({
       port: options.backend.notes,
       kind: options.backend.kind,
-      ...(options.debounceMs === undefined ? {} : { debounceMs: options.debounceMs }),
+      ...(options.debounceMs === undefined
+        ? {}
+        : { debounceMs: options.debounceMs }),
       onResult: (result, submitted) => this.#settleWrite(result, submitted),
       onError: (error, submitted) => this.#failWrite(error, submitted),
       onStateChange: (noteId, state) => this.#setSaveState(noteId, state),
@@ -98,7 +117,8 @@ export class NotesState {
     const libraryGeneration = this.#libraryGeneration
     try {
       const payload = await this.#backend.notes.snapshot()
-      if (this.#disposed || libraryGeneration !== this.#libraryGeneration) return
+      if (this.#disposed || libraryGeneration !== this.#libraryGeneration)
+        return
       this.applySync(payload)
       this.#hydrated = true
     } catch (error) {
@@ -149,7 +169,11 @@ export class NotesState {
     if (!summary || this.#contents[id] === content) return
     const current = this.#write.get(id)
     const title = current?.body.title
-    const body: PatchNoteBody = { rev: summary.rev, content, ...(title === undefined ? {} : { title }) }
+    const body: PatchNoteBody = {
+      rev: summary.rev,
+      content,
+      ...(title === undefined ? {} : { title }),
+    }
     const writeId = this.#write.edit(id, body)
     this.#writeIds[id] = writeId
     this.#contents = { ...this.#contents, [id]: content }
@@ -193,7 +217,12 @@ export class NotesState {
     this.#hydrated = false
   }
 
-  async create(body: { id?: string; title?: string; content?: string; folderId?: string | null }): Promise<Note> {
+  async create(body: {
+    id?: string
+    title?: string
+    content?: string
+    folderId?: string | null
+  }): Promise<Note> {
     const note = await this.#backend.notes.create(body)
     this.#adoptSavedNote(note)
     return note
@@ -202,7 +231,9 @@ export class NotesState {
   async patch(id: string, patch: PatchNoteBody): Promise<void> {
     const summary = this.#summaries[id]
     if (!summary) return
-    const result = await this.#backend.notes.patch(id, patch, { writeId: this.#newWriteId() })
+    const result = await this.#backend.notes.patch(id, patch, {
+      writeId: this.#newWriteId(),
+    })
     if (result.queued) return
     this.#adoptSavedNote(result.note)
   }
@@ -291,7 +322,9 @@ export class NotesState {
 
   watch(): () => void {
     this.#unsubscribe?.()
-    this.#unsubscribe = this.#backend.changes.subscribe((event) => this.#handleChange(event))
+    this.#unsubscribe = this.#backend.changes.subscribe((event) =>
+      this.#handleChange(event),
+    )
     return () => {
       this.#unsubscribe?.()
       this.#unsubscribe = null
@@ -313,10 +346,12 @@ export class NotesState {
         if (currentWriteId !== event.payload.writeId) return
       }
       this.#write.handle(event.payload)
-      if (event.payload.kind === 'recovered') this.#adoptRecovered(event.payload.copy)
+      if (event.payload.kind === 'recovered')
+        this.#adoptRecovered(event.payload.copy)
       return
     }
-    if (event.kind === 'sync' || event.kind === 'library') this.applySync(event.payload)
+    if (event.kind === 'sync' || event.kind === 'library')
+      this.applySync(event.payload)
   }
   #settleWrite(result: NoteWriteResult, submitted: PendingContentWrite): void {
     const pending = this.#writeIds[submitted.noteId]
@@ -324,7 +359,10 @@ export class NotesState {
       const summary = this.#summaries[submitted.noteId]
       if (!result.queued && pending && summary) {
         this.#write.rebase(submitted.noteId, pending, result.note.rev)
-        this.#summaries = { ...this.#summaries, [submitted.noteId]: { ...summary, rev: result.note.rev } }
+        this.#summaries = {
+          ...this.#summaries,
+          [submitted.noteId]: { ...summary, rev: result.note.rev },
+        }
       }
       return
     }
@@ -341,7 +379,10 @@ export class NotesState {
   #failWrite(error: unknown, submitted: PendingContentWrite): void {
     if (this.#writeIds[submitted.noteId] !== submitted.writeId) return
     this.#setSaveState(submitted.noteId, 'failed')
-    logFailure(this.#logger, 'notes.save.failed', error, { noteId: submitted.noteId, writeId: submitted.writeId })
+    logFailure(this.#logger, 'notes.save.failed', error, {
+      noteId: submitted.noteId,
+      writeId: submitted.writeId,
+    })
   }
 
   #adoptLoadedNote(note: Note, pending: PendingContentWrite | null): void {
@@ -370,7 +411,12 @@ export class NotesState {
 
   #setSaveState(noteId: string, state: NoteSaveState): void {
     this.#saveState = { ...this.#saveState, [noteId]: state }
-    if (state === 'dirty' || state === 'persisting' || state === 'failed' || state === 'saved-local') {
+    if (
+      state === 'dirty' ||
+      state === 'persisting' ||
+      state === 'failed' ||
+      state === 'saved-local'
+    ) {
       this.#dirtyById = { ...this.#dirtyById, [noteId]: true }
       return
     }

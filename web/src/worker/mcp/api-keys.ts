@@ -10,7 +10,11 @@
 import { sha256Hex, toBase64Url } from '../lib/encoding'
 import { ApiError } from '../lib/errors'
 import { newId } from '../lib/id'
-import { getMcpPreferences, grantedMcpScopes, MCP_SUPPORTED_SCOPES } from './settings'
+import {
+  getMcpPreferences,
+  grantedMcpScopes,
+  MCP_SUPPORTED_SCOPES,
+} from './settings'
 
 const KEY_PREFIX = 'ink_'
 const ACTIVE_KEYS_MAX = 50
@@ -63,12 +67,15 @@ export async function createMcpApiKey(
   const now = Date.now()
   const preferences = await getMcpPreferences(db, userId)
   const scopes = grantedMcpScopes(MCP_SUPPORTED_SCOPES, preferences)
-  const inserted = await db.prepare(
-    `INSERT INTO mcp_api_keys (id, user_id, name, key_hash, scopes, created_at)
+  const inserted = await db
+    .prepare(
+      `INSERT INTO mcp_api_keys (id, user_id, name, key_hash, scopes, created_at)
      SELECT ?1, ?2, ?3, ?4, ?5, ?6
       WHERE (SELECT COUNT(*) FROM mcp_api_keys
               WHERE user_id = ?2 AND revoked_at IS NULL) < ?7`,
-  ).bind(id, userId, name, keyHash, scopes.join(' '), now, ACTIVE_KEYS_MAX).run()
+    )
+    .bind(id, userId, name, keyHash, scopes.join(' '), now, ACTIVE_KEYS_MAX)
+    .run()
   if (!inserted.meta.changes) {
     throw ApiError.conflict(
       `An account can have at most ${ACTIVE_KEYS_MAX} active MCP API keys`,
@@ -80,19 +87,25 @@ export async function createMcpApiKey(
   }
 }
 
-export async function listMcpApiKeys(db: D1Database, userId: string): Promise<McpApiKeyRecord[]> {
-  const { results } = await db.prepare(
-    `SELECT id, name, scopes, created_at, last_used_at
+export async function listMcpApiKeys(
+  db: D1Database,
+  userId: string,
+): Promise<McpApiKeyRecord[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT id, name, scopes, created_at, last_used_at
        FROM mcp_api_keys
       WHERE user_id = ?1 AND revoked_at IS NULL
       ORDER BY created_at DESC`,
-  ).bind(userId).all<{
-    id: string
-    name: string
-    scopes: string
-    created_at: number
-    last_used_at: number | null
-  }>()
+    )
+    .bind(userId)
+    .all<{
+      id: string
+      name: string
+      scopes: string
+      created_at: number
+      last_used_at: number | null
+    }>()
   return results.map((row) => ({
     id: row.id,
     name: row.name,
@@ -107,10 +120,13 @@ export async function revokeMcpApiKey(
   userId: string,
   id: string,
 ): Promise<boolean> {
-  const result = await db.prepare(
-    `UPDATE mcp_api_keys SET revoked_at = ?1
+  const result = await db
+    .prepare(
+      `UPDATE mcp_api_keys SET revoked_at = ?1
       WHERE id = ?2 AND user_id = ?3 AND revoked_at IS NULL`,
-  ).bind(Date.now(), id, userId).run()
+    )
+    .bind(Date.now(), id, userId)
+    .run()
   return (result.meta.changes ?? 0) > 0
 }
 
@@ -120,13 +136,16 @@ export async function purgeRevokedMcpApiKeys(
   limit = 500,
 ): Promise<void> {
   const capped = Math.max(1, Math.min(1_000, Math.trunc(limit)))
-  await db.prepare(
-    `DELETE FROM mcp_api_keys WHERE rowid IN (
+  await db
+    .prepare(
+      `DELETE FROM mcp_api_keys WHERE rowid IN (
        SELECT rowid FROM mcp_api_keys
         WHERE revoked_at IS NOT NULL AND revoked_at < ?1
         ORDER BY revoked_at, rowid LIMIT ?2
      )`,
-  ).bind(Date.now() - maxAgeMs, capped).run()
+    )
+    .bind(Date.now() - maxAgeMs, capped)
+    .run()
 }
 
 /**
@@ -141,16 +160,26 @@ export async function verifyMcpApiKey(
   const parsed = parseApiKey(token)
   if (!parsed) return null
   const keyHash = await sha256Hex(parsed)
-  const row = await db.prepare(
-    `SELECT k.user_id, k.scopes, k.last_used_at, u.role
+  const row = await db
+    .prepare(
+      `SELECT k.user_id, k.scopes, k.last_used_at, u.role
        FROM mcp_api_keys k JOIN users u ON u.id = k.user_id
       WHERE k.key_hash = ?1 AND k.revoked_at IS NULL`,
-  ).bind(keyHash).first<ApiKeyRow>()
+    )
+    .bind(keyHash)
+    .first<ApiKeyRow>()
   if (!row || (row.role !== 'owner' && row.role !== 'member')) return null
-  if (!row.last_used_at || now - row.last_used_at > LAST_USED_WRITE_INTERVAL_MS) {
-    await db.prepare(`UPDATE mcp_api_keys SET last_used_at = ?1 WHERE key_hash = ?2
-      AND (last_used_at IS NULL OR last_used_at < ?3)`)
-      .bind(now, keyHash, now - LAST_USED_WRITE_INTERVAL_MS).run()
+  if (
+    !row.last_used_at ||
+    now - row.last_used_at > LAST_USED_WRITE_INTERVAL_MS
+  ) {
+    await db
+      .prepare(
+        `UPDATE mcp_api_keys SET last_used_at = ?1 WHERE key_hash = ?2
+      AND (last_used_at IS NULL OR last_used_at < ?3)`,
+      )
+      .bind(now, keyHash, now - LAST_USED_WRITE_INTERVAL_MS)
+      .run()
   }
   return {
     userId: row.user_id,

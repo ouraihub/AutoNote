@@ -13,7 +13,15 @@
 </script>
 
 <div class="relative">
-  <select {...rest} bind:value class={cn(FIELD_BASE, 'h-11 cursor-pointer appearance-none pr-7 md:h-[34px]', className)}>
+  <select
+    {...rest}
+    bind:value
+    class={cn(
+      FIELD_BASE,
+      'h-11 cursor-pointer appearance-none pr-7 md:h-[34px]',
+      className,
+    )}
+  >
     {@render children()}
   </select>
   <svg

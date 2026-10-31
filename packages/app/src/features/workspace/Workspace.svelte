@@ -27,7 +27,9 @@
     prefs = getPrefs(),
     notifier = getNotifier(),
     logger = getLogger()
-  const writer = new CoalescingPrefsWriter((key, value) => prefs.save(key, value))
+  const writer = new CoalescingPrefsWriter((key, value) =>
+    prefs.save(key, value),
+  )
   const panes: readonly WorkspacePane[] = ['primary', 'secondary']
   const unregisterFlush = getRegisterFlush()(() => writer.flush())
   let narrow = $state(false)
@@ -42,7 +44,13 @@
     update()
     media.addEventListener('change', update)
     const flush = () => {
-      void writer.flush().catch((error) => logger.warn('workspace.reading_position.failed', { error: String(error) }))
+      void writer
+        .flush()
+        .catch((error) =>
+          logger.warn('workspace.reading_position.failed', {
+            error: String(error),
+          }),
+        )
     }
     window.addEventListener('pagehide', flush)
     return () => {
@@ -52,14 +60,23 @@
   })
   onDestroy(() => {
     unregisterFlush()
-    void writer.flush().catch((error) => logger.warn('workspace.reading_position.failed', { error: String(error) }))
+    void writer
+      .flush()
+      .catch((error) =>
+        logger.warn('workspace.reading_position.failed', {
+          error: String(error),
+        }),
+      )
   })
   async function create(): Promise<void> {
     if (creating) return
     creating = true
     createError = false
     try {
-      const note = await notes.create({ content: '', folderId: ui.filter.folderId })
+      const note = await notes.create({
+        content: '',
+        folderId: ui.filter.folderId,
+      })
       ui.openNote(note.id)
       ui.setMobilePane('editor')
     } catch {
@@ -79,7 +96,11 @@
           aria-pressed={ui.activePane === pane}
           onclick={() => ui.activatePane(pane)}
           >{notes.summaries[ui.panes[pane].noteId ?? '']?.title ||
-            i18n.t(pane === 'primary' ? 'workspace.left_note_pane' : 'workspace.right_note_pane')}</Button
+            i18n.t(
+              pane === 'primary'
+                ? 'workspace.left_note_pane'
+                : 'workspace.right_note_pane',
+            )}</Button
         >{/each}
     </nav>
   {/if}
@@ -97,20 +118,32 @@
           class="workspace-pane"
           hidden={narrow && ui.activePane !== pane}
           inert={narrow && ui.activePane !== pane}
-          style:width={!narrow && ui.isSplit ? `${(pane === 'primary' ? ratio : 1 - ratio) * 100}%` : '100%'}
+          style:width={!narrow && ui.isSplit
+            ? `${(pane === 'primary' ? ratio : 1 - ratio) * 100}%`
+            : '100%'}
         >
-          {#key `${ui.scope}:${id}`}<NotePane {pane} noteId={id} {narrow} {writer} />{/key}
+          {#key `${ui.scope}:${id}`}<NotePane
+              {pane}
+              noteId={id}
+              {narrow}
+              {writer}
+            />{/key}
         </div>
       {/if}
     {/each}
     {#if !ui.panes.primary.noteId}
-      <div class="flex h-full flex-1 items-center justify-center bg-[var(--bg-editor)]">
+      <div
+        class="flex h-full flex-1 items-center justify-center bg-[var(--bg-editor)]"
+      >
         <Empty
           art="select"
           title={i18n.t('workspace.choose_a_note_or_write_a_new_one')}
-          description={i18n.t('workspace.open_a_note_from_the_list_or_press_shortcut_to_create_one', {
-            shortcut: prettyCombo('mod+n').join('+'),
-          })}
+          description={i18n.t(
+            'workspace.open_a_note_from_the_list_or_press_shortcut_to_create_one',
+            {
+              shortcut: prettyCombo('mod+n').join('+'),
+            },
+          )}
         >
           {#snippet action()}
             <button
@@ -120,7 +153,10 @@
               class="inline-flex h-8 items-center gap-1.5 rounded-[var(--r-md)] bg-[var(--accent)] px-3.5 text-[12.5px] font-medium text-[var(--accent-contrast)] transition-transform active:translate-y-px disabled:opacity-50"
               ><Plus size={14} />{i18n.t('common.new_note')}</button
             >
-            {#if createError}<p role="alert" class="mt-2 text-[11.5px] text-[var(--danger)]">
+            {#if createError}<p
+                role="alert"
+                class="mt-2 text-[11.5px] text-[var(--danger)]"
+              >
                 {i18n.t('common.action_failed')}
               </p>{/if}
           {/snippet}
@@ -176,5 +212,4 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-
 </style>

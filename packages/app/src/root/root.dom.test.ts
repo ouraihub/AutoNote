@@ -14,7 +14,15 @@ import { Sparkles } from '@lucide/svelte'
 const ID = '00000000000000000000000001'
 const logger: Logger = { debug() {}, info() {}, warn() {}, error() {} }
 const session: BackendSession = {
-  user: { id: ID, login: 'alice', username: 'alice', name: 'Alice', avatarUrl: '', role: 'owner', createdAt: 1 },
+  user: {
+    id: ID,
+    login: 'alice',
+    username: 'alice',
+    name: 'Alice',
+    avatarUrl: '',
+    role: 'owner',
+    createdAt: 1,
+  },
   site: {
     name: 'Notebook',
     initialized: true,
@@ -89,7 +97,11 @@ function fixture(title: string) {
       updateCheck: false,
     },
     session: { load: async () => session, logout: async () => {} },
-    settings: { get: async () => DEFAULT_SETTINGS, save: async () => DEFAULT_SETTINGS, stats: async () => ({}) },
+    settings: {
+      get: async () => DEFAULT_SETTINGS,
+      save: async () => DEFAULT_SETTINGS,
+      stats: async () => ({}),
+    },
     notes: {
       snapshot: async () => snapshot(note),
       list: async () => ({ notes: [note], nextCursor: null }),
@@ -150,17 +162,36 @@ test('isolates two mounted notebooks and omits share entry without capability', 
   const second = fixture('Second note')
   const a = mountApp(left, first.deps)
   const b = mountApp(right, second.deps)
-  await waitFor(() => expect(within(left).getByRole('option', { name: 'First note' })).toBeTruthy())
-  await waitFor(() => expect(within(right).getByRole('option', { name: 'Second note' })).toBeTruthy())
+  await waitFor(() =>
+    expect(
+      within(left).getByRole('option', { name: 'First note' }),
+    ).toBeTruthy(),
+  )
+  await waitFor(() =>
+    expect(
+      within(right).getByRole('option', { name: 'Second note' }),
+    ).toBeTruthy(),
+  )
   expect(within(left).queryByRole('option', { name: 'Second note' })).toBeNull()
   expect(within(right).queryByRole('option', { name: 'First note' })).toBeNull()
   expect(within(left).queryByRole('button', { name: /share/i })).toBeNull()
   expect(first.deps.notifier).not.toBe(second.deps.notifier)
   expect(first.deps.prefs).not.toBe(second.deps.prefs)
-  first.feed.emit({ kind: 'library', payload: snapshot(makeNote('First updated')) })
-  await waitFor(() => expect(within(left).getByRole('option', { name: 'First updated' })).toBeTruthy())
-  expect(within(right).getByRole('option', { name: 'Second note' })).toBeTruthy()
-  await fireEvent.click(within(right).getByRole('option', { name: 'Second note' }))
+  first.feed.emit({
+    kind: 'library',
+    payload: snapshot(makeNote('First updated')),
+  })
+  await waitFor(() =>
+    expect(
+      within(left).getByRole('option', { name: 'First updated' }),
+    ).toBeTruthy(),
+  )
+  expect(
+    within(right).getByRole('option', { name: 'Second note' }),
+  ).toBeTruthy()
+  await fireEvent.click(
+    within(right).getByRole('option', { name: 'Second note' }),
+  )
   expect(left.querySelector('.cm-editor')).toBeNull()
   await a.destroy()
   await b.destroy()
@@ -170,7 +201,11 @@ test('destroy flushes first and detaches event subscriptions; failed flush retai
   const element = target()
   const { deps, feed, backend } = fixture('Before')
   const handle = mountApp(element, deps)
-  await waitFor(() => expect(within(element).getByRole('option', { name: 'Before' })).toBeTruthy())
+  await waitFor(() =>
+    expect(
+      within(element).getByRole('option', { name: 'Before' }),
+    ).toBeTruthy(),
+  )
   backend.notes.flush = vi.fn(async () => ({ pending: 0, failed: 1 }))
   await expect(handle.destroy()).rejects.toThrow('not safely persisted')
   expect(within(element).getByRole('option', { name: 'Before' })).toBeTruthy()
@@ -188,7 +223,10 @@ test('rejects inconsistent optional capability before mounting', () => {
   const { deps } = fixture('No share')
   const inconsistent: AppDeps = {
     ...deps,
-    backend: { ...deps.backend, capabilities: { ...deps.backend.capabilities, share: true } },
+    backend: {
+      ...deps.backend,
+      capabilities: { ...deps.backend.capabilities, share: true },
+    },
   }
   expect(() => mountApp(element, inconsistent)).toThrow('Share capability')
   expect(element.childNodes).toHaveLength(0)
@@ -201,8 +239,12 @@ test('sidebar gear opens the settings dialog', async () => {
   try {
     const sidebar = await waitFor(() => within(element).getByTestId('sidebar'))
     expect(sidebar.querySelector('header img')).toBeNull()
-    await fireEvent.click(within(sidebar).getByRole('button', { name: /^(Settings|设置)$/ }))
-    await waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeTruthy())
+    await fireEvent.click(
+      within(sidebar).getByRole('button', { name: /^(Settings|设置)$/ }),
+    )
+    await waitFor(() =>
+      expect(document.querySelector('[role="dialog"]')).toBeTruthy(),
+    )
   } finally {
     await handle.destroy()
   }
@@ -214,16 +256,30 @@ test('a created folder appears in the sidebar tree with its color and icon', asy
   const handle = mountApp(element, deps)
   try {
     const sidebar = await waitFor(() => within(element).getByTestId('sidebar'))
-    await fireEvent.click(within(sidebar).getAllByRole('button', { name: /^(New folder|新建文件夹)$/ })[0]!)
-    const dialog = await waitFor(() => within(document.body).getByRole('dialog'))
-    await fireEvent.input(dialog.querySelector('input[required]')!, { target: { value: 'Live' } })
+    await fireEvent.click(
+      within(sidebar).getAllByRole('button', {
+        name: /^(New folder|新建文件夹)$/,
+      })[0]!,
+    )
+    const dialog = await waitFor(() =>
+      within(document.body).getByRole('dialog'),
+    )
+    await fireEvent.input(dialog.querySelector('input[required]')!, {
+      target: { value: 'Live' },
+    })
     const [colors, icons] = within(dialog).getAllByRole('radiogroup')
-    await fireEvent.click(within(colors!).getByRole('radio', { name: /^(Indigo|靛蓝)$/ }))
+    await fireEvent.click(
+      within(colors!).getByRole('radio', { name: /^(Indigo|靛蓝)$/ }),
+    )
     await fireEvent.click(within(icons!).getByRole('radio', { name: '📚' }))
     await fireEvent.submit(dialog.querySelector('form')!)
-    const item = await waitFor(() => within(sidebar).getByRole('treeitem', { name: /Live/ }))
+    const item = await waitFor(() =>
+      within(sidebar).getByRole('treeitem', { name: /Live/ }),
+    )
     expect(item.textContent).toContain('📚')
-    expect(item.querySelector<HTMLElement>('span')!.style.color).toBe('rgb(79, 70, 229)')
+    expect(item.querySelector<HTMLElement>('span')!.style.color).toBe(
+      'rgb(79, 70, 229)',
+    )
   } finally {
     await handle.destroy()
   }
@@ -234,23 +290,42 @@ test('same-account settings refresh preserves the open document and language can
   const { deps, feed, backend } = fixture('Persistent editor')
   const handle = mountApp(element, deps)
   try {
-    await waitFor(() => expect(within(element).getByRole('option', { name: 'Persistent editor' })).toBeTruthy())
-    await fireEvent.click(within(element).getByRole('option', { name: 'Persistent editor' }))
-    await waitFor(() => expect(element.querySelector('.cm-editor')).toBeTruthy())
+    await waitFor(() =>
+      expect(
+        within(element).getByRole('option', { name: 'Persistent editor' }),
+      ).toBeTruthy(),
+    )
+    await fireEvent.click(
+      within(element).getByRole('option', { name: 'Persistent editor' }),
+    )
+    await waitFor(() =>
+      expect(element.querySelector('.cm-editor')).toBeTruthy(),
+    )
     const editor = element.querySelector('.cm-editor')
     backend.session.load = vi.fn(async (): Promise<BackendSession> => ({
       ...session,
       settings: {
         ...DEFAULT_SETTINGS,
-        appearance: { ...DEFAULT_SETTINGS.appearance, language: 'zh-CN', theme: 'dark' },
+        appearance: {
+          ...DEFAULT_SETTINGS.appearance,
+          language: 'zh-CN',
+          theme: 'dark',
+        },
       },
     }))
     feed.emit({ kind: 'settings' })
-    await waitFor(() => expect(element.querySelector('[data-app-root]')?.getAttribute('data-theme')).toBe('dark'))
+    await waitFor(() =>
+      expect(
+        element.querySelector('[data-app-root]')?.getAttribute('data-theme'),
+      ).toBe('dark'),
+    )
     expect(element.querySelector('.cm-editor')).toBe(editor)
     backend.session.load = vi.fn(async (): Promise<BackendSession> => ({
       ...session,
-      settings: { ...DEFAULT_SETTINGS, appearance: { ...DEFAULT_SETTINGS.appearance, language: 'en-US' } },
+      settings: {
+        ...DEFAULT_SETTINGS,
+        appearance: { ...DEFAULT_SETTINGS.appearance, language: 'en-US' },
+      },
     }))
     feed.emit({ kind: 'settings' })
     expect(element.querySelector('.cm-editor')).toBe(editor)
@@ -281,14 +356,28 @@ test('saving an assistant reply creates an independent note and preserves the or
   const savedId = '00000000000000000000000002'
   const saved: Note[] = []
   setup.backend.notes.create = async (body) => {
-    const note = { ...makeNote(body.title ?? ''), id: savedId, content: body.content ?? '' }
+    const note = {
+      ...makeNote(body.title ?? ''),
+      id: savedId,
+      content: body.content ?? '',
+    }
     saved.push(note)
-    setup.feed.emit({ kind: 'library', payload: { ...snapshot(note), cursor: 2, full: false } })
+    setup.feed.emit({
+      kind: 'library',
+      payload: { ...snapshot(note), cursor: 2, full: false },
+    })
     return note
   }
-  setup.backend.notes.list = async () => ({ notes: [original, ...saved], total: 1 + saved.length, nextCursor: null })
-  setup.backend.notes.get = async (id) => saved.find((note) => note.id === id) ?? original
-  const readImage = vi.fn(async (url: string) => new Blob([url], { type: 'image/png' }))
+  setup.backend.notes.list = async () => ({
+    notes: [original, ...saved],
+    total: 1 + saved.length,
+    nextCursor: null,
+  })
+  setup.backend.notes.get = async (id) =>
+    saved.find((note) => note.id === id) ?? original
+  const readImage = vi.fn(
+    async (url: string) => new Blob([url], { type: 'image/png' }),
+  )
   const uploaded: File[] = []
   Object.assign(setup.backend, {
     aiHost: { readImage },
@@ -303,25 +392,47 @@ test('saving an assistant reply creates an independent note and preserves the or
     ...setup.deps,
     extensions: {
       ...setup.deps.extensions,
-      workspacePanel: { titleKey: 'chat.title', icon: Sparkles, component: AssistSaveHarness },
+      workspacePanel: {
+        titleKey: 'chat.title',
+        icon: Sparkles,
+        component: AssistSaveHarness,
+      },
     },
   } satisfies AppDeps
   const node = target()
   const app = mountApp(node, deps)
   try {
-    await waitFor(() => expect(within(node).getByRole('option', { name: 'Original note' })).toBeTruthy())
-    await fireEvent.click(within(node).getByRole('option', { name: 'Original note' }))
-    await fireEvent.click(await within(node).findByRole('button', { name: 'AI 对话' }))
-    await fireEvent.click(await within(node).findByRole('button', { name: '保存' }))
     await waitFor(() =>
-      expect(saved[0]?.content).toBe('# Saved reply\n\n- body\n- retained\n\n![ai-image-1](</api/files/ATTACH1>)'),
+      expect(
+        within(node).getByRole('option', { name: 'Original note' }),
+      ).toBeTruthy(),
     )
-    expect(readImage).toHaveBeenCalledExactlyOnceWith('data:image/png;base64,iVBORw0KGgo=')
-    expect(uploaded.map((file) => [file.name, file.type])).toEqual([['ai-image-1.png', 'image/png']])
+    await fireEvent.click(
+      within(node).getByRole('option', { name: 'Original note' }),
+    )
+    await fireEvent.click(
+      await within(node).findByRole('button', { name: 'AI 对话' }),
+    )
+    await fireEvent.click(
+      await within(node).findByRole('button', { name: '保存' }),
+    )
+    await waitFor(() =>
+      expect(saved[0]?.content).toBe(
+        '# Saved reply\n\n- body\n- retained\n\n![ai-image-1](</api/files/ATTACH1>)',
+      ),
+    )
+    expect(readImage).toHaveBeenCalledExactlyOnceWith(
+      'data:image/png;base64,iVBORw0KGgo=',
+    )
+    expect(uploaded.map((file) => [file.name, file.type])).toEqual([
+      ['ai-image-1.png', 'image/png'],
+    ])
     expect(saved[0]?.title).toBe('Saved reply')
     expect(saved[0]?.id).not.toBe(original.id)
     expect(original.content).toBe('')
-    expect(await within(node).findByRole('option', { name: 'Saved reply' })).toBeTruthy()
+    expect(
+      await within(node).findByRole('option', { name: 'Saved reply' }),
+    ).toBeTruthy()
   } finally {
     await app.destroy()
   }

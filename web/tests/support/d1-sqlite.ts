@@ -11,7 +11,12 @@ class Statement {
     return new Statement(
       this.db,
       this.sql,
-      values.map((value) => (typeof value === 'boolean' ? Number(value) : (value ?? null)) as SQLInputValue),
+      values.map(
+        (value) =>
+          (typeof value === 'boolean'
+            ? Number(value)
+            : (value ?? null)) as SQLInputValue,
+      ),
     )
   }
 
@@ -22,7 +27,14 @@ class Statement {
       return { results, success: true, meta: { changes: results.length } }
     }
     const info = statement.run(...this.values)
-    return { results: [], success: true, meta: { changes: Number(info.changes), last_row_id: Number(info.lastInsertRowid) } }
+    return {
+      results: [],
+      success: true,
+      meta: {
+        changes: Number(info.changes),
+        last_row_id: Number(info.lastInsertRowid),
+      },
+    }
   }
 
   async first<T>(column?: string): Promise<T | null> {
@@ -32,7 +44,11 @@ class Statement {
   }
 
   async all<T>() {
-    return this.execute() as { results: T[]; success: true; meta: { changes: number } }
+    return this.execute() as {
+      results: T[]
+      success: true
+      meta: { changes: number }
+    }
   }
 
   async run() {

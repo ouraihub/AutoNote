@@ -78,8 +78,11 @@ export class HttpNotesPort implements NotesPort {
   readonly #backgroundFailure = (error: unknown): void => {
     if (this.#disposed) return
     if (error instanceof BackendError && error.code === 'cancelled') return
-    this.#deps.logger.warn('sync.pull.failed', { code: error instanceof BackendError ? error.code : 'internal' })
-    if (error instanceof BackendError && error.code === 'unauthenticated') this.#deps.emitChange({ kind: 'settings' })
+    this.#deps.logger.warn('sync.pull.failed', {
+      code: error instanceof BackendError ? error.code : 'internal',
+    })
+    if (error instanceof BackendError && error.code === 'unauthenticated')
+      this.#deps.emitChange({ kind: 'settings' })
   }
 
   dispose(): void {
@@ -105,7 +108,10 @@ export class HttpNotesPort implements NotesPort {
   snapshot(options?: CallOptions): Promise<SyncResponse> {
     return this.#puller.snapshot(options)
   }
-  list(query: ListNotesQuery, options?: CallOptions): Promise<ListNotesResponse> {
+  list(
+    query: ListNotesQuery,
+    options?: CallOptions,
+  ): Promise<ListNotesResponse> {
     return this.#deps.transport.json<ListNotesResponse>({
       path: '/api/notes',
       query: { ...query },
@@ -131,7 +137,11 @@ export class HttpNotesPort implements NotesPort {
     this.#creates.set(id, running)
     return running
   }
-  async patch(id: string, body: PatchNoteBody, options: NoteWriteOptions): Promise<NoteWriteResult> {
+  async patch(
+    id: string,
+    body: PatchNoteBody,
+    options: NoteWriteOptions,
+  ): Promise<NoteWriteResult> {
     const result = await this.#writer.patch(id, body, options)
     if (result.queued && !this.#disposed) {
       if (this.#timer !== null) this.#deps.timers.clearTimeout(this.#timer)
@@ -161,7 +171,10 @@ export class HttpNotesPort implements NotesPort {
       signal: options?.signal,
     })
   }
-  async purge(id: string, options?: CallOptions): Promise<{ ok: true; cursor: number }> {
+  async purge(
+    id: string,
+    options?: CallOptions,
+  ): Promise<{ ok: true; cursor: number }> {
     await this.#assertSaved(id, options)
     return this.#deps.transport.json<{ ok: true; cursor: number }>({
       path: `/api/notes/${encodeURIComponent(id)}/purge`,
@@ -169,7 +182,11 @@ export class HttpNotesPort implements NotesPort {
       signal: options?.signal,
     })
   }
-  async duplicate(id: string, body: { id?: string } = {}, options?: CallOptions): Promise<Note> {
+  async duplicate(
+    id: string,
+    body: { id?: string } = {},
+    options?: CallOptions,
+  ): Promise<Note> {
     await this.#assertSaved(id, options)
     return this.#deps.transport.json<Note>({
       path: `/api/notes/${encodeURIComponent(id)}/duplicate`,
@@ -186,20 +203,33 @@ export class HttpNotesPort implements NotesPort {
       signal: options?.signal,
     })
   }
-  async versions(id: string, options?: CallOptions): Promise<NoteVersionMeta[]> {
-    const result = await this.#deps.transport.json<{ versions: NoteVersionMeta[] }>({
+  async versions(
+    id: string,
+    options?: CallOptions,
+  ): Promise<NoteVersionMeta[]> {
+    const result = await this.#deps.transport.json<{
+      versions: NoteVersionMeta[]
+    }>({
       path: `/api/notes/${encodeURIComponent(id)}/versions`,
       signal: options?.signal,
     })
     return result.versions
   }
-  version(id: string, versionId: string, options?: CallOptions): Promise<NoteVersion> {
+  version(
+    id: string,
+    versionId: string,
+    options?: CallOptions,
+  ): Promise<NoteVersion> {
     return this.#deps.transport.json<NoteVersion>({
       path: `/api/notes/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}`,
       signal: options?.signal,
     })
   }
-  async restoreVersion(id: string, versionId: string, options?: CallOptions): Promise<Note> {
+  async restoreVersion(
+    id: string,
+    versionId: string,
+    options?: CallOptions,
+  ): Promise<Note> {
     await this.#assertSaved(id, options)
     return this.#deps.transport.json<Note>({
       path: `/api/notes/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/restore`,
@@ -214,8 +244,12 @@ export class HttpNotesPort implements NotesPort {
     })
     return result.backlinks
   }
-  async flush(noteId?: string, options?: CallOptions): Promise<{ pending: number; failed: number }> {
-    if (options?.signal?.aborted) throw new BackendError('cancelled', 0, 'Flush cancelled')
+  async flush(
+    noteId?: string,
+    options?: CallOptions,
+  ): Promise<{ pending: number; failed: number }> {
+    if (options?.signal?.aborted)
+      throw new BackendError('cancelled', 0, 'Flush cancelled')
     return this.#writer.flush(noteId)
   }
   async syncNow(options?: CallOptions): Promise<void> {
@@ -223,11 +257,19 @@ export class HttpNotesPort implements NotesPort {
     await this.flush(undefined, options)
     await this.#puller.pull(false, options)
   }
-  async #assertSaved(id: string | undefined, options?: CallOptions): Promise<void> {
+  async #assertSaved(
+    id: string | undefined,
+    options?: CallOptions,
+  ): Promise<void> {
     const result = await this.flush(id, options)
-    if (options?.signal?.aborted) throw new BackendError('cancelled', 0, 'Mutation cancelled')
+    if (options?.signal?.aborted)
+      throw new BackendError('cancelled', 0, 'Mutation cancelled')
     const journal = await this.#deps.localDb.getOutbox()
-    if (result.pending || result.failed || journal.some((item) => id === undefined || item.noteId === id))
+    if (
+      result.pending ||
+      result.failed ||
+      journal.some((item) => id === undefined || item.noteId === id)
+    )
       throw new BackendError('conflict', 409, 'Local changes are still pending')
   }
 }

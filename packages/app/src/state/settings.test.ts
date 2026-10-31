@@ -5,7 +5,11 @@ import type { UserSettings } from '@shared/types'
 import { BackendError, type SettingsPort } from '@app/backend'
 import type { Logger } from '@app/log/logger'
 import type { NotificationRequest, Notifier } from '@app/platform'
-import { SETTINGS_RETRY_BASE_MS, SETTINGS_SAVE_DELAY_MS, SettingsState } from './settings.svelte'
+import {
+  SETTINGS_RETRY_BASE_MS,
+  SETTINGS_SAVE_DELAY_MS,
+  SettingsState,
+} from './settings.svelte'
 
 interface Deferred<T> {
   promise: Promise<T>
@@ -110,7 +114,9 @@ describe('SettingsState', () => {
     expect(state.current.appearance.theme).toBe('dark')
     expect(state.current.appearance.accent).toBe('indigo')
     expect(state.current.editor.fontSize).toBe(18)
-    expect(state.persisted.appearance.theme).toBe(DEFAULT_SETTINGS.appearance.theme)
+    expect(state.persisted.appearance.theme).toBe(
+      DEFAULT_SETTINGS.appearance.theme,
+    )
     expect(state.status).toBe('scheduled')
 
     await vi.advanceTimersByTimeAsync(SETTINGS_SAVE_DELAY_MS - 1)
@@ -118,7 +124,10 @@ describe('SettingsState', () => {
     await vi.advanceTimersByTimeAsync(1)
 
     expect(port.saves.map((save) => save.patch)).toEqual([
-      { appearance: { theme: 'dark', accent: 'indigo' }, editor: { fontSize: 18 } },
+      {
+        appearance: { theme: 'dark', accent: 'indigo' },
+        editor: { fontSize: 18 },
+      },
     ])
     expect(state.status).toBe('saving')
 
@@ -163,13 +172,19 @@ describe('SettingsState', () => {
     expect(state.status).toBe('retrying')
     expect(state.current.editor.fontSize).toBe(18)
     expect(state.current.editor.lineNumbers).toBe(true)
-    expect(state.persisted.editor.fontSize).toBe(DEFAULT_SETTINGS.editor.fontSize)
-    expect(notifier.toasts.map((toast) => toast.key)).toEqual(['session.could_not_save_settings'])
+    expect(state.persisted.editor.fontSize).toBe(
+      DEFAULT_SETTINGS.editor.fontSize,
+    )
+    expect(notifier.toasts.map((toast) => toast.key)).toEqual([
+      'session.could_not_save_settings',
+    ])
 
     await vi.advanceTimersByTimeAsync(SETTINGS_RETRY_BASE_MS - 1)
     expect(port.saves).toHaveLength(1)
     await vi.advanceTimersByTimeAsync(1)
-    expect(port.saves[1]?.patch).toEqual({ editor: { fontSize: 18, lineNumbers: true } })
+    expect(port.saves[1]?.patch).toEqual({
+      editor: { fontSize: 18, lineNumbers: true },
+    })
 
     port.saves[1]?.reply.reject(new BackendError('offline', 0, 'offline'))
     await settle()
@@ -182,7 +197,10 @@ describe('SettingsState', () => {
     await settle()
     expect(state.error).toBeNull()
     expect(state.pendingPatch).toBeNull()
-    expect(state.persisted.editor).toMatchObject({ fontSize: 18, lineNumbers: true })
+    expect(state.persisted.editor).toMatchObject({
+      fontSize: 18,
+      lineNumbers: true,
+    })
   })
 
   test('silent edits do not raise a failure toast', async () => {
@@ -190,7 +208,9 @@ describe('SettingsState', () => {
 
     state.update({ preview: { layout: 'split' } }, { silent: true })
     await vi.advanceTimersByTimeAsync(SETTINGS_SAVE_DELAY_MS)
-    port.saves[0]?.reply.reject(new BackendError('storage_unavailable', 503, 'unavailable'))
+    port.saves[0]?.reply.reject(
+      new BackendError('storage_unavailable', 503, 'unavailable'),
+    )
     await settle()
 
     expect(state.error).toBe('storage_unavailable')
@@ -200,11 +220,17 @@ describe('SettingsState', () => {
   test('rejects unknown keys and out-of-range values without changing state', () => {
     const { state } = setup()
 
-    expect(() => state.update({ editor: { fontSize: 99 } })).toThrow(BackendError)
-    expect(() => state.update({ appearance: { theme: 'neon' } } as unknown as SettingsPatch)).toThrow(
-      expect.objectContaining({ code: 'bad_request' }),
+    expect(() => state.update({ editor: { fontSize: 99 } })).toThrow(
+      BackendError,
     )
-    expect(() => state.update({ unknown: {} } as unknown as SettingsPatch)).toThrow(BackendError)
+    expect(() =>
+      state.update({
+        appearance: { theme: 'neon' },
+      } as unknown as SettingsPatch),
+    ).toThrow(expect.objectContaining({ code: 'bad_request' }))
+    expect(() =>
+      state.update({ unknown: {} } as unknown as SettingsPatch),
+    ).toThrow(BackendError)
     expect(state.pendingPatch).toBeNull()
     expect(state.status).toBe('idle')
   })
@@ -232,12 +258,19 @@ describe('SettingsState', () => {
 
     state.update({ appearance: { theme: 'dark' } })
     await vi.advanceTimersByTimeAsync(SETTINGS_SAVE_DELAY_MS)
-    state.adopt('user-b', { ...DEFAULT_SETTINGS, appearance: { ...DEFAULT_SETTINGS.appearance, accent: 'amber' } })
+    state.adopt('user-b', {
+      ...DEFAULT_SETTINGS,
+      appearance: { ...DEFAULT_SETTINGS.appearance, accent: 'amber' },
+    })
 
-    port.saves[0]?.reply.resolve(mergeSettingsPatch(DEFAULT_SETTINGS, { appearance: { theme: 'dark' } }))
+    port.saves[0]?.reply.resolve(
+      mergeSettingsPatch(DEFAULT_SETTINGS, { appearance: { theme: 'dark' } }),
+    )
     await settle()
 
-    expect(state.current.appearance.theme).toBe(DEFAULT_SETTINGS.appearance.theme)
+    expect(state.current.appearance.theme).toBe(
+      DEFAULT_SETTINGS.appearance.theme,
+    )
     expect(state.current.appearance.accent).toBe('amber')
     expect(state.pendingPatch).toBeNull()
     await vi.advanceTimersByTimeAsync(SETTINGS_RETRY_BASE_MS)
@@ -248,7 +281,10 @@ describe('SettingsState', () => {
     const { port, state } = setup()
 
     const loading = state.load()
-    state.adopt('user-a', { ...DEFAULT_SETTINGS, backup: { schedule: 'daily' } })
+    state.adopt('user-a', {
+      ...DEFAULT_SETTINGS,
+      backup: { schedule: 'daily' },
+    })
     port.gets[0]?.resolve({ ...DEFAULT_SETTINGS, backup: { schedule: 'off' } })
     await loading
 
@@ -260,7 +296,10 @@ describe('SettingsState', () => {
 
     state.update({ editor: { tabSize: 4 } })
     const loading = state.load()
-    port.gets[0]?.resolve({ ...DEFAULT_SETTINGS, editor: { ...DEFAULT_SETTINGS.editor, fontSize: 20 } })
+    port.gets[0]?.resolve({
+      ...DEFAULT_SETTINGS,
+      editor: { ...DEFAULT_SETTINGS.editor, fontSize: 20 },
+    })
     await loading
 
     expect(state.current.editor).toMatchObject({ tabSize: 4, fontSize: 20 })

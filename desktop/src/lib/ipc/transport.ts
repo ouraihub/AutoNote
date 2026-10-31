@@ -32,21 +32,29 @@ export interface IpcTransport {
   ): Promise<T | null>
   reindex(options?: CallOptions): Promise<{ ok: true; indexed: number }>
   flushNotes(noteId?: string, options?: CallOptions): Promise<FlushResult>
-  onPrepareClose(flush: () => Promise<FlushResult>, closing: (active: boolean) => void): Promise<() => void>
+  onPrepareClose(
+    flush: () => Promise<FlushResult>,
+    closing: (active: boolean) => void,
+  ): Promise<() => void>
   listenIntents(listener: (intent: 'new-note') => void): Promise<() => void>
   listenSyncStatus(listener: (status: SyncStatus) => void): Promise<() => void>
-  listenMcpStatus(listener: (status: McpLocalStatus) => void): Promise<() => void>
+  listenMcpStatus(
+    listener: (status: McpLocalStatus) => void,
+  ): Promise<() => void>
   dispose(): Promise<void>
 }
 
 type IpcFailureObserver = (command: string, code: string) => void
 let failureObserver: IpcFailureObserver | undefined
-export function observeIpcFailures(observer: IpcFailureObserver | undefined): void {
+export function observeIpcFailures(
+  observer: IpcFailureObserver | undefined,
+): void {
   failureObserver = observer
 }
 function reportFailure(command: string, error: unknown): void {
   const code = ipcError(error).code
-  if (command !== 'app_log' && code !== 'cancelled') failureObserver?.(command, code)
+  if (command !== 'app_log' && code !== 'cancelled')
+    failureObserver?.(command, code)
 }
 export class TauriTransport implements IpcTransport {
   #disposed = false
@@ -104,7 +112,10 @@ export class TauriTransport implements IpcTransport {
       throw error
     }
   }
-  async #listen<T>(event: string, listener: (payload: T) => void): Promise<() => void> {
+  async #listen<T>(
+    event: string,
+    listener: (payload: T) => void,
+  ): Promise<() => void> {
     if (this.#disposed) throw cancelled()
     const release = await listen<T>(event, ({ payload }) => {
       if (!this.#disposed) listener(payload)
@@ -120,17 +131,28 @@ export class TauriTransport implements IpcTransport {
     this.#listeners.add(unlisten)
     return unlisten
   }
-  listenLibrary(listener: (payload: SyncResponse) => void): Promise<() => void> {
+  listenLibrary(
+    listener: (payload: SyncResponse) => void,
+  ): Promise<() => void> {
     return this.#listen<unknown>('autonote://library-changed', (payload) => {
       if (isSyncResponse(payload)) listener(payload)
     })
   }
-  async flushNotes(noteId?: string, options?: CallOptions): Promise<FlushResult> {
+  async flushNotes(
+    noteId?: string,
+    options?: CallOptions,
+  ): Promise<FlushResult> {
     const writes = await Promise.allSettled([...this.#writes])
-    const result = await this.invoke('notes_flush', noteId === undefined ? {} : { noteId }, options)
+    const result = await this.invoke(
+      'notes_flush',
+      noteId === undefined ? {} : { noteId },
+      options,
+    )
     return {
       pending: result.pending,
-      failed: result.failed + writes.filter((write) => write.status === 'rejected').length,
+      failed:
+        result.failed +
+        writes.filter((write) => write.status === 'rejected').length,
     }
   }
   changesSince(since: number): Promise<SyncResponse> {
@@ -145,11 +167,17 @@ export class TauriTransport implements IpcTransport {
     bytes: ArrayBuffer,
     options?: CallOptions,
   ): Promise<{ received: number }> {
-    const result = await this.#call<{ received: number }>('files_upload_chunk', bytes, options, {
-      'x-autonote-upload-id': uploadId,
-      'x-autonote-offset': String(offset),
-    })
-    if (!record(result) || result.received !== offset + bytes.byteLength) throw invalidResponse()
+    const result = await this.#call<{ received: number }>(
+      'files_upload_chunk',
+      bytes,
+      options,
+      {
+        'x-autonote-upload-id': uploadId,
+        'x-autonote-offset': String(offset),
+      },
+    )
+    if (!record(result) || result.received !== offset + bytes.byteLength)
+      throw invalidResponse()
     return result
   }
   async invokeJob<T>(
@@ -168,7 +196,8 @@ export class TauriTransport implements IpcTransport {
         isProgressEvent(event) &&
         event.jobId === jobId &&
         (event.total === null || event.completed <= event.total) &&
-        (previous?.phase !== event.phase || event.completed >= previous.completed)
+        (previous?.phase !== event.phase ||
+          event.completed >= previous.completed)
       ) {
         terminal = event.terminal
         previous = event
@@ -184,17 +213,24 @@ export class TauriTransport implements IpcTransport {
     }
     options?.signal?.addEventListener('abort', abort, { once: true })
     try {
-      const result = await this.#call<unknown>(command, { ...args, jobId, channel })
+      const result = await this.#call<unknown>(command, {
+        ...args,
+        jobId,
+        channel,
+      })
       if (!record(result)) throw invalidResponse()
       if (result.kind === 'cancelled') return null
-      if (result.kind !== 'completed' || !record(result.value)) throw invalidResponse()
+      if (result.kind !== 'completed' || !record(result.value))
+        throw invalidResponse()
       const value = result.value
       if (
         command === 'transfer_export'
           ? value.saved !== true
           : !Array.isArray(value.warnings) ||
             value.warnings.length > 100 ||
-            !value.warnings.every((warning: unknown) => typeof warning === 'string') ||
+            !value.warnings.every(
+              (warning: unknown) => typeof warning === 'string',
+            ) ||
             ![
               'createdNotes',
               'updatedNotes',
@@ -204,7 +240,11 @@ export class TauriTransport implements IpcTransport {
               'skippedAttachments',
             ].every((key) => {
               const count = value[key]
-              return typeof count === 'number' && Number.isSafeInteger(count) && count >= 0
+              return (
+                typeof count === 'number' &&
+                Number.isSafeInteger(count) &&
+                count >= 0
+              )
             })
       )
         throw invalidResponse()
@@ -228,34 +268,55 @@ export class TauriTransport implements IpcTransport {
     this.#jobs.set(jobId, cancel)
     options?.signal?.addEventListener('abort', abort, { once: true })
     try {
-      const result = await this.#call<{ ok: true; indexed: number }>('search_reindex', { jobId, onProgress })
-      if (!record(result) || result.ok !== true || !Number.isSafeInteger(result.indexed)) throw invalidResponse()
+      const result = await this.#call<{ ok: true; indexed: number }>(
+        'search_reindex',
+        { jobId, onProgress },
+      )
+      if (
+        !record(result) ||
+        result.ok !== true ||
+        !Number.isSafeInteger(result.indexed)
+      )
+        throw invalidResponse()
       return result
     } finally {
       options?.signal?.removeEventListener('abort', abort)
       this.#jobs.delete(jobId)
     }
   }
-  async onPrepareClose(flush: () => Promise<FlushResult>, closing: (active: boolean) => void): Promise<() => void> {
-    const releaseCancelled = await this.#listen('autonote://close-cancelled', () => closing(false))
+  async onPrepareClose(
+    flush: () => Promise<FlushResult>,
+    closing: (active: boolean) => void,
+  ): Promise<() => void> {
+    const releaseCancelled = await this.#listen(
+      'autonote://close-cancelled',
+      () => closing(false),
+    )
     try {
-      const releasePrepare = await this.#listen<unknown>('autonote://prepare-close', (payload) => {
-        if (!record(payload) || typeof payload.requestId !== 'number' || !Number.isSafeInteger(payload.requestId))
-          return
-        const requestId = payload.requestId
-        closing(true)
-        void (async () => {
-          let result: FlushResult
-          try {
-            result = await flush()
-          } catch {
-            result = { pending: 0, failed: 1 }
-          }
-          await this.invoke('desktop_close_ack', { requestId, ...result })
-        })().catch(() => {
-          closing(false)
-        })
-      })
+      const releasePrepare = await this.#listen<unknown>(
+        'autonote://prepare-close',
+        (payload) => {
+          if (
+            !record(payload) ||
+            typeof payload.requestId !== 'number' ||
+            !Number.isSafeInteger(payload.requestId)
+          )
+            return
+          const requestId = payload.requestId
+          closing(true)
+          void (async () => {
+            let result: FlushResult
+            try {
+              result = await flush()
+            } catch {
+              result = { pending: 0, failed: 1 }
+            }
+            await this.invoke('desktop_close_ack', { requestId, ...result })
+          })().catch(() => {
+            closing(false)
+          })
+        },
+      )
       return () => {
         releasePrepare()
         releaseCancelled()
@@ -271,7 +332,9 @@ export class TauriTransport implements IpcTransport {
       if (intent === 'new-note') listener(intent)
     })
   }
-  listenSyncStatus(listener: (status: SyncStatus) => void): Promise<() => void> {
+  listenSyncStatus(
+    listener: (status: SyncStatus) => void,
+  ): Promise<() => void> {
     return this.#listen<unknown>('autonote://sync-status', (payload) => {
       try {
         validateResponse('sync_status', payload)
@@ -281,7 +344,9 @@ export class TauriTransport implements IpcTransport {
       listener(payload as SyncStatus)
     })
   }
-  listenMcpStatus(listener: (status: McpLocalStatus) => void): Promise<() => void> {
+  listenMcpStatus(
+    listener: (status: McpLocalStatus) => void,
+  ): Promise<() => void> {
     return this.#listen<unknown>('autonote://mcp-status', (payload) => {
       if (
         record(payload) &&
@@ -307,9 +372,14 @@ export class TauriTransport implements IpcTransport {
 
 // Non-domain diagnostic panels share the same sole Tauri boundary.
 const diagnostics = new TauriTransport()
-export function call<K extends keyof CommandArgs>(command: K, args: CommandArgs[K]): Promise<CommandResults[K]> {
+export function call<K extends keyof CommandArgs>(
+  command: K,
+  args: CommandArgs[K],
+): Promise<CommandResults[K]> {
   return diagnostics.invoke(command, args)
 }
-export function listenSyncStatus(listener: (status: SyncStatus) => void): Promise<() => void> {
+export function listenSyncStatus(
+  listener: (status: SyncStatus) => void,
+): Promise<() => void> {
   return diagnostics.listenSyncStatus(listener)
 }

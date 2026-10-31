@@ -21,10 +21,14 @@ class MemoryPrefsStore implements PrefsStore {
 describe('I18nState', () => {
   test('keeps the newest locale when loads resolve out of order', async () => {
     const prefs = new MemoryPrefsStore()
-    let resolveChinese: ((messages: Readonly<Record<'app.document_title', string>>) => void) | undefined
-    const chinese = new Promise<Readonly<Record<'app.document_title', string>>>((resolve) => {
-      resolveChinese = resolve
-    })
+    let resolveChinese:
+      | ((messages: Readonly<Record<'app.document_title', string>>) => void)
+      | undefined
+    const chinese = new Promise<Readonly<Record<'app.document_title', string>>>(
+      (resolve) => {
+        resolveChinese = resolve
+      },
+    )
     const state = new I18nState({
       prefs,
       loaders: {
@@ -47,14 +51,19 @@ describe('I18nState', () => {
       prefs: new MemoryPrefsStore(),
       loaders: {
         'en-US': async () =>
-          ({ 'app.document_title': 'AutoNote', 'settings.value0_notes_value1': '{value0} notes, {value1}' }) as never,
+          ({
+            'app.document_title': 'AutoNote',
+            'settings.value0_notes_value1': '{value0} notes, {value1}',
+          }) as never,
         'zh-CN': async () => ({ 'app.document_title': '自动笔记' }) as never,
       },
     })
 
     await state.setLocale('en-US')
 
-    expect(state.t('settings.value0_notes_value1', { value0: 2 })).toBe('2 notes · {value1}')
+    expect(state.t('settings.value0_notes_value1', { value0: 2 })).toBe(
+      '2 notes · {value1}',
+    )
   })
 
   test('restores an already loaded language after switching back from English', async () => {

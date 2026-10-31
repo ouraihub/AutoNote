@@ -30,7 +30,10 @@ it('elects one polling leader, does not echo pulled, takes over on focus and rel
     setInterval: (listener, delay) => Number(setInterval(listener, delay)),
     clearInterval: (id) => clearInterval(id),
   }
-  const signals = (): PageSignals & { fire(signal: PageSignal): void; count(): number } => {
+  const signals = (): PageSignals & {
+    fire(signal: PageSignal): void
+    count(): number
+  } => {
     const listeners = new Map<PageSignal, Set<() => void>>()
     return {
       isHidden: false,
@@ -47,7 +50,10 @@ it('elects one polling leader, does not echo pulled, takes over on focus and rel
         for (const listener of listeners.get(signal) ?? []) listener()
       },
       count() {
-        return [...listeners.values()].reduce((sum, group) => sum + group.size, 0)
+        return [...listeners.values()].reduce(
+          (sum, group) => sum + group.size,
+          0,
+        )
       },
     }
   }
@@ -124,7 +130,11 @@ it('uses only the elected socket, preserves the earliest pull, heartbeats, and r
     setInterval: (fn, ms) => Number(setInterval(fn, ms)),
     clearInterval: (id) => clearInterval(id),
   }
-  const page: PageSignals = { isHidden: false, isOnline: true, on: () => () => undefined }
+  const page: PageSignals = {
+    isHidden: false,
+    isOnline: true,
+    on: () => () => undefined,
+  }
   const sockets: (SyncSocket & { send: Mock; close: Mock })[] = []
   const factory = {
     create() {
@@ -186,12 +196,16 @@ it('uses only the elected socket, preserves the earliest pull, heartbeats, and r
     pullA.mockClear()
     pullB.mockClear()
     socket.onmessage?.(
-      new MessageEvent('message', { data: JSON.stringify({ type: 'changed', cursor: 2, origin: 'b' }) }),
+      new MessageEvent('message', {
+        data: JSON.stringify({ type: 'changed', cursor: 2, origin: 'b' }),
+      }),
     )
     await vi.advanceTimersByTimeAsync(200)
     expect(pullB).not.toHaveBeenCalled()
     socket.onmessage?.(
-      new MessageEvent('message', { data: JSON.stringify({ type: 'changed', cursor: 2, origin: null }) }),
+      new MessageEvent('message', {
+        data: JSON.stringify({ type: 'changed', cursor: 2, origin: null }),
+      }),
     )
     await vi.advanceTimersByTimeAsync(100)
     busA.post({ type: 'local-write', clientId: 'a' })
@@ -205,7 +219,10 @@ it('uses only the elected socket, preserves the earliest pull, heartbeats, and r
     pullA.mockClear()
     await vi.advanceTimersByTimeAsync(50_000)
     expect(socket.close).toHaveBeenCalledTimes(1)
-    expect(logger.warn).toHaveBeenCalledWith('sync.socket.fallback', { code: 'request_timeout', delayMs: 800 })
+    expect(logger.warn).toHaveBeenCalledWith('sync.socket.fallback', {
+      code: 'request_timeout',
+      delayMs: 800,
+    })
     engineB.updateConfig(false, 5_000)
     await vi.advanceTimersByTimeAsync(5_000)
     expect(pullB).toHaveBeenCalled()

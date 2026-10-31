@@ -60,7 +60,10 @@ const emptySnapshot: SyncResponse = {
   serverTime: 1,
 }
 
-function backendWithNotes(notes: { get(id: string): Promise<Note>; patch: Backend['notes']['patch'] }): Backend {
+function backendWithNotes(notes: {
+  get(id: string): Promise<Note>
+  patch: Backend['notes']['patch']
+}): Backend {
   return {
     kind: 'desktop',
     capabilities: {} as Backend['capabilities'],
@@ -79,7 +82,11 @@ describe('NotesState', () => {
     const second = deferred<Note>()
     const backend = backendWithNotes({
       get: (id) => (id === 'first' ? first.promise : second.promise),
-      patch: async () => ({ queued: false, writeId: 'unused', note: makeNote('unused', '') }),
+      patch: async () => ({
+        queued: false,
+        writeId: 'unused',
+        note: makeNote('unused', ''),
+      }),
     })
     const state = new NotesState({ backend, logger })
     const openingFirst = state.open('first')
@@ -113,7 +120,11 @@ describe('NotesState', () => {
     const backend = backendWithNotes({
       get: async () => ({ ...stored }),
       patch: async (_id, body, options) => {
-        stored = makeNote('note', body.content ?? stored.content, stored.rev + 1)
+        stored = makeNote(
+          'note',
+          body.content ?? stored.content,
+          stored.rev + 1,
+        )
         return { queued: false, writeId: options.writeId, note: stored }
       },
     })
@@ -143,7 +154,14 @@ describe('NotesState', () => {
     const state = new NotesState({ backend, logger })
     await state.open('note')
     await state.purge('note')
-    feed.emit({ kind: 'sync', payload: { ...emptySnapshot, cursor: 0, notes: [makeNote('note', 'old')] } })
+    feed.emit({
+      kind: 'sync',
+      payload: {
+        ...emptySnapshot,
+        cursor: 0,
+        notes: [makeNote('note', 'old')],
+      },
+    })
     expect(state.summaries.note).toBeUndefined()
   })
 
@@ -179,7 +197,12 @@ describe('NotesState', () => {
     state.editContent('note', 'newer text')
     feed.emit({
       kind: 'write',
-      payload: { kind: 'settled', writeId: 'older-write', noteId: 'note', note: makeNote('note', 'old', 2) },
+      payload: {
+        kind: 'settled',
+        writeId: 'older-write',
+        noteId: 'note',
+        note: makeNote('note', 'old', 2),
+      },
     })
     expect(state.contents.note).toBe('newer text')
     expect(state.dirtyById.note).toBe(true)
@@ -194,10 +217,19 @@ describe('NotesState', () => {
       get: async () => ({ ...stored }),
       patch: async (_id, body, options) => {
         bodies.push(body)
-        if (body.rev !== stored.rev) throw new BackendError('conflict', 409, 'stale revision')
+        if (body.rev !== stored.rev)
+          throw new BackendError('conflict', 409, 'stale revision')
         const save = (): NoteWriteResult => {
-          stored = { ...stored, content: body.content ?? stored.content, rev: stored.rev + 1 }
-          return { queued: false, writeId: options.writeId, note: { ...stored } }
+          stored = {
+            ...stored,
+            content: body.content ?? stored.content,
+            rev: stored.rev + 1,
+          }
+          return {
+            queued: false,
+            writeId: options.writeId,
+            note: { ...stored },
+          }
         }
         if (bodies.length === 1) return firstSave.promise.then(save)
         return save()
@@ -220,14 +252,27 @@ describe('NotesState', () => {
     const original = makeNote('note', 'body')
     const backend = backendWithNotes({
       get: async () => original,
-      patch: async (id, body, options) => ({ queued: true, noteId: id, rev: body.rev, writeId: options.writeId }),
+      patch: async (id, body, options) => ({
+        queued: true,
+        noteId: id,
+        rev: body.rev,
+        writeId: options.writeId,
+      }),
     })
-    const state = new NotesState({ backend: { ...backend, kind: 'web' }, logger })
+    const state = new NotesState({
+      backend: { ...backend, kind: 'web' },
+      logger,
+    })
     state.applySync({ ...emptySnapshot, notes: [original], cursor: 1 })
     await state.open('note')
     state.editTitle('note', '中文标题')
     await vi.waitFor(() => expect(state.saveState.note).toBe('saved-local'))
-    state.applySync({ ...emptySnapshot, full: false, cursor: 2, notes: [{ ...original, rev: 2 }] })
+    state.applySync({
+      ...emptySnapshot,
+      full: false,
+      cursor: 2,
+      notes: [{ ...original, rev: 2 }],
+    })
     expect(state.summaries.note?.title).toBe('中文标题')
     expect(state.dirtyById.note).toBe(true)
     state.dispose()
@@ -236,8 +281,15 @@ describe('NotesState', () => {
   test('reset discards the previous account and ignores a late open response', async () => {
     const oldOpen = deferred<Note>()
     const backend = backendWithNotes({
-      get: (id) => (id === 'old' ? oldOpen.promise : Promise.resolve(makeNote('new', 'new account'))),
-      patch: async () => ({ queued: false, writeId: 'unused', note: makeNote('unused', '') }),
+      get: (id) =>
+        id === 'old'
+          ? oldOpen.promise
+          : Promise.resolve(makeNote('new', 'new account')),
+      patch: async () => ({
+        queued: false,
+        writeId: 'unused',
+        note: makeNote('unused', ''),
+      }),
     })
     const state = new NotesState({ backend, logger })
     const opening = state.open('old')

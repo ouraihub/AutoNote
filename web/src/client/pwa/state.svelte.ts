@@ -46,7 +46,11 @@ export class PwaState {
     if (!worker) return
     this.#updateWorker = worker
     this.#workerStateListener = () => {
-      if (worker.state === 'installed' && browserCapabilities.serviceWorkerContainer.controller) this.#showUpdate()
+      if (
+        worker.state === 'installed' &&
+        browserCapabilities.serviceWorkerContainer.controller
+      )
+        this.#showUpdate()
     }
     worker.addEventListener('statechange', this.#workerStateListener)
   }
@@ -67,12 +71,19 @@ export class PwaState {
   #onVisibility = (): void => {
     if (document.hidden) return
     void this.#registration?.update().catch((error: unknown) => {
-      this.#deps.logger.warn('pwa.update.check_failed', { name: error instanceof Error ? error.name : 'unknown' })
+      this.#deps.logger.warn('pwa.update.check_failed', {
+        name: error instanceof Error ? error.name : 'unknown',
+      })
     })
     this.#scheduleWarmup()
   }
   #onMessage = (event: MessageEvent): void => {
-    const data = event.data as { type?: string; status?: OfflineStatus; completed?: number; total?: number } | null
+    const data = event.data as {
+      type?: string
+      status?: OfflineStatus
+      completed?: number
+      total?: number
+    } | null
     if (
       data?.type !== 'OFFLINE_CACHE_STATUS' ||
       !data.status ||
@@ -85,7 +96,9 @@ export class PwaState {
     this.offlineTotal = Math.max(completed, Number(data.total) || 0)
     if (data.status === 'error' && !this.#cacheFailureLogged) {
       this.#cacheFailureLogged = true
-      this.#deps.logger.warn('pwa.cache.failed', { completed: this.offlineCompleted })
+      this.#deps.logger.warn('pwa.cache.failed', {
+        completed: this.offlineCompleted,
+      })
     }
   }
   #onControllerChange = (): void => {
@@ -106,8 +119,14 @@ export class PwaState {
     window.addEventListener('online', this.#onOnline)
     document.addEventListener('visibilitychange', this.#onVisibility)
     if (!import.meta.env.PROD || !browserCapabilities.serviceWorker) return
-    browserCapabilities.serviceWorkerContainer.addEventListener('message', this.#onMessage)
-    browserCapabilities.serviceWorkerContainer.addEventListener('controllerchange', this.#onControllerChange)
+    browserCapabilities.serviceWorkerContainer.addEventListener(
+      'message',
+      this.#onMessage,
+    )
+    browserCapabilities.serviceWorkerContainer.addEventListener(
+      'controllerchange',
+      this.#onControllerChange,
+    )
     void this.#register()
   }
 
@@ -124,10 +143,13 @@ export class PwaState {
     this.installing = true
     try {
       await prompt.prompt()
-      if ((await prompt.userChoice).outcome === 'accepted') this.installed = true
+      if ((await prompt.userChoice).outcome === 'accepted')
+        this.installed = true
     } catch (error: unknown) {
       this.operationFailed = true
-      this.#deps.logger.warn('pwa.install.failed', { name: error instanceof Error ? error.name : 'unknown' })
+      this.#deps.logger.warn('pwa.install.failed', {
+        name: error instanceof Error ? error.name : 'unknown',
+      })
     } finally {
       this.installing = false
     }
@@ -141,9 +163,16 @@ export class PwaState {
     this.operationFailed = false
     try {
       const result = await this.#deps.flush()
-      if (this.#disposed || this.#registration?.waiting !== worker || result.failed > 0) {
+      if (
+        this.#disposed ||
+        this.#registration?.waiting !== worker ||
+        result.failed > 0
+      ) {
         this.updateBlocked = true
-        if (result.failed > 0) this.#deps.logger.warn('pwa.update.blocked', { failed: result.failed })
+        if (result.failed > 0)
+          this.#deps.logger.warn('pwa.update.blocked', {
+            failed: result.failed,
+          })
         return
       }
       this.#reloadRequested = true
@@ -151,7 +180,9 @@ export class PwaState {
     } catch (error: unknown) {
       this.updateBlocked = true
       this.operationFailed = true
-      this.#deps.logger.warn('pwa.update.flush_failed', { name: error instanceof Error ? error.name : 'unknown' })
+      this.#deps.logger.warn('pwa.update.flush_failed', {
+        name: error instanceof Error ? error.name : 'unknown',
+      })
     } finally {
       this.updating = false
     }
@@ -162,22 +193,39 @@ export class PwaState {
     this.#disposed = true
     this.#prompt = null
     if (!this.#started) return
-    window.removeEventListener('beforeinstallprompt', this.#onBeforeInstallPrompt)
+    window.removeEventListener(
+      'beforeinstallprompt',
+      this.#onBeforeInstallPrompt,
+    )
     window.removeEventListener('appinstalled', this.#onInstalled)
     window.removeEventListener('online', this.#onOnline)
     document.removeEventListener('visibilitychange', this.#onVisibility)
     if (browserCapabilities.serviceWorker) {
-      browserCapabilities.serviceWorkerContainer.removeEventListener('message', this.#onMessage)
-      browserCapabilities.serviceWorkerContainer.removeEventListener('controllerchange', this.#onControllerChange)
+      browserCapabilities.serviceWorkerContainer.removeEventListener(
+        'message',
+        this.#onMessage,
+      )
+      browserCapabilities.serviceWorkerContainer.removeEventListener(
+        'controllerchange',
+        this.#onControllerChange,
+      )
     }
-    this.#updateRegistration?.removeEventListener('updatefound', this.#onUpdateFound)
+    this.#updateRegistration?.removeEventListener(
+      'updatefound',
+      this.#onUpdateFound,
+    )
     if (this.#updateWorker && this.#workerStateListener)
-      this.#updateWorker.removeEventListener('statechange', this.#workerStateListener)
+      this.#updateWorker.removeEventListener(
+        'statechange',
+        this.#workerStateListener,
+      )
     this.#updateRegistration = null
     this.#updateWorker = null
     this.#workerStateListener = null
     if (this.#idleHandle !== undefined) {
-      const idle = window as Window & { cancelIdleCallback?: (handle: number) => void }
+      const idle = window as Window & {
+        cancelIdleCallback?: (handle: number) => void
+      }
       idle.cancelIdleCallback?.(this.#idleHandle)
       this.#idleHandle = undefined
     }
@@ -187,11 +235,14 @@ export class PwaState {
 
   async #register(): Promise<void> {
     try {
-      const wasControlled = Boolean(browserCapabilities.serviceWorkerContainer.controller)
-      const registration = await browserCapabilities.serviceWorkerContainer.register('/sw.js', {
-        scope: '/',
-        updateViaCache: 'none',
-      })
+      const wasControlled = Boolean(
+        browserCapabilities.serviceWorkerContainer.controller,
+      )
+      const registration =
+        await browserCapabilities.serviceWorkerContainer.register('/sw.js', {
+          scope: '/',
+          updateViaCache: 'none',
+        })
       if (this.#disposed) return
       this.#registration = registration
       if (registration.waiting && wasControlled) this.#showUpdate()
@@ -203,7 +254,9 @@ export class PwaState {
       ready.active?.postMessage({ type: 'GET_OFFLINE_CACHE_STATUS' })
       this.#scheduleWarmup()
     } catch (error: unknown) {
-      this.#deps.logger.warn('pwa.registration.failed', { name: error instanceof Error ? error.name : 'unknown' })
+      this.#deps.logger.warn('pwa.registration.failed', {
+        name: error instanceof Error ? error.name : 'unknown',
+      })
     }
   }
 
@@ -228,9 +281,13 @@ export class PwaState {
         this.#registration?.active?.postMessage({ type: 'WARM_OFFLINE_CACHE' })
     }
     const idle = window as Window & {
-      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number
+      requestIdleCallback?: (
+        callback: () => void,
+        options?: { timeout: number },
+      ) => number
     }
-    if (idle.requestIdleCallback) this.#idleHandle = idle.requestIdleCallback(run, { timeout: 3_000 })
+    if (idle.requestIdleCallback)
+      this.#idleHandle = idle.requestIdleCallback(run, { timeout: 3_000 })
     else this.#timer = window.setTimeout(run, 1_200)
   }
 }
@@ -238,7 +295,9 @@ export class PwaState {
 function isStandalone(): boolean {
   if (typeof window === 'undefined') return false
   return (
-    (typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches) ||
-    (globalThis.navigator as Navigator & { standalone?: boolean }).standalone === true
+    (typeof window.matchMedia === 'function' &&
+      window.matchMedia('(display-mode: standalone)').matches) ||
+    (globalThis.navigator as Navigator & { standalone?: boolean })
+      .standalone === true
   )
 }

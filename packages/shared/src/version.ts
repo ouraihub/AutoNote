@@ -15,13 +15,19 @@ export function compareVersions(left: string, right: string): number {
   if (!leftParts || !rightParts) return 0
 
   for (let index = 0; index < 3; index++) {
-    const compared = compareNumericStrings(leftParts[index]!, rightParts[index]!)
+    const compared = compareNumericStrings(
+      leftParts[index]!,
+      rightParts[index]!,
+    )
     if (compared !== 0) return compared
   }
   return 0
 }
 
-export function isNewerVersion(latest: string | null, current: string): boolean {
+export function isNewerVersion(
+  latest: string | null,
+  current: string,
+): boolean {
   return (
     latest !== null &&
     isValidVersion(latest) &&
