@@ -74,18 +74,25 @@ async fn assert_descendant_ended(cwd: &Path) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     loop {
         #[cfg(windows)]
-        let ended = std::process::Command::new("powershell.exe")
-            .args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                &format!(
-                    "if(Get-Process -Id {pid} -ErrorAction SilentlyContinue){{exit 1}}else{{exit 0}}"
-                ),
-            ])
-            .status()
-            .unwrap()
-            .success();
+        let ended = std::process::Command::new(
+            std::env::var_os("SystemRoot")
+                .map(|root| {
+                    std::path::PathBuf::from(root)
+                        .join("System32/WindowsPowerShell/v1.0/powershell.exe")
+                })
+                .unwrap_or_else(|| "powershell.exe".into()),
+        )
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            &format!(
+                "if(Get-Process -Id {pid} -ErrorAction SilentlyContinue){{exit 1}}else{{exit 0}}"
+            ),
+        ])
+        .status()
+        .unwrap()
+        .success();
         #[cfg(unix)]
         let ended = {
             // A killed orphan may await init's reap; a zombie cannot execute.
