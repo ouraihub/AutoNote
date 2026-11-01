@@ -18,6 +18,14 @@
 
 * Aether 前后端统一固定 Git 提交 `53b80630bdd58f22ca94d119e93586f84fbceec7`，恢复 Git 子包解析与来源检查；原补丁已并入上游。桌面拆分运行／会话／MCP runtime，Web 复用 core 执行并保留产品存储与授权；验收见设计文档 24 §15。
 
+## [0.2.11](https://github.com/ouraihub/AutoNote/compare/desktop-v0.2.10...desktop-v0.2.11) (2026-11-01)
+
+
+### 问题修复
+
+* **desktop:** 使用固定路径调用 Windows PowerShell ([c730920](https://github.com/ouraihub/AutoNote/commit/c730920620b8b7c9d0b9301fc6f6f9a489d6f4f6))
+* **desktop:** 使用固定路径调用 Windows PowerShell ([e3942f2](https://github.com/ouraihub/AutoNote/commit/e3942f258b52fa00f79fca7983e161a6c61b1a2c))
+
 ## [0.2.10](https://github.com/ouraihub/AutoNote/compare/desktop-v0.2.9...desktop-v0.2.10) (2026-10-29)
 
 
