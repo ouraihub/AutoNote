@@ -18,6 +18,13 @@
 
 * Aether 前后端统一固定 Git 提交 `53b80630bdd58f22ca94d119e93586f84fbceec7`，恢复 Git 子包解析与来源检查；原补丁已并入上游。桌面拆分运行／会话／MCP runtime，Web 复用 core 执行并保留产品存储与授权；验收见设计文档 24 §15。
 
+## [0.2.12](https://github.com/ouraihub/AutoNote/compare/desktop-v0.2.11...desktop-v0.2.12) (2026-11-03)
+
+
+### 问题修复
+
+* **quality:** 修复正则与模板注释检查并补齐升级验收 ([87db8f0](https://github.com/ouraihub/AutoNote/commit/87db8f012db172e0af6c2534e426d7c2e5c15f23))
+
 ## [0.2.11](https://github.com/ouraihub/AutoNote/compare/desktop-v0.2.10...desktop-v0.2.11) (2026-11-01)
 
 
