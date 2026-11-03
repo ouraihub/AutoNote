@@ -40,6 +40,20 @@ test('comment checker ignores URL and Markdown-like markers in strings', async (
   )
 })
 
+test('comment checker distinguishes regex markers from real comments', async () => {
+  await withFixture(
+    {
+      'packages/app/src/api.ts': String.raw`export const protocol = /^https?:\/\//.test('https://example.test')` + '\n',
+      'web/src/client/view.svelte': '<script>const pattern = /[/*]/; // Explain constraint\n</script>',
+    },
+    async (root) => {
+      const errors = await run(root)
+      assert.equal(errors.length, 1)
+      assert.match(errors[0], /view\.svelte.*unapproved line comment/)
+    },
+  )
+})
+
 async function run(root) {
   return checkComments({
     root,

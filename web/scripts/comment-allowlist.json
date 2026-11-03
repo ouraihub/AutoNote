@@ -1,6 +1,17 @@
 {
   "version": 1,
   "entries": [
+    "packages/app/src/components/primitives/Modal.svelte:865:html:087411ccca8fff47",
+    "packages/app/src/components/primitives/Resizer.svelte:1318:html:c0a9c52702d6387b",
+    "packages/app/src/components/primitives/Resizer.svelte:1431:html:e0cce3b3f71d73f5",
+    "packages/app/src/components/ui/slider/slider.svelte:337:html:e4a619d84836e480",
+    "packages/app/src/components/ui/toggle-group/toggle-group.svelte:1255:html:e4a619d84836e480",
+    "packages/app/src/editor/completion.ts:1841:block:a5c635a1903f46a8",
+    "packages/app/src/editor/completion.ts:3516:block:20dd2169283ca3ee",
+    "packages/app/src/editor/completion.ts:4757:block:d50e3ead8dc59d97",
+    "packages/app/src/editor/paste.ts:4002:block:26b347a869d057f4",
+    "packages/app/src/features/list/NoteList.svelte:24087:html:da127428b48b961f",
+    "packages/app/src/features/list/NoteList.svelte:24175:html:1fa7d3ea78aa84a6",
     "packages/app/src/backend/contract/index.ts:1170:block:14ad3f223f4ff09f",
     "packages/app/src/backend/contract/index.ts:234:block:2d232ac93f4d86d0",
     "packages/app/src/backend/contract/index.ts:346:block:bf9ae2dd07bc5b35",

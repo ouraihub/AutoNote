@@ -102,9 +102,21 @@ function extractComments(file, source) {
 }
 
 function extractTypeScriptComments(source, offset = 0) {
+  const regexEnds = new Map()
+  const tree = ts.createSourceFile('comments.ts', source, ts.ScriptTarget.Latest, true)
+  const visit = (node) => {
+    if (ts.isRegularExpressionLiteral(node)) regexEnds.set(node.getStart(tree), node.end)
+    ts.forEachChild(node, visit)
+  }
+  visit(tree)
   const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, ts.LanguageVariant.Standard, source)
   const comments = []
   for (let token = scanner.scan(); token !== ts.SyntaxKind.EndOfFileToken; token = scanner.scan()) {
+    const regexEnd = regexEnds.get(scanner.getTokenPos())
+    if (regexEnd !== undefined) {
+      scanner.setTextPos(regexEnd)
+      continue
+    }
     if (token !== ts.SyntaxKind.SingleLineCommentTrivia && token !== ts.SyntaxKind.MultiLineCommentTrivia) continue
     comments.push({
       kind: token === ts.SyntaxKind.SingleLineCommentTrivia ? 'line' : 'block',
@@ -117,7 +129,16 @@ function extractTypeScriptComments(source, offset = 0) {
 
 function extractSvelteComments(source) {
   const tree = parse(source, { modern: true })
-  const comments = tree.comments.map((comment) => ({ kind: 'html', start: comment.start, text: source.slice(comment.start, comment.end) }))
+  const comments = []
+  const visit = (node) => {
+    if (!node || typeof node !== 'object') return
+    if (node.type === 'Comment') comments.push({ kind: 'html', start: node.start, text: source.slice(node.start, node.end) })
+    for (const value of Object.values(node)) {
+      if (Array.isArray(value)) value.forEach(visit)
+      else if (value && typeof value === 'object') visit(value)
+    }
+  }
+  visit(tree.fragment)
   const scripts = [tree.instance, tree.module].filter(Boolean)
   for (const script of scripts) {
     comments.push(...extractTypeScriptComments(source.slice(script.content.start, script.content.end), script.content.start))

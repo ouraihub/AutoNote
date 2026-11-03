@@ -5,7 +5,7 @@ import { ApiError } from '../lib/errors'
 import { isValidId } from '../lib/id'
 import { readJson } from '../lib/request'
 import { requireAuth } from '../middleware/auth'
-import { modelOptions } from '../ai/providers'
+import { modelOptions } from '../ai/providers/index'
 
 const ROLES = ['chat', 'writing', 'painting'] as const
 type Role = (typeof ROLES)[number]
