@@ -1,11 +1,11 @@
 import { z } from 'zod'
+import { validateImageBytes } from '@ouraihub/aether-core/images'
 import type { Env } from '../env'
 import { badRequest, notFound } from './kit'
 import type { ImagePart, ImageRef } from '@ouraihub/aether-contracts'
 
 export const IMAGE_TTL_MS = 7 * 24 * 60 * 60 * 1000
 export const MAX_IMAGE_BYTES = 4 * 1024 * 1024
-const MIMES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const
 export type ImageKind = 'input' | 'generated'
 
 export const ImagesSchema = z
@@ -15,9 +15,10 @@ export const ImagesSchema = z
 export function checkImages(images: readonly ImagePart[]): void {
   if (images.length > 4) throw badRequest('images', 'count', 4)
   for (const image of images) {
-    if (!(MIMES as readonly string[]).includes(image.mime)) throw badRequest('images', 'mime')
-    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(image.data) || image.data.length % 4 !== 0) throw badRequest('images', 'encoding')
-    if ((image.data.length / 4) * 3 - (image.data.match(/=*$/)?.[0].length ?? 0) > MAX_IMAGE_BYTES) throw badRequest('images', 'size', MAX_IMAGE_BYTES)
+    let bytes: Uint8Array
+    try { bytes = Uint8Array.from(atob(image.data), (c) => c.charCodeAt(0)) }
+    catch { throw badRequest('images', 'encoding') }
+    validateImageBytes(bytes, image.mime, MAX_IMAGE_BYTES)
   }
 }
 

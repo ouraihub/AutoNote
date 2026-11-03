@@ -97,13 +97,7 @@ AutoNote refactor/use-aether  Aether 接入重构
 Aether main                  通用框架
 ```
 
-Aether Rust 组件使用固定 Git commit：
-
-```toml
-aether-runtime = { git = "https://github.com/ouraihub/Aether.git", rev = "53b80630bdd58f22ca94d119e93586f84fbceec7" }
-```
-
-AutoNote 的 Rust、共享应用、桌面与 Web 统一通过 Git 固定 Aether `53b80630bdd58f22ca94d119e93586f84fbceec7`（CI 已通过），不再消费 npm 发布包。三份 npm 清单、Cargo rev 和 pnpm overrides 必须保持同一提交；不使用本地 path 或复制框架源码。Git 子包内部 workspace:* 通过同 SHA 的 contracts/core overrides 解析，presets 的 semver peer 仅对 aether-ui 放行；不放宽 Svelte。pnpm 无逐包 exotic 豁免，必须关闭其全局子依赖拦截才能安装，因此恢复 deps:check 约束锁文件中的非 registry 来源；CI／生产必须 frozen install。
+AutoNote 的 Rust、共享应用、桌面与 Web 统一通过 Git 固定 Aether v0.1.1 发布提交 `c3c3c9280f2dcacb60d2188537b54be86a099ddd`，不使用浮动 main，不使用相邻工作树的 path/link 覆盖。四份 npm 清单、Cargo rev 和 pnpm overrides 必须保持同一提交；不复制框架源码。Git 子包内部 workspace:* 通过同 SHA 的 contracts/core overrides 解析，presets 的 semver peer 仅对 aether-ui 放行；不放宽 Svelte。pnpm 无逐包 exotic 豁免，必须关闭其全局子依赖拦截才能安装，因此恢复 deps:check 约束锁文件中的非 registry 来源；CI／生产必须 frozen install。Aether UI `erasableSyntaxOnly` 兼容补丁仅作为上游修复前的临时过渡，不能关闭宿主严格类型检查。
 
 ### 3.2 提交规则
 

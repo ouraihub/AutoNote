@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { addKey, chatModel, createHarness, fixture, frames, streamOf, type Harness } from './support/ai-kit-harness'
 
 const KEY = 'sk-test-abcdefghijklmnop'
-const PNG = 'iVBORw0KGgo='
+const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
 const PROMPT = '{"prompt":"a cat"}'
 const fetchMock = vi.fn<typeof fetch>()
 type Protocol = 'openai-chat' | 'openai-responses' | 'anthropic-messages'
@@ -217,7 +217,7 @@ describe('generate_image tool loop', () => {
 })
 
 describe('generate_image edits (docs/37)', () => {
-  const GIF = 'R0lGODlh'
+  const GIF = 'R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=='
   async function editSetup({ edit = true, imageEditBaseUrl = null as string | null } = {}) {
     // The run limiter (20/min per user) is module-global; start each setup in a fresh window.
     vi.useFakeTimers({ toFake: ['Date'] })
@@ -283,7 +283,7 @@ describe('generate_image edits (docs/37)', () => {
     const many = calls('/images/edits')[0]![1]!.body as FormData
     expect(many.getAll('image')).toEqual([])
     const parts = many.getAll('image[]') as File[]
-    expect(parts.map((file) => file.name)).toEqual(['image-1.png', 'image-2.png'])
+    expect(parts.map((file) => file.name)).toEqual(['image-1.gif', 'image-2.png'])
     expect(await Promise.all(parts.map(async (file) => btoa(String.fromCharCode(...new Uint8Array(await file.arrayBuffer())))))).toEqual([GIF, PNG])
   })
 

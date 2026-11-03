@@ -3,7 +3,7 @@ import { purgeExpiredChatImages } from '../src/worker/ai/images'
 import { addKey, chatModel, createHarness, fixture, frames, streamOf, type Harness } from './support/ai-kit-harness'
 
 const KEY = 'sk-test-abcdefghijklmnop'
-const PNG = { mime: 'image/png', data: 'iVBORw0KGgo=' }
+const PNG = { mime: 'image/png', data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=' }
 const URL_PNG = `data:image/png;base64,${PNG.data}`
 const fetchMock = vi.fn<typeof fetch>()
 

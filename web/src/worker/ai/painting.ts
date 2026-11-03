@@ -1,8 +1,8 @@
-// `generate_image` tool (Aether docs/20, docs/37): spec and an OpenAI-compatible `/images/generations` + `/images/edits` client.
 import { KitFailure, addressAllowed, at, badRequest, cancelled, parseTarget, readUpTo, upstreamFailure } from './kit'
 import { MAX_IMAGE_BYTES, encode } from './images'
 import type { ImagePart } from '@ouraihub/aether-contracts'
 import type { ToolSpec } from '@ouraihub/aether-core/types'
+import { validateImageBytes } from '@ouraihub/aether-core/images'
 import { withKeys, type Connection } from './providers'
 
 export const GENERATE_IMAGE = 'generate_image'
@@ -27,7 +27,6 @@ export const GENERATE_IMAGE_SPEC: ToolSpec = {
   },
 }
 
-/** Per-run spec: with `choices` (docs/37 §2.1, newest first) the model may pass `image_ids` to edit them. */
 export function generateImageSpec(choices: readonly string[]): ToolSpec {
   if (!choices.length) return GENERATE_IMAGE_SPEC
   const ids = choices.map((_, i) => `image-${i + 1}`)
@@ -45,11 +44,6 @@ export function generateImageSpec(choices: readonly string[]): ToolSpec {
 
 const EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' }
 
-function mimeOf(bytes: Uint8Array): string {
-  if (bytes[0] === 0xff && bytes[1] === 0xd8) return 'image/jpeg'
-  if (String.fromCharCode(...bytes.subarray(8, 12)) === 'WEBP') return 'image/webp'
-  return 'image/png'
-}
 
 async function allowed(db: D1Database, raw: string): Promise<URL> {
   const url = parseTarget(raw)
@@ -122,6 +116,8 @@ export async function generateImage(db: D1Database, painting: Connection, args: 
     if (read.overflow) throw badRequest('images', 'size', MAX_IMAGE_BYTES)
     bytes = read.bytes
   } else throw upstreamFailure(response.status, 'no image in response', known)
-  if (bytes.length > MAX_IMAGE_BYTES) throw badRequest('images', 'size', MAX_IMAGE_BYTES)
-  return { mime: mimeOf(bytes), data: encode(bytes) }
+  const detected = validateImageBytes(bytes, undefined, MAX_IMAGE_BYTES)
+  if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(detected.mime))
+    throw badRequest('images', 'mime')
+  return { mime: detected.mime, data: encode(bytes) }
 }
