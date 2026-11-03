@@ -1,9 +1,11 @@
+#[path = "folders_delete.rs"]
+mod folders_delete;
 use super::{WriteOrigin, Written};
-use crate::db::rows::{FOLDER_COLUMNS, NOTE_COLUMNS, folder, note_summary};
+use crate::db::rows::{FOLDER_COLUMNS, folder};
 use crate::dto::{Folder, FolderCreate, FolderPatch};
 use crate::error::{Entity, Error};
 use crate::markdown::truncate_utf16;
-use crate::types::{FolderId, Rev};
+use crate::types::FolderId;
 use rusqlite::{OptionalExtension, Transaction, params};
 
 /// How to handle a folder's children and notes when removing it.
@@ -100,11 +102,16 @@ pub(crate) fn check_parent(
     Ok(())
 }
 pub(crate) fn height(tx: &Transaction<'_>, id: &str) -> Result<i64, Error> {
-    Ok(tx.query_row(
-        "WITH RECURSIVE tree(id,depth) AS (SELECT id,1 FROM folders WHERE id=?1 UNION ALL SELECT f.id,t.depth+1 FROM folders f JOIN tree t ON f.parent_id=t.id WHERE f.deleted_at IS NULL AND t.depth<=12) SELECT MAX(depth) FROM tree",
-        [id],
-        |r| r.get::<_, Option<i64>>(0),
-    )?.unwrap_or(0))
+    Ok(tx
+        .query_row(
+            "WITH RECURSIVE tree(id,depth) AS (SELECT id,1 FROM folders WHERE id=?1 \
+         UNION ALL SELECT f.id,t.depth+1 FROM folders f JOIN tree t \
+         ON f.parent_id=t.id WHERE f.deleted_at IS NULL AND t.depth<=12) \
+         SELECT MAX(depth) FROM tree",
+            [id],
+            |r| r.get::<_, Option<i64>>(0),
+        )?
+        .unwrap_or(0))
 }
 pub(crate) fn depth(tx: &Transaction<'_>, parent: Option<&FolderId>) -> Result<i64, Error> {
     let mut current = parent.map(|p| p.as_str().to_owned());
@@ -126,7 +133,13 @@ pub(crate) fn check_name(
     name: &str,
     exclude: Option<&str>,
 ) -> Result<(), Error> {
-    let duplicate: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM folders WHERE parent_id IS ?1 AND name=?2 COLLATE NOCASE AND deleted_at IS NULL AND id<>COALESCE(?3,''))", params![parent.map(FolderId::as_str), name, exclude], |r| r.get(0))?;
+    let duplicate: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM folders WHERE parent_id IS ?1 \
+         AND name=?2 COLLATE NOCASE AND deleted_at IS NULL \
+         AND id<>COALESCE(?3,''))",
+        params![parent.map(FolderId::as_str), name, exclude],
+        |r| r.get(0),
+    )?;
     if duplicate {
         Err(Error::Duplicate {
             entity: Entity::Folder,
@@ -142,7 +155,12 @@ fn available_name(
     base: &str,
 ) -> Result<String, Error> {
     let taken = |n: &str| -> Result<bool, Error> {
-        Ok(tx.query_row("SELECT EXISTS(SELECT 1 FROM folders WHERE parent_id IS ?1 AND name=?2 COLLATE NOCASE AND deleted_at IS NULL)", params![parent.map(FolderId::as_str), n], |r| r.get(0))?)
+        Ok(tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM folders WHERE parent_id IS ?1 \
+             AND name=?2 COLLATE NOCASE AND deleted_at IS NULL)",
+            params![parent.map(FolderId::as_str), n],
+            |r| r.get(0),
+        )?)
     };
     if !taken(base)? {
         return Ok(base.to_owned());
@@ -158,7 +176,10 @@ fn siblings(
     parent: Option<&FolderId>,
     exclude: &str,
 ) -> Result<Vec<(String, f64)>, Error> {
-    let mut stmt = tx.prepare("SELECT id,position FROM folders WHERE parent_id IS ?1 AND deleted_at IS NULL AND id<>?2 ORDER BY position,created_at,id")?;
+    let mut stmt = tx.prepare(
+        "SELECT id,position FROM folders WHERE parent_id IS ?1 \
+         AND deleted_at IS NULL AND id<>?2 ORDER BY position,created_at,id",
+    )?;
     let rows = stmt.query_map(params![parent.map(FolderId::as_str), exclude], |r| {
         Ok((r.get(0)?, r.get(1)?))
     })?;
@@ -246,9 +267,15 @@ impl crate::db::Library {
     /// Returns a database or row-decoding error.
     pub fn list_folders(&self, include_deleted: bool) -> Result<Vec<Folder>, Error> {
         self.read(|db| {
-            let sql = format!("SELECT {FOLDER_COLUMNS} FROM folders f WHERE (?1 OR f.deleted_at IS NULL) ORDER BY f.parent_id, f.position, f.id");
-            let mut stmt=db.prepare(&sql)?;
-            Ok(stmt.query_map([include_deleted], folder)?.collect::<rusqlite::Result<Vec<_>>>()?)
+            let sql = format!(
+                "SELECT {FOLDER_COLUMNS} FROM folders f \
+                 WHERE (?1 OR f.deleted_at IS NULL) \
+                 ORDER BY f.parent_id, f.position, f.id",
+            );
+            let mut stmt = db.prepare(&sql)?;
+            Ok(stmt
+                .query_map([include_deleted], folder)?
+                .collect::<rusqlite::Result<Vec<_>>>()?)
         })
     }
     /// Mirrors Web `POST /folders`: an existing `id` is returned as-is; empty name
@@ -262,22 +289,50 @@ impl crate::db::Library {
     ) -> Result<Written<Folder>, Error> {
         self.write(origin, |w| {
             if let Some(id) = &input.id {
-                if let Ok(existing) = load(&w.tx, id.as_str()) { return Ok(existing); }
+                if let Ok(existing) = load(&w.tx, id.as_str()) {
+                    return Ok(existing);
+                }
             }
             color(input.color.as_deref())?;
             check_parent(&w.tx, input.parent_id.as_ref(), None)?;
             let parent = input.parent_id.as_ref();
             let requested = input.name.as_deref().unwrap_or("").trim();
-            let next_name = if requested.is_empty() { available_name(&w.tx, parent, "New folder")? } else { name(requested)?.to_owned() };
-            check_name(&w.tx, parent, &next_name, None)?;
-            let id = match &input.id { Some(id) => id.to_string(), None => w.id()? };
-            let position = match &input.before_id {
-                Some(_) => place(w, &id, parent, parent, input.before_id.as_ref())?.unwrap_or(1000.0),
-                None => w.tx.query_row("SELECT COALESCE(MAX(position),0)+1000 FROM folders WHERE parent_id IS ?1 AND deleted_at IS NULL", [parent.map(FolderId::as_str)], |r| r.get(0))?,
+            let next_name = if requested.is_empty() {
+                available_name(&w.tx, parent, "New folder")?
+            } else {
+                name(requested)?.to_owned()
             };
-            w.tx.execute("INSERT INTO folders(id,parent_id,name,icon,color,position,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?7)", params![id,parent.map(FolderId::as_str),next_name,icon(input.icon.as_deref()),input.color,position,w.now.get()])?;
-            record(w,&id,"upsert")?;
-            load(&w.tx,&id)
+            check_name(&w.tx, parent, &next_name, None)?;
+            let id = match &input.id {
+                Some(id) => id.to_string(),
+                None => w.id()?,
+            };
+            let position = match &input.before_id {
+                Some(_) => {
+                    place(w, &id, parent, parent, input.before_id.as_ref())?.unwrap_or(1000.0)
+                }
+                None => w.tx.query_row(
+                    "SELECT COALESCE(MAX(position),0)+1000 FROM folders \
+                     WHERE parent_id IS ?1 AND deleted_at IS NULL",
+                    [parent.map(FolderId::as_str)],
+                    |r| r.get(0),
+                )?,
+            };
+            w.tx.execute(
+                "INSERT INTO folders(id,parent_id,name,icon,color,position,created_at,updated_at) \
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?7)",
+                params![
+                    id,
+                    parent.map(FolderId::as_str),
+                    next_name,
+                    icon(input.icon.as_deref()),
+                    input.color,
+                    position,
+                    w.now.get(),
+                ],
+            )?;
+            record(w, &id, "upsert")?;
+            load(&w.tx, &id)
         })
     }
     /// Mirrors Web `PATCH /folders/:id`: absent fields stay; `beforeId` needs `parentId`.
@@ -290,17 +345,42 @@ impl crate::db::Library {
         origin: WriteOrigin,
     ) -> Result<Written<Folder>, Error> {
         self.write(origin, |w| {
-            let old=load(&w.tx,id.as_str())?;
+            let old = load(&w.tx, id.as_str())?;
             if input.before_id.is_some() && input.parent_id.is_none() {
-                return Err(Error::invalid("parentId", "parentId is required when reordering a folder"));
+                return Err(Error::invalid(
+                    "parentId",
+                    "parentId is required when reordering a folder",
+                ));
             }
-            if input.before_id.as_ref().is_some_and(|b| b.as_ref() == Some(id)) {
-                return Err(Error::invalid("beforeId", "A folder cannot be placed before itself"));
+            if input
+                .before_id
+                .as_ref()
+                .is_some_and(|b| b.as_ref() == Some(id))
+            {
+                return Err(Error::invalid(
+                    "beforeId",
+                    "A folder cannot be placed before itself",
+                ));
             }
-            let next_name = match &input.name { Some(n) => name(n)?.to_owned(), None => old.name.clone() };
-            let next_icon = match &input.icon { Some(v) => icon(v.as_deref()), None => old.icon.clone() };
-            let next_color = match &input.color { Some(v) => { color(v.as_deref())?; v.clone() } None => old.color.clone() };
-            let parent = match &input.parent_id { Some(p) => p.clone(), None => old.parent_id.clone() };
+            let next_name = match &input.name {
+                Some(n) => name(n)?.to_owned(),
+                None => old.name.clone(),
+            };
+            let next_icon = match &input.icon {
+                Some(v) => icon(v.as_deref()),
+                None => old.icon.clone(),
+            };
+            let next_color = match &input.color {
+                Some(v) => {
+                    color(v.as_deref())?;
+                    v.clone()
+                }
+                None => old.color.clone(),
+            };
+            let parent = match &input.parent_id {
+                Some(p) => p.clone(),
+                None => old.parent_id.clone(),
+            };
             if input.parent_id.is_some() {
                 check_parent(&w.tx, parent.as_ref(), Some(id))?;
                 if depth(&w.tx, parent.as_ref())? + height(&w.tx, id.as_str())? > 12 {
@@ -309,80 +389,41 @@ impl crate::db::Library {
             }
             check_name(&w.tx, parent.as_ref(), &next_name, Some(id.as_str()))?;
             let position = if input.before_id.is_some() || parent != old.parent_id {
-                place(w, id.as_str(), old.parent_id.as_ref(), parent.as_ref(), input.before_id.clone().flatten().as_ref())?.unwrap_or(old.position)
-            } else { old.position };
-            if old.parent_id==parent && old.name==next_name && old.icon==next_icon && old.color==next_color && old.position==position { return Ok(old); }
-            let now=w.now.get().max(old.updated_at.get().saturating_add(1));
-            w.tx.execute("UPDATE folders SET parent_id=?1,name=?2,icon=?3,color=?4,position=?5,updated_at=?6 WHERE id=?7",params![parent.as_ref().map(FolderId::as_str),next_name,next_icon,next_color,position,now,id.as_str()])?;
-            record(w,id.as_str(),"upsert")?;
-            load(&w.tx,id.as_str())
-        })
-    }
-    /// Removes a folder by promoting its children or soft-deleting its entire subtree.
-    /// # Errors
-    /// Rejects missing folders, promotion collisions and database failures atomically.
-    pub fn remove_folder(
-        &self,
-        id: &FolderId,
-        strategy: FolderDeleteStrategy,
-        origin: WriteOrigin,
-    ) -> Result<Written<FolderDeleteResult>, Error> {
-        self.write(origin, |w| {
-            let old=load(&w.tx,id.as_str())?;
-            let mut folders=Vec::new();
-            match strategy {
-                FolderDeleteStrategy::MoveUp => {
-                    let mut stmt=w.tx.prepare("SELECT id,name FROM folders WHERE parent_id=?1 AND deleted_at IS NULL ORDER BY position,id")?;
-                    let children=stmt.query_map([id.as_str()],|r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
-                    drop(stmt);
-                    for (_, child_name) in &children { check_name(&w.tx,old.parent_id.as_ref(),child_name,Some(id.as_str()))?; }
-                    // Positions remain stable unless a sibling occupies one: insertion order is
-                    // deterministic even for a folder promoted between two existing siblings.
-                    for (child,_) in &children {
-                        w.tx.execute("UPDATE folders SET parent_id=?1,updated_at=MAX(updated_at+1,?2) WHERE id=?3",params![old.parent_id.as_ref().map(FolderId::as_str),w.now.get(),child])?;
-                        record(w,child,"upsert")?;
-                    }
-                    folders.push(id.to_string());
-                }
-                FolderDeleteStrategy::Delete => {
-                    let mut stmt=w.tx.prepare("WITH RECURSIVE tree(id,depth) AS (SELECT id,1 FROM folders WHERE id=?1 AND deleted_at IS NULL UNION ALL SELECT f.id,t.depth+1 FROM folders f JOIN tree t ON f.parent_id=t.id WHERE f.deleted_at IS NULL AND t.depth<=12) SELECT id FROM tree")?;
-                    folders=stmt.query_map([id.as_str()],|r|r.get(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
-                }
-            }
-            let note_ids={
-                let mut stmt=w.tx.prepare(match strategy {
-                    FolderDeleteStrategy::MoveUp => "SELECT id FROM notes WHERE folder_id=?1",
-                    FolderDeleteStrategy::Delete => "WITH RECURSIVE tree(id,depth) AS (SELECT id,1 FROM folders WHERE id=?1 UNION ALL SELECT f.id,t.depth+1 FROM folders f JOIN tree t ON f.parent_id=t.id WHERE f.deleted_at IS NULL AND t.depth<=12) SELECT id FROM notes WHERE folder_id IN (SELECT id FROM tree)",
-                })?;
-                let rows=stmt.query_map([id.as_str()],|r|r.get::<_,String>(0))?;
-                rows.collect::<rusqlite::Result<Vec<_>>>()?
+                place(
+                    w,
+                    id.as_str(),
+                    old.parent_id.as_ref(),
+                    parent.as_ref(),
+                    input.before_id.clone().flatten().as_ref(),
+                )?
+                .unwrap_or(old.position)
+            } else {
+                old.position
             };
-            for note_id in &note_ids {
-                let (note_title, note_content, current_rev, updated): (String, String, i64, i64) = w.tx.query_row(
-                    "SELECT title,content,rev,updated_at FROM notes WHERE id=?1", [note_id],
-                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
-                )?;
-                let now=w.now.get().max(updated.saturating_add(1));
-                Rev::new(current_rev+1)?;
-                if strategy==FolderDeleteStrategy::Delete {
-                    w.tx.execute("UPDATE notes SET folder_id=NULL,deleted_at=COALESCE(?1,deleted_at),rev=rev+1,updated_at=?1 WHERE id=?2",params![now,note_id])?;
-                    super::derived::derive(&w.tx,w.ids.as_ref(),note_id,&note_title,&note_content,true,w.now,Some(&crate::markdown::normalize_link_key(&note_title)))?;
-                } else {
-                    w.tx.execute("UPDATE notes SET folder_id=?1,rev=rev+1,updated_at=?2 WHERE id=?3",params![old.parent_id.as_ref().map(FolderId::as_str),now,note_id])?;
-                }
-                w.record_change(note_id,"upsert")?;
-                let sql=format!("SELECT {NOTE_COLUMNS} FROM notes n WHERE n.id=?1");
-                w.touch_note(w.tx.query_row(&sql,[note_id],note_summary)?);
+            if old.parent_id == parent
+                && old.name == next_name
+                && old.icon == next_icon
+                && old.color == next_color
+                && old.position == position
+            {
+                return Ok(old);
             }
-            if strategy==FolderDeleteStrategy::Delete {
-                w.tx.execute("UPDATE links SET target_note_id=(SELECT n.id FROM notes n WHERE n.title_key=links.target_key AND n.deleted_at IS NULL ORDER BY n.created_at,n.id LIMIT 1) WHERE target_note_id IN (SELECT id FROM notes WHERE deleted_at IS NOT NULL)",[])?;
-            }
-            for folder_id in &folders {
-                w.tx.execute("UPDATE folders SET deleted_at=?1,updated_at=MAX(updated_at+1,?1) WHERE id=?2",params![w.now.get(),folder_id])?;
-                record(w,folder_id,"delete")?;
-                w.delete(folder_id.clone());
-            }
-            Ok(FolderDeleteResult { folders: folders.len() as u64, notes: note_ids.len() as u64 })
+            let now = w.now.get().max(old.updated_at.get().saturating_add(1));
+            w.tx.execute(
+                "UPDATE folders SET parent_id=?1,name=?2,icon=?3,color=?4,\
+                 position=?5,updated_at=?6 WHERE id=?7",
+                params![
+                    parent.as_ref().map(FolderId::as_str),
+                    next_name,
+                    next_icon,
+                    next_color,
+                    position,
+                    now,
+                    id.as_str()
+                ],
+            )?;
+            record(w, id.as_str(), "upsert")?;
+            load(&w.tx, id.as_str())
         })
     }
 }

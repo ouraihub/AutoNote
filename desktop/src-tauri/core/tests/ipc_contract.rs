@@ -1,6 +1,7 @@
 //! Builds `desktop/fixtures/ipc-contract.json` from a real `Library` through
 //! the public API only, and fails when the committed file drifts.
-//! Regenerate (from `desktop/`): `UPDATE_FIXTURES=1 pnpm exec desktop-kit cargo test -p note-core --test ipc_contract`.
+//! Regenerate from `desktop/` with `UPDATE_FIXTURES=1` and:
+//! `pnpm exec desktop-kit cargo test -p note-core --test ipc_contract`.
 #![allow(clippy::unwrap_used, clippy::expect_used, reason = "fixture generator")]
 
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -79,7 +80,12 @@ fn ipc_contract_fixture_matches_real_library() {
         .value;
     let start = lib.notes_snapshot().unwrap();
     let note = lib
-        .create_note(&body(json!({ "title": "Alpha", "content": "Hello #idea [[Beta]]", "folderId": folder.id })), ui)
+        .create_note(
+            &body(json!({
+                "title": "Alpha", "content": "Hello #idea [[Beta]]", "folderId": folder.id,
+            })),
+            ui,
+        )
         .unwrap()
         .value;
     let patch = NotePatch::from(
@@ -131,10 +137,14 @@ fn ipc_contract_fixture_matches_real_library() {
         },
         "errors": {
             "conflict": err(stale),
-            "badRequest": err(lib.create_folder(&parse_input(json!({ "color": "#000000" })).unwrap(), ui)),
+            "badRequest": err(lib.create_folder(
+                &parse_input(json!({ "color": "#000000" })).unwrap(), ui,
+            )),
             "malformedBody": err(parse_input::<note_core::FolderCreate>(json!({ "nope": 1 }))),
             "notFoundWithDeletionCursor": err(lib.get_note(&copy.summary.id)),
-            "duplicateName": err(lib.create_tag(&parse_input(json!({ "name": "IDEA" })).unwrap(), ui)),
+            "duplicateName": err(lib.create_tag(
+                &parse_input(json!({ "name": "IDEA" })).unwrap(), ui,
+            )),
             "restoreLiveNote": err(lib.restore_note(&note.summary.id, ui)),
         },
     });

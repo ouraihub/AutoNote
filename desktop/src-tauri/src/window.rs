@@ -70,8 +70,8 @@ pub fn request_close(app: &tauri::AppHandle, exit: bool) {
         ask_discard(&app, id, false);
     });
 }
-/// Lets the user keep editing or explicitly discard unconfirmed edits and quit; an OK-only notice here
-/// would leave no way out when a save keeps failing.
+/// Lets the user keep editing or explicitly discard unconfirmed edits and quit;
+/// an OK-only notice here would leave no way out when a save keeps failing.
 fn ask_discard(app: &tauri::AppHandle, id: u64, failed: bool) {
     let state = app.state::<DesktopState>();
     crate::tray::show(app);
@@ -82,13 +82,19 @@ fn ask_discard(app: &tauri::AppHandle, id: u64, failed: bool) {
             "本地编辑未能保存（冲突或磁盘错误）。取消可继续编辑并重试，或丢弃未保存的编辑后退出。"
         }
         (false, true) => {
-            "Local edits could not be saved (conflict or storage error). Cancel to keep editing and retry, or discard unsaved edits and quit."
+            concat!(
+                "Local edits could not be saved (conflict or storage error). ",
+                "Cancel to keep editing and retry, or discard unsaved edits and quit."
+            )
         }
         (true, false) => {
             "AutoNote 无法确认本地编辑已保存。取消可继续编辑，或明确丢弃未确认编辑后退出。"
         }
         (false, false) => {
-            "AutoNote cannot confirm that local edits are saved. Cancel to keep editing, or explicitly discard unconfirmed edits and quit."
+            concat!(
+                "AutoNote cannot confirm that local edits are saved. Cancel to keep editing, or ",
+                "explicitly discard unconfirmed edits and quit."
+            )
         }
     };
     app.dialog()
@@ -139,8 +145,8 @@ pub fn acknowledge(
         ));
     }
     if pending != 0 || failed != 0 {
-        // Release the handshake first: the editor resumes (retry stays possible) and the 15 s timeout
-        // cannot raise a second prompt. "Discard and quit" below still exits directly.
+        // Release the handshake first: the editor resumes (retry stays possible) and the 15 s
+        // timeout cannot raise a second prompt. "Discard and quit" below still exits directly.
         state.closing.store(false, Ordering::Release);
         state.exit_requested.store(false, Ordering::Release);
         let _ = app.emit_to("main", "autonote://close-cancelled", ());

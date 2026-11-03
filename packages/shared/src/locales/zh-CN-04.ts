@@ -1,0 +1,353 @@
+export const ZH_CN_MESSAGES_4 = {
+  'settings.relay_workflow_placeholder':
+    'owner/repo/.github/workflows/agent.yml',
+  'settings.refresh_avatars': '换一组',
+  'settings.rebuild_failed': '重建失败',
+  'settings.rebuild_index': '重建索引',
+  'settings.rebuild_search_index': '重建搜索索引',
+  'settings.rebuilt_the_index_for_value0_notes': '已重建 {value0} 篇笔记的索引',
+  'settings.receive_changes_from_other_devices_quickly':
+    '让其他设备上的修改尽快显示在这里',
+  'settings.registration_closed': '已关闭注册',
+  'settings.registration_open': '已开放注册',
+  'settings.registration_status': '注册状态',
+  'settings.region': '区域',
+  'settings.restore_backup_folder': '恢复 AutoNote 备份文件夹',
+  'settings.restore_backup_folder_description':
+    '选择新 ZIP 解压后的目录，或旧版同时包含 attachments 和 snapshots 的' +
+    '备份根目录；AutoNote 会验证 COMPLETE 并分批恢复',
+  'settings.reloaded_all_data': '已同步最新内容',
+  'settings.render_and_using_katex': '显示行内公式和块级公式',
+  'settings.render_mermaid_code_blocks_into_flowcharts':
+    '将 Mermaid 代码块显示为图表',
+  'settings.runs_from_cloudflare_cron_the_page_does_not_need_to_stay_open':
+    '按照设定频率自动备份，无需保持页面打开',
+  'settings.s3_backup': 'S3 备份',
+  'settings.s3_compatible': 'S3 兼容',
+  'settings.s3_compatible_object_storage_wi\
+th_10_gb_free_and_no_credit_card_required':
+    '兼容 S3 的对象存储，免费容量 10 GB，无需信用卡。',
+  'settings.s3_compatible_object_storage_wi\
+th_10_gb_free_but_it_requires_credit_card':
+    '兼容 S3 的对象存储，免费容量 10 GB，需要信用卡认证。',
+  'settings.s3_compatible_object_storage_wi\
+th_5_gb_free_and_no_credit_card_required':
+    '兼容 S3 的对象存储。免费容量 5 GB，无需信用卡。',
+  'settings.scheduled': '定时',
+  'settings.scroll_sync': '滚动同步',
+  'settings.collapse_long_code_blocks': '折叠较长的代码块',
+  'settings.collapse_long_code_blocks_description':
+    '默认仅显示部分代码，需要时可展开阅读全文',
+  'settings.code_block_collapse_after': '超过以下行数后折叠',
+  'settings.lines': ' 行',
+  'settings.sec': '秒',
+  'settings.select_file': '选择文件',
+  'settings.select_backup_folder': '选择备份文件夹',
+  'settings.selected_avatar': '当前选择',
+  'settings.select_object_read_write_for_permissions_and_create_it_directly':
+    '，权限全选“对象读和写”，直接创建。',
+  'settings.secret_access_key': 'Secret Access Key',
+  'settings.serif': '衬线',
+  'settings.show_line_numbers': '显示行号',
+  'settings.show_outline_by_default': '默认显示大纲',
+  'settings.show_toolbar': '显示工具栏',
+  'settings.sign_in_security': '登录安全',
+  'settings.sign_up': '前往注册',
+  'settings.simplified_chinese': '简体中文',
+  'settings.spellcheck': '拼写检查',
+  'settings.standard': '标准',
+  'settings.store_backups_in_this_directory\
+_or_leave_blank_to_use_the_root_directory':
+    '备份会放在这个目录下，留空则放在根目录',
+  'settings.structured_note_data_without_at\
+tachment_binaries_download_zip_for_a_comp':
+    '笔记结构的纯数据，不含附件二进制；完整备份请下载 ZIP',
+  'settings.subdirectory': '子目录',
+  'settings.supports_md_txt_zip_and_autonot\
+e_json_exports_for_matching_ids_the_newer':
+    '支持 .md / .txt / .zip / AutoNote 导出的 .json。同 ID 的' +
+    '笔记会保留较新的一份',
+  'settings.sync': '同步',
+  'settings.sync_now': '立即同步',
+  'settings.system': '跟随系统',
+  'settings.test': '测试',
+  'settings.test_connection': '测试连接',
+  'settings.the_local_cache_will_be_cleared\
+_and_the_cloud_data_will_not_be_affected':
+    '本地缓存会被清空，云端数据不受影响。',
+  'settings.theme': '主题',
+  'settings.then_open': '然后打开',
+  'settings.there_are_no_attachments_to_clean': '没有需要清理的附件',
+  'settings.this_device_will_be_signed_out_\
+and_its_local_cache_cleared_cloud_data_is':
+    '此设备的会话会被服务端撤销，本地缓存清空；云端数据不受影响。',
+  'settings.totp_authenticator_code': '当前验证器验证码',
+  'settings.totp_code_or_recovery': '验证器验证码或恢复码',
+  'settings.totp_code_or_recovery_placeholder': '6 位验证码或恢复码',
+  'settings.totp_confirm_code': '输入验证器应用当前显示的 6 位验证码',
+  'settings.totp_confirm_disable': '关闭二次验证',
+  'settings.totp_confirm_enable': '验证并开启',
+  'settings.totp_copy_all': '全部复制',
+  'settings.totp_copy_failed': '复制失败，请手动选择并复制。',
+  'settings.totp_disable': '关闭',
+  'settings.totp_disable_description':
+    '请输入当前密码，以及验证器验证码或一枚未使用的恢复码。其他设备会被退出登录。',
+  'settings.totp_disable_title': '确定关闭二次验证？',
+  'settings.totp_disabled': '二次验证已关闭',
+  'settings.totp_disabled_description':
+    '开启后，新设备登录在密码之后还必须通过验证器应用验证。',
+  'settings.totp_enable': '开启',
+  'settings.totp_enable_password_description':
+    '关联验证器应用前，请先确认当前密码。',
+  'settings.totp_enabled': '二次验证已开启',
+  'settings.totp_enabled_description':
+    '新登录必须提供验证器验证码或恢复码，目前还剩 {count} 枚恢复码。',
+  'settings.totp_enter_code_or_recovery': '请输入验证器验证码或恢复码',
+  'settings.totp_enter_six_digit_code': '请输入有效的 6 位验证器验证码',
+  'settings.totp_generate_new_codes': '更换恢复码',
+  'settings.totp_load_failed': '无法读取二次验证状态',
+  'settings.totp_loading': '正在读取二次验证状态…',
+  'settings.totp_manage': '管理',
+  'settings.totp_manual_secret': '手动设置密钥',
+  'settings.totp_other_sessions_revoked': '其他已登录设备均已退出。',
+  'settings.totp_qr_code_title': '验证器设置二维码',
+  'settings.totp_recovery_codes': '恢复码',
+  'settings.totp_recovery_codes_copied': '恢复码已复制',
+  'settings.totp_recovery_codes_once':
+    '每枚恢复码只能使用一次。请存放在私密且可靠的位置；之后不会再次显示。',
+  'settings.totp_recovery_codes_replaced': '恢复码已更换',
+  'settings.totp_recovery_file_title': 'AutoNote 二次验证恢复码',
+  'settings.totp_recovery_file_warning':
+    '请妥善保密。每枚恢复码只能使用一次，可用于登录或关闭二次验证。',
+  'settings.totp_regenerate_description':
+    '更换后，之前的所有恢复码会立即失效。请使用当前密码和验证器验证码确认。',
+  'settings.totp_save_recovery_codes': '现在保存这些恢复码',
+  'settings.totp_saved_codes': '我已妥善保存',
+  'settings.totp_scan_qr': '使用验证器应用扫码',
+  'settings.totp_scan_qr_description':
+    '任意兼容 TOTP 的验证器都可以。扫码后，输入应用当前显示的 6 位验证码完成绑定。',
+  'settings.totp_secret_copied': '设置密钥已复制',
+  'settings.totp_title': '二次验证（TOTP）',
+  'settings.totp_unavailable_description':
+    '服务器凭据保险库不可用，暂时无法安全开启 TOTP。',
+  'settings.to_add_users_open_registration_\
+under_settings_account_they_can_then_crea':
+    '需要多人使用时，请到「设置 → 账户」开启注册；开启后即可使用用户名密码创建账号。',
+  'settings.total_words': '总字数',
+  'settings.try_this_when_your_search_results_don_t_look_right':
+    '搜索结果不对劲时试试这个',
+  'settings.type': '类型',
+  'settings.typewriter_mode': '打字机模式',
+  'settings.unchanged': '••••••••（不变）',
+  'settings.up_to_10_gb': '最高 10 GB',
+  'settings.update_failed': '更新失败',
+  'settings.upload_local_image': '上传本地图片',
+  'settings.uploaded_avatar': '已上传的本地图片',
+  'settings.use_name_avatar': '使用姓名头像',
+  'settings.username_is_sign_in_id':
+    '@用户名是登录标识，不会随显示名称一起改变。',
+  'settings.use_an_app_specific_password_when_possible': '建议使用应用专用密码',
+  'settings.use_any_name_you_like_and_create_it': '，名字随意，直接创建。',
+  'settings.use_connection_id_as_your_webda\
+v_username_and_apps_password_as_your_webd':
+    'Connection ID 用作 WebDAV 用户名，Apps Password 用作 Web' + 'DAV 密码。',
+  'settings.use_keyid_as_access_key_id_and_applicationkey_as_secret_access_key':
+    '生成结果里的 keyID 填到「Access Key ID」，applicationKey 填到' +
+    '「Secret Access Key」。',
+  'settings.use_path_style_access_recommended_for_most_compatible_services':
+    '使用 path-style（多数兼容服务建议开启）',
+  'settings.use_url_as_the_webdav_server_url':
+    'WebDAV 地址填写 https://webdav.pcloud.com/ 。',
+  'settings.use_your_registration_email_as_\
+the_webdav_username_and_your_account_pass':
+    '注册邮箱用作 WebDAV 用户名，注册密码用作 WebDAV 密码。',
+  'settings.username_value0_changing_the_password_signs_out_other_devices':
+    '用户名 {value0}。修改密码后其他设备会被登出。',
+  'settings.value0_backup_targets_active': '{value0} 个备份目标正在工作',
+  'settings.value0_changes_will_upload_automatically_after_reconnecting':
+    '{value0} 处改动会在联网后自动补传',
+  'settings.value0_files_value1_value2':
+    '{value0} 个文件 · {value1} · {value2}',
+  'settings.value0_notes_value1': '{value0} 篇笔记，共 {value1}',
+  'settings.version': '版本',
+  'settings.version_history': '历史版本',
+  'settings.webdav_address': 'WebDAV 地址',
+  'settings.webdav_backup': 'WebDAV 备份',
+  'settings.wide': '宽',
+  'settings.writing_mode': '写作模式',
+  'share.1_day': '1 天',
+  'share.30_days': '30 天',
+  'share.7_days': '7 天',
+  'share.active': '生效中',
+  'share.anyone_who_gets_the_link_will_immediately_lose_access':
+    '任何拿到链接的人都会立刻无法访问。',
+  'share.ask_the_person_who_shared_this_note_for_its_passcode':
+    '请向分享者索取访问口令',
+  'share.content_unavailable': '内容不可用',
+  'share.could_not_load_list': '无法读取分享列表',
+  'share.done': '完成',
+  'share.embedded_private_notes_are_not_included_in_public_shares':
+    '嵌入内容不会显示在公开分享中',
+  'share.expiration': '有效期',
+  'share.expired': '已过期',
+  'share.expires_value0': '{value0} 过期',
+  'share.generate_public_link': '生成公开链接',
+  'share.incorrect_passcode': '口令不正确',
+  'share.in_trash': '在回收站',
+  'share.enter_a_passcode': '请先输入访问口令',
+  'share.passcode_too_short': '访问口令至少需要 4 个字符',
+  'share.keep_current_expiration': '保持当前',
+  'share.leave_blank_to_keep_the_current_passcode':
+    '留空表示保持原来的口令不变',
+  'share.link_revoked': '链接已撤销',
+  'share.loading_share_status': '读取分享状态…',
+  'share.manage': '管理',
+  'share.could_not_load_sharing_status': '无法读取分享状态',
+  'share.never_expires': '永久',
+  'share.never_expires_71ab34': '永久有效',
+  'share.no_matching_shares': '没有匹配的分享',
+  'share.no_shared_notes': '还没有分享过笔记',
+  'share.open_link': '打开链接',
+  'share.opening': '正在打开…',
+  'share.passcode': '口令',
+  'share.passcode_protected': '已加口令',
+  'share.public_link': '公开链接',
+  'share.public_link_created': '公开链接已生成',
+  'share.public_links_are_read_only_visito\
+rs_can_see_only_the_latest_version_of_t':
+    '公开链接为只读。访问者只能查看这篇笔记的最新内容，无法访问其他笔记。',
+  'share.refresh_list': '刷新分享列表',
+  'share.require_a_passcode_to_view_this_note': '开启后需要输入口令才能查看',
+  'share.revoke_link': '撤销链接',
+  'share.revoke_this_public_link': '撤销这个公开链接？',
+  'share.set_a_passcode': '设置一个口令',
+  'share.search_shared_notes': '搜索已分享的笔记或链接',
+  'share.share_note': '分享笔记',
+  'share.shared_notes': '分享列表',
+  'share.shared_notes_description': '查看和管理已创建的公开链接。',
+  'share.shared_via_site': '由 {site} 分享',
+  'share.sharing_settings_updated': '已更新分享设置',
+  'share.switch_theme': '切换主题',
+  'share.source_note_unavailable': '原笔记暂时无法打开',
+  'share.tasks_in_public_shares_are_read_only': '公开分享中的任务为只读',
+  'share.this_note_requires_a_password': '这篇笔记需要口令',
+  'share.unchanged': '••••••（不变）',
+  'share.update_settings': '更新设置',
+  'share.view_content': '查看内容',
+  'share.visits': '次访问',
+  'shell.add_to_remove_from_favorites': '收藏 / 取消收藏',
+  'shell.collapse_expand_list': '折叠 / 展开列表',
+  'shell.cycle_editor_split_preview': '切换即时渲染 / 分栏 / 阅读',
+  'shell.global': '全局',
+  'shell.keyboard_shortcuts': '快捷键面板',
+  'shell.layout_preferences_not_saved': '布局偏好无法保存在此设备上',
+  'shell.mobile_navigation': '手机端导航',
+  'shell.offline': '离线',
+  'shell.offline_changes_are_saved_locally': '离线，改动会保存在本地',
+  'shell.offline_value0_changes_pending': '离线，{value0} 处改动待同步',
+  'shell.quick_open': '快速跳转笔记',
+  'shell.resize_navigation_panel': '调整导航栏宽度',
+  'shell.resize_note_list': '调整笔记列表宽度',
+  'shell.resize_note_panes': '调整两个笔记窗格的宽度',
+  'shell.save_now': '立即保存',
+  'shell.saving': '正在保存…',
+  'shell.search_all_notes': '全文搜索',
+  'shell.search_notes_or_run_a_command': '搜索笔记、执行命令…',
+  'shell.show_hide_outline': '显示 / 隐藏大纲',
+  'shell.synced': '已同步',
+  'shell.synced_value0': '已同步 · {value0}',
+  'shell.unsaved_changes': '有未保存的改动',
+  'sidebar.account_and_settings': '账号与设置',
+  'sidebar.collapse': '折叠',
+  'sidebar.collapse_navigation': '收起导航',
+  'sidebar.create_first_folder': '创建第一个文件夹',
+  'sidebar.create_new_note_here': '在此新建笔记',
+  'sidebar.delete_folder': '删除文件夹',
+  'sidebar.delete_folder_value0': '删除文件夹「{value0}」？',
+  'sidebar.expand': '展开',
+  'sidebar.expand_navigation': '展开导航',
+  'sidebar.failed_to_create_folder': '创建文件夹失败',
+  'sidebar.log_out': '退出登录',
+  'sidebar.member': '成员',
+  'sidebar.move_earlier': '向前移动',
+  'sidebar.move_failed': '移动失败',
+  'sidebar.move_later': '向后移动',
+  'sidebar.move_out_one_level': '移出当前文件夹',
+  'folders.appearance': '文件夹外观',
+  'folders.choose_parent': '选择上级文件夹',
+  'folders.color': '颜色',
+  'folders.delete_contents_move_up':
+    '其中 {value0} 篇直属笔记和 {value1} 个直属子文件夹会向上移动一级；子文件夹里' +
+    '的笔记仍保留在原子文件夹中。',
+  'folders.delete_title': '删除文件夹「{name}」？',
+  'folders.delete_contents_trash':
+    '将删除整个子树，并将其中 {value0} 篇笔记移入回收站；不会永久删除笔记。',
+  'folders.move_cycle': '不能将文件夹移入自身或子孙文件夹。',
+  'folders.move_depth': '移动后的文件夹层级超过限制。',
+  'folders.move_contents_up': '内容移上一级',
+  'folders.delete_subtree_description':
+    '删除整个子树，并将其中所有笔记移入回收站；不会永久删除笔记。',
+  'folders.delete_subtree': '删除子树并移入回收站',
+  'folders.drop_top_level': '拖到此处移至顶层',
+  'notes.select_all': '全选',
+  'notes.load_more': '加载更多',
+  'notes.batch_result': '{success} 成功 / {failed} 失败',
+  'notes.batch_failure': '{title}（{id}）：{error}',
+  'common.changes_not_saved': '笔记正文尚未安全保存，操作已取消。',
+  'desktop.startupFailed':
+    'AutoNote 无法打开本地笔记库，请检查应用目录可写后重试。',
+  'desktop.retry': '重试',
+  'host.diagnostics': '诊断信息',
+  'host.diagnostics_export': '导出诊断信息',
+  'host.diagnostics_notice':
+    '仅导出应用版本、浏览器能力和最近200条脱敏日志；可能包含资源标识，不含笔记正文或凭据。',
+  'host.demo_notice':
+    '演示模式：仅本页内存数据，刷新恢复初态；不会连接真实备份或MCP服务。',
+  'host.demo_credentials': '演示登录：admin / password',
+  'host.retry_after_seconds': '请在 {seconds} 秒后重试。',
+  'pwa.install_help': '请使用浏览器菜单安装 AutoNote。',
+  'pwa.offline_boundary':
+    '离线就绪仅指静态界面资源；笔记正文与附件不会自动下载。',
+  'pwa.static_boundary':
+    '仅缓存静态界面；已读取并缓存的笔记正文可离线访问，附件与公开分享仍需联网。',
+  'pwa.install_unavailable':
+    '浏览器未提供安装按钮，可使用浏览器菜单添加到主屏幕。',
+  'pwa.update_blocked': '未能安全保存，暂不更新；请保留编辑后重试。',
+  'pwa.operation_failed': '操作失败，请稍后重试。',
+  'pwa.prepare_offline': '准备离线资源',
+  'desktop.closeToTray': '关闭时隐藏到托盘',
+  'desktop.closeToTrayHint': '隐藏前仍会确认本地编辑已保存。',
+  'desktop.globalShortcut': '启用全局新建快捷键',
+  'desktop.shortcutCombination': '快捷键组合',
+  'desktop.trayUnavailable': '系统托盘不可用，关闭窗口将退出。',
+  'desktop.logUnavailable': '日志不可用，笔记保存不受影响。',
+  'desktop.openLogFolder': '打开日志目录',
+  'desktop.schemaVersion': '数据库版本',
+  'desktop.showLogs': '显示后台日志',
+  'desktop.showLogsHint': '日志只在此设置页打开时读取，不影响后台写入。',
+  'desktop.logsTitle': '后台日志',
+  'desktop.logsRecent': '最近 {count} 条 · 每 2 秒刷新',
+  'desktop.logsOnlyProblems': '只看问题',
+  'desktop.logsRefresh': '刷新',
+  'desktop.logsReadFailed': '日志读取失败，请重试。',
+  'desktop.logsNoProblems': '没有警告或错误。',
+  'desktop.logsEmpty': '暂无日志。',
+  'desktop.logsRecords': '日志记录',
+  'desktop.prefsReadFailed': '无法读取界面偏好。',
+  'desktop.prefsSaveFailed': '无法保存界面偏好。',
+  'desktop.shortcutUnavailable': '快捷键不可用，原快捷键未改变。',
+  'desktop.mcpRunning': '正在监听 {endpoint}',
+  'desktop.mcpStopped': '本地 MCP 服务已停止。',
+  'desktop.mcpStart': '启动',
+  'desktop.mcpStop': '停止',
+  'desktop.mcpPort': '回环端口',
+  'desktop.mcpPortHint':
+    '只绑定 127.0.0.1。修改端口前请先停止服务（1024–65535）。',
+  'desktop.mcpPortInUse': '该端口已被其他程序占用，请换一个端口。',
+  'desktop.mcpConfigSnippet': '客户端配置（仅显示一次）',
+  'desktopSync.readStatusFailed': '无法读取同步状态',
+  'desktopSync.operationFailed': '同步操作失败',
+  'desktopSync.unbindTitle': '解除同步绑定？',
+  'desktopSync.unbindBody':
+    '同步将停止。本地笔记、文件夹和标签都会保留，重新绑定后全部重新上传。',
+} as const

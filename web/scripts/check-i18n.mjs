@@ -7,22 +7,44 @@ import ts from 'typescript'
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url))
 const REPOSITORY_ROOT = path.resolve(SCRIPT_DIR, '..', '..')
 const DEFAULT_SOURCE_DIRECTORIES = ['packages/app/src', 'web/src/client']
-const DEFAULT_LOCALE_FILES = ['packages/shared/src/locales/en-US.ts', 'packages/shared/src/locales/zh-CN.ts']
-const VISIBLE_ATTRIBUTE_NAMES = new Set(['aria-label', 'aria-description', 'placeholder', 'title'])
-const ALLOWED_TEMPLATE_TEXT = new Set(['AutoNote', ':', '[[ ]]', '#', 'Tab', '000000'])
+const DEFAULT_LOCALE_FILES = [
+  'packages/shared/src/locales/en-US.ts',
+  'packages/shared/src/locales/zh-CN.ts',
+]
+const VISIBLE_ATTRIBUTE_NAMES = new Set([
+  'aria-label',
+  'aria-description',
+  'placeholder',
+  'title',
+])
+const ALLOWED_TEMPLATE_TEXT = new Set([
+  'AutoNote',
+  ':',
+  '[[ ]]',
+  '#',
+  'Tab',
+  '000000',
+])
 
 export async function checkI18n(options = {}) {
   const root = options.root ?? REPOSITORY_ROOT
-  const sourceDirectories = options.sourceDirectories ?? DEFAULT_SOURCE_DIRECTORIES
+  const sourceDirectories =
+    options.sourceDirectories ?? DEFAULT_SOURCE_DIRECTORIES
   const localeFiles = options.localeFiles ?? DEFAULT_LOCALE_FILES
   const errors = []
-  const locales = await Promise.all(localeFiles.map((file) => readLocale(path.resolve(root, file))))
+  const locales = await Promise.all(
+    localeFiles.map((file) => readLocale(path.resolve(root, file))),
+  )
   const [english, chinese] = locales
   compareLocaleKeys(english, chinese, errors)
   compareLocalePlaceholders(english, chinese, errors)
 
   const sourceFiles = (
-    await Promise.all(sourceDirectories.map((directory) => findSourceFiles(path.resolve(root, directory))))
+    await Promise.all(
+      sourceDirectories.map((directory) =>
+        findSourceFiles(path.resolve(root, directory)),
+      ),
+    )
   ).flat()
   const keys = new Set(english.keys())
   for (const file of sourceFiles) {
@@ -34,35 +56,125 @@ export async function checkI18n(options = {}) {
 }
 
 async function readLocale(file) {
+  return readLocaleExport(file, null, new Set())
+}
+
+async function readLocaleExport(file, exportName, active) {
+  const identity = `${file}:${exportName ?? 'MESSAGES'}`
+  if (active.has(identity)) throw new Error(`Cyclic locale import: ${identity}`)
+  const next = new Set(active).add(identity)
   const source = await readFile(file, 'utf8')
-  const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
-  const declaration = parsed.statements.find(
-    (statement) =>
-      ts.isVariableStatement(statement) && statement.declarationList.declarations.some((item) => item.name.getText(parsed).endsWith('MESSAGES')),
+  const parsed = ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
   )
-  if (!declaration || !ts.isVariableStatement(declaration)) throw new Error(`Missing locale message object: ${file}`)
-  const object = unwrapLocaleObject(declaration.declarationList.declarations[0]?.initializer)
-  if (!object) throw new Error(`Unsupported locale message object: ${file}`)
+  const imports = new Map()
+  const declarations = new Map()
+  for (const statement of parsed.statements) {
+    if (
+      ts.isImportDeclaration(statement) &&
+      statement.importClause?.namedBindings &&
+      ts.isNamedImports(statement.importClause.namedBindings)
+    ) {
+      for (const item of statement.importClause.namedBindings.elements) {
+        imports.set(item.name.text, {
+          file: statement.moduleSpecifier.text,
+          name: item.propertyName?.text ?? item.name.text,
+        })
+      }
+    }
+    if (ts.isVariableStatement(statement)) {
+      for (const item of statement.declarationList.declarations) {
+        if (ts.isIdentifier(item.name))
+          declarations.set(item.name.text, item.initializer)
+      }
+    }
+  }
+  const name =
+    exportName ??
+    [...declarations.keys()].find((key) => key.endsWith('MESSAGES'))
+  const object = unwrapLocaleObject(declarations.get(name))
+  if (!object) throw new Error(`Missing static locale message object: ${file}`)
   const values = new Map()
   for (const property of object.properties) {
-    if (!ts.isPropertyAssignment(property) || !ts.isStringLiteralLike(property.name) || !ts.isStringLiteralLike(property.initializer)) {
-      throw new Error(`Locale entries must be static strings: ${formatPosition(file, source, property.getStart(parsed))}`)
+    if (
+      ts.isSpreadAssignment(property) &&
+      ts.isIdentifier(property.expression)
+    ) {
+      const imported = imports.get(property.expression.text)
+      if (!imported || !imported.file.startsWith('.'))
+        throw new Error(`Unsupported locale spread: ${file}`)
+      const target = path.resolve(path.dirname(file), imported.file)
+      const nested = await readLocaleExport(
+        path.extname(target) ? target : `${target}.ts`,
+        imported.name,
+        next,
+      )
+      for (const [key, value] of nested)
+        addLocaleEntry(values, key, value, file)
+      continue
     }
-    values.set(property.name.text, property.initializer.text)
+    const value = ts.isPropertyAssignment(property)
+      ? staticLocaleText(property.initializer)
+      : null
+    if (
+      !ts.isPropertyAssignment(property) ||
+      !ts.isStringLiteralLike(property.name) ||
+      value === null
+    ) {
+      throw new Error(
+        `Locale entries must be static strings: ${formatPosition(file, source, property.getStart(parsed))}`,
+      )
+    }
+    addLocaleEntry(values, property.name.text, value, file)
   }
   return values
+}
+
+function addLocaleEntry(values, key, value, file) {
+  if (values.has(key)) throw new Error(`Duplicate locale key ${key}: ${file}`)
+  values.set(key, value)
+}
+
+function staticLocaleText(value) {
+  if (ts.isStringLiteralLike(value)) return value.text
+  if (
+    ts.isParenthesizedExpression(value) ||
+    ts.isAsExpression(value) ||
+    ts.isSatisfiesExpression(value)
+  )
+    return staticLocaleText(value.expression)
+  if (
+    ts.isBinaryExpression(value) &&
+    value.operatorToken.kind === ts.SyntaxKind.PlusToken
+  ) {
+    const left = staticLocaleText(value.left),
+      right = staticLocaleText(value.right)
+    if (left !== null && right !== null) return left + right
+  }
+  return null
 }
 
 function unwrapLocaleObject(value) {
   if (!value) return null
   if (ts.isObjectLiteralExpression(value)) return value
-  if (ts.isAsExpression(value) || ts.isSatisfiesExpression(value)) return unwrapLocaleObject(value.expression)
+  if (
+    ts.isAsExpression(value) ||
+    ts.isSatisfiesExpression(value) ||
+    ts.isParenthesizedExpression(value)
+  )
+    return unwrapLocaleObject(value.expression)
   return null
 }
 
 function compareLocaleKeys(english, chinese, errors) {
-  for (const key of english.keys()) if (!chinese.has(key)) errors.push(`Missing zh-CN key: ${key}`)
-  for (const key of chinese.keys()) if (!english.has(key)) errors.push(`Unexpected zh-CN key: ${key}`)
+  for (const key of english.keys())
+    if (!chinese.has(key)) errors.push(`Missing zh-CN key: ${key}`)
+  for (const key of chinese.keys())
+    if (!english.has(key)) errors.push(`Unexpected zh-CN key: ${key}`)
 }
 
 function compareLocalePlaceholders(english, chinese, errors) {
@@ -72,13 +184,17 @@ function compareLocalePlaceholders(english, chinese, errors) {
     const englishPlaceholders = placeholders(englishText)
     const chinesePlaceholders = placeholders(chineseText)
     if (englishPlaceholders.join(',') !== chinesePlaceholders.join(',')) {
-      errors.push(`Mismatched placeholders for ${key}: en-US={${englishPlaceholders.join(',')}} zh-CN={${chinesePlaceholders.join(',')}}`)
+      errors.push(
+        `Mismatched placeholders for ${key}: en-US={${englishPlaceholders.join(',')}} zh-CN={${chinesePlaceholders.join(',')}}`,
+      )
     }
   }
 }
 
 function placeholders(value) {
-  return [...value.matchAll(/\{([A-Za-z0-9_]+)\}/g)].map((match) => match[1]).sort()
+  return [...value.matchAll(/\{([A-Za-z0-9_]+)\}/g)]
+    .map((match) => match[1])
+    .sort()
 }
 
 async function findSourceFiles(directory) {
@@ -90,24 +206,49 @@ async function findSourceFiles(directory) {
         if (entry.name === 'components' || entry.name === 'editor') return []
         return findSourceFiles(file)
       }
-      if (!entry.isFile() || entry.name.endsWith('.test.ts') || entry.name.endsWith('.dom.test.ts')) return []
-      return entry.name.endsWith('.ts') || entry.name.endsWith('.svelte') ? [file] : []
+      if (
+        !entry.isFile() ||
+        entry.name.endsWith('.test.ts') ||
+        entry.name.endsWith('.dom.test.ts')
+      )
+        return []
+      return entry.name.endsWith('.ts') || entry.name.endsWith('.svelte')
+        ? [file]
+        : []
     }),
   )
   return nested.flat()
 }
 
 function checkTypeScriptFile(file, source, keys, errors) {
-  const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const parsed = ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  )
   visitTypeScript(parsed, (node) => {
-    if (!ts.isCallExpression(node) || !isTranslationCall(node.expression)) return
+    if (!ts.isCallExpression(node) || !isTranslationCall(node.expression))
+      return
     const key = node.arguments[0]
-    if (!key || !ts.isStringLiteralLike(key)) {
-      if (key && ts.isAsExpression(key) && key.type.getText(parsed) === "Parameters<I18nState['t']>[0]") return
-      errors.push(`${formatPosition(file, source, node.getStart(parsed))}: translation keys must be static`)
+    const text = key ? staticLocaleText(key) : null
+    if (text === null) {
+      if (
+        key &&
+        ts.isAsExpression(key) &&
+        key.type.getText(parsed) === "Parameters<I18nState['t']>[0]"
+      )
+        return
+      errors.push(
+        `${formatPosition(file, source, node.getStart(parsed))}: translation keys must be static`,
+      )
       return
     }
-    if (!keys.has(key.text)) errors.push(`${formatPosition(file, source, key.getStart(parsed))}: unknown translation key ${key.text}`)
+    if (!keys.has(text))
+      errors.push(
+        `${formatPosition(file, source, key.getStart(parsed))}: unknown translation key ${text}`,
+      )
   })
 }
 
@@ -117,7 +258,10 @@ function visitTypeScript(node, visit) {
 }
 
 function isTranslationCall(expression) {
-  return ts.isIdentifier(expression) && expression.text === 't' || ts.isPropertyAccessExpression(expression) && expression.name.text === 't'
+  return (
+    (ts.isIdentifier(expression) && expression.text === 't') ||
+    (ts.isPropertyAccessExpression(expression) && expression.name.text === 't')
+  )
 }
 
 function checkSvelteFile(file, source, keys, errors) {
@@ -125,57 +269,149 @@ function checkSvelteFile(file, source, keys, errors) {
   try {
     tree = parse(source, { filename: file, modern: true })
   } catch (error) {
-    errors.push(`${file}: ${error instanceof Error ? error.message : String(error)}`)
+    errors.push(
+      `${file}: ${error instanceof Error ? error.message : String(error)}`,
+    )
     return
   }
   const keyTables = new Set()
   visitSvelte(tree.instance?.content?.body ?? tree.instance, (node) => {
-    if (node.type !== 'VariableDeclarator' || node.id?.type !== 'Identifier' || !node.init) return
-    const annotation = source.slice(node.id.typeAnnotation?.start ?? node.id.end, node.id.typeAnnotation?.end ?? node.id.end)
-    const constant = node.init.type === 'TSAsExpression' && source.slice(node.init.typeAnnotation.start, node.init.typeAnnotation.end) === 'const'
+    if (
+      node.type !== 'VariableDeclarator' ||
+      node.id?.type !== 'Identifier' ||
+      !node.init
+    )
+      return
+    const annotation = source.slice(
+      node.id.typeAnnotation?.start ?? node.id.end,
+      node.id.typeAnnotation?.end ?? node.id.end,
+    )
+    const constant =
+      node.init.type === 'TSAsExpression' &&
+      source.slice(
+        node.init.typeAnnotation.start,
+        node.init.typeAnnotation.end,
+      ) === 'const'
     if (!annotation.includes('MessageKey') && !constant) return
     const initializer = constant ? node.init.expression : node.init
-    if (initializer.type !== 'ObjectExpression' && initializer.type !== 'ArrayExpression') return
+    if (
+      initializer.type !== 'ObjectExpression' &&
+      initializer.type !== 'ArrayExpression'
+    )
+      return
     const literals = []
     visitSvelte(initializer, (child, parent) => {
-      if (child.type === 'Literal' && typeof child.value === 'string' && child.value.includes('.') && parent?.type !== 'Property') literals.push(child.value)
-      if (parent?.type === 'Property' && parent.value === child && child.type === 'Literal' && typeof child.value === 'string' && child.value.includes('.')) literals.push(child.value)
+      if (
+        child.type === 'Literal' &&
+        typeof child.value === 'string' &&
+        child.value.includes('.') &&
+        parent?.type !== 'Property'
+      )
+        literals.push(child.value)
+      if (
+        parent?.type === 'Property' &&
+        parent.value === child &&
+        child.type === 'Literal' &&
+        typeof child.value === 'string' &&
+        child.value.includes('.')
+      )
+        literals.push(child.value)
     })
-    if (literals.length && literals.every((value) => keys.has(value))) keyTables.add(node.id.name)
+    if (literals.length && literals.every((value) => keys.has(value)))
+      keyTables.add(node.id.name)
   })
   visitSvelte(tree.fragment, (node, parent) => {
     if (node.type === 'Text' && parent?.type === 'Fragment') {
       const text = node.data.trim()
       if (text.length > 1 && !ALLOWED_TEMPLATE_TEXT.has(text)) {
-        errors.push(`${formatPosition(file, source, node.start)}: visible text must use a translation key: ${JSON.stringify(text)}`)
+        errors.push(
+          `${formatPosition(file, source, node.start)}: visible text must use a translation key: ${JSON.stringify(text)}`,
+        )
       }
     }
     if (node.type === 'Attribute' && VISIBLE_ATTRIBUTE_NAMES.has(node.name)) {
       const text = staticAttributeText(node)
       if (text && !ALLOWED_TEMPLATE_TEXT.has(text)) {
-        errors.push(`${formatPosition(file, source, node.start)}: ${node.name} must use a translation key: ${JSON.stringify(text)}`)
+        errors.push(
+          `${formatPosition(file, source, node.start)}: ${node.name} must use a translation key: ${JSON.stringify(text)}`,
+        )
       }
     }
     if (node.type === 'CallExpression' && isSvelteTranslationCall(node)) {
       const key = node.arguments[0]
-      if (key?.type === 'Literal' && typeof key.value === 'string') {
-        if (!keys.has(key.value)) errors.push(`${formatPosition(file, source, key.start)}: unknown translation key ${key.value}`)
+      const text = staticSvelteText(key)
+      if (text !== null) {
+        if (!keys.has(text))
+          errors.push(
+            `${formatPosition(file, source, key.start)}: unknown translation key ${text}`,
+          )
       } else if (!key || !isBoundedTranslation(key, source, keys, keyTables)) {
-        errors.push(`${formatPosition(file, source, node.start)}: translation keys must be static or bounded`)
+        errors.push(
+          `${formatPosition(file, source, node.start)}: translation keys must be static or bounded`,
+        )
       }
     }
   })
 }
+function staticSvelteText(node) {
+  if (!node) return null
+  if (node.type === 'Literal' && typeof node.value === 'string')
+    return node.value
+  if (node.type === 'TSAsExpression' || node.type === 'TSSatisfiesExpression')
+    return staticSvelteText(node.expression)
+  if (node.type === 'BinaryExpression' && node.operator === '+') {
+    const left = staticSvelteText(node.left),
+      right = staticSvelteText(node.right)
+    if (left !== null && right !== null) return left + right
+  }
+  return null
+}
+
 function isBoundedTranslation(node, source, keys, tables) {
-  if (node.type === 'Literal') return typeof node.value === 'string' && keys.has(node.value)
-  if (node.type === 'ConditionalExpression') return isBoundedTranslation(node.consequent, source, keys, tables) && isBoundedTranslation(node.alternate, source, keys, tables)
-  if (node.type === 'LogicalExpression' && node.operator === '??') return isBoundedTranslation(node.left, source, keys, tables) && isBoundedTranslation(node.right, source, keys, tables)
-  if (node.type === 'CallExpression' && node.callee?.type === 'Identifier') return node.callee.name === 'messageKeyForError' || node.callee.name === 'cloudError'
-  if (node.type === 'TSAsExpression' && source.slice(node.typeAnnotation.start, node.typeAnnotation.end) === 'MessageKey') return true
+  if (node.type === 'Literal')
+    return typeof node.value === 'string' && keys.has(node.value)
+  if (node.type === 'ConditionalExpression')
+    return (
+      isBoundedTranslation(node.consequent, source, keys, tables) &&
+      isBoundedTranslation(node.alternate, source, keys, tables)
+    )
+  if (node.type === 'LogicalExpression' && node.operator === '??')
+    return (
+      isBoundedTranslation(node.left, source, keys, tables) &&
+      isBoundedTranslation(node.right, source, keys, tables)
+    )
+  if (node.type === 'CallExpression' && node.callee?.type === 'Identifier')
+    return (
+      node.callee.name === 'messageKeyForError' ||
+      node.callee.name === 'cloudError'
+    )
+  if (
+    node.type === 'TSAsExpression' &&
+    source.slice(node.typeAnnotation.start, node.typeAnnotation.end) ===
+      'MessageKey'
+  )
+    return true
   if (node.type !== 'MemberExpression') return false
   const text = source.slice(node.start, node.end)
-  return [...tables].some((table) => text.startsWith(`${table}[`) || text.startsWith(`${table}.`) || text.startsWith(`${table}?.`)) ||
-    /^(option|slider|item|scale)\.(label|names\[)/.test(text) && [...tables].some((table) => ['options', 'scales', 'editorSliders', 'editorSwitches', 'previewSwitches', 'filters'].includes(table))
+  return (
+    [...tables].some(
+      (table) =>
+        text.startsWith(`${table}[`) ||
+        text.startsWith(`${table}.`) ||
+        text.startsWith(`${table}?.`),
+    ) ||
+    (/^(option|slider|item|scale)\.(label|names\[)/.test(text) &&
+      [...tables].some((table) =>
+        [
+          'options',
+          'scales',
+          'editorSliders',
+          'editorSwitches',
+          'previewSwitches',
+          'filters',
+        ].includes(table),
+      ))
+  )
 }
 
 function visitSvelte(value, visit, seen = new Set(), parent = null) {
@@ -186,16 +422,27 @@ function visitSvelte(value, visit, seen = new Set(), parent = null) {
     for (const item of value) visitSvelte(item, visit, seen, parent)
     return
   }
-  for (const child of Object.values(value)) visitSvelte(child, visit, seen, value)
+  for (const child of Object.values(value))
+    visitSvelte(child, visit, seen, value)
 }
 
 function staticAttributeText(attribute) {
-  if (!Array.isArray(attribute.value) || attribute.value.length !== 1 || attribute.value[0]?.type !== 'Text') return null
+  if (
+    !Array.isArray(attribute.value) ||
+    attribute.value.length !== 1 ||
+    attribute.value[0]?.type !== 'Text'
+  )
+    return null
   return attribute.value[0].data.trim() || null
 }
 
 function isSvelteTranslationCall(expression) {
-  return expression.callee?.type === 'Identifier' && expression.callee.name === 't' || expression.callee?.type === 'MemberExpression' && expression.callee.property?.name === 't'
+  return (
+    (expression.callee?.type === 'Identifier' &&
+      expression.callee.name === 't') ||
+    (expression.callee?.type === 'MemberExpression' &&
+      expression.callee.property?.name === 't')
+  )
 }
 
 function formatPosition(file, source, offset) {

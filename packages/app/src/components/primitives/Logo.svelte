@@ -1,7 +1,8 @@
 <script lang="ts">
   import { cn } from '@app/utils'
 
-  let { size = 20, class: className }: { size?: number; class?: string } = $props()
+  let { size = 20, class: className }: { size?: number; class?: string } =
+    $props()
 </script>
 
 <img

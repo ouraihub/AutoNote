@@ -14,7 +14,8 @@ export default defineConfig({
     },
   },
   test: {
-    // Aether Git packages are source-distributed; inline them so Vitest transforms TS instead of Node stripping types.
+    // Aether Git packages are source-distributed; inline them so Vitest
+    // transforms TS instead of Node stripping types.
     server: { deps: { inline: [/@ouraihub\/aether-(contracts|core)/] } },
     projects: [
       {
@@ -30,6 +31,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'dom',
+          execArgv: ['--no-experimental-webstorage'],
           environment: 'jsdom',
           environmentOptions: { jsdom: { pretendToBeVisual: true } },
           include: ['src/**/*.dom.test.ts'],

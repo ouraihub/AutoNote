@@ -279,7 +279,8 @@ use serde_json::{Value, json};
 
 /// Keeps the domain code (conflict, not_found, bad_request...) and its whitelisted
 /// details so MCP clients can tell a stale `expected_rev` from a crash.
-// ponytail: conflict `expected/actual/server` don't fit Aether's Details whitelist; clients re-read the note.
+// ponytail: conflict `expected/actual/server` don't fit Aether's Details whitelist;
+// clients re-read the note.
 fn kit_error(error: AppError) -> KitError {
     let code = match error.code() {
         ErrorCode::BadRequest | ErrorCode::PayloadTooLarge => KitErrorCode::BadRequest,
@@ -308,7 +309,8 @@ fn kit_error(error: AppError) -> KitError {
     kit
 }
 
-/// Converts the frozen AutoNote registry into Aether handlers without opening the library before setup.
+/// Converts the frozen AutoNote registry into Aether handlers without opening
+/// the library before setup.
 pub fn exposed_tools(library: Arc<OnceLock<Arc<Library>>>) -> Vec<ExposedTool> {
     let fixture: Value = serde_json::from_str(include_str!("../../../fixtures/mcp-tools.json"))
         .unwrap_or(Value::Null);

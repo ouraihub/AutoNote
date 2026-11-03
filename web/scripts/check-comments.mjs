@@ -8,17 +8,30 @@ import ts from 'typescript'
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url))
 const REPOSITORY_ROOT = path.resolve(SCRIPT_DIR, '..', '..')
 const DEFAULT_SOURCE_DIRECTORIES = ['packages/app/src', 'web/src']
-const DEFAULT_ROOT_FILES = ['web/index.html', 'web/wrangler.toml', 'web/wrangler.kv.toml', 'web/wrangler.demo.toml']
+const DEFAULT_ROOT_FILES = [
+  'web/index.html',
+  'web/wrangler.toml',
+  'web/wrangler.kv.toml',
+  'web/wrangler.demo.toml',
+]
 const DEFAULT_ALLOWLIST = 'web/scripts/comment-allowlist.json'
 
 export async function checkComments(options = {}) {
   const root = options.root ?? REPOSITORY_ROOT
-  const sourceDirectories = options.sourceDirectories ?? DEFAULT_SOURCE_DIRECTORIES
+  const sourceDirectories =
+    options.sourceDirectories ?? DEFAULT_SOURCE_DIRECTORIES
   const rootFiles = options.rootFiles ?? DEFAULT_ROOT_FILES
-  const allowlistFile = path.resolve(root, options.allowlistFile ?? DEFAULT_ALLOWLIST)
+  const allowlistFile = path.resolve(
+    root,
+    options.allowlistFile ?? DEFAULT_ALLOWLIST,
+  )
   const allowed = await readAllowlist(allowlistFile)
   const sourceFiles = (
-    await Promise.all(sourceDirectories.map((directory) => findSourceFiles(path.resolve(root, directory))))
+    await Promise.all(
+      sourceDirectories.map((directory) =>
+        findSourceFiles(path.resolve(root, directory)),
+      ),
+    )
   ).flat()
   for (const relativePath of rootFiles) {
     const file = path.resolve(root, relativePath)
@@ -35,7 +48,10 @@ export async function checkComments(options = {}) {
     const source = await readFile(file, 'utf8')
     for (const comment of extractComments(file, source)) {
       const id = commentId(path.relative(root, file), comment)
-      if (!allowed.has(id)) errors.push(`${formatPosition(root, file, source, comment.start)}: unapproved ${comment.kind} comment`)
+      if (!allowed.has(id))
+        errors.push(
+          `${formatPosition(root, file, source, comment.start)}: unapproved ${comment.kind} comment`,
+        )
     }
   }
   return errors
@@ -43,12 +59,18 @@ export async function checkComments(options = {}) {
 
 export async function createCommentAllowlist(options = {}) {
   const root = options.root ?? REPOSITORY_ROOT
-  const sourceDirectories = options.sourceDirectories ?? DEFAULT_SOURCE_DIRECTORIES
+  const sourceDirectories =
+    options.sourceDirectories ?? DEFAULT_SOURCE_DIRECTORIES
   const rootFiles = options.rootFiles ?? DEFAULT_ROOT_FILES
   const sourceFiles = (
-    await Promise.all(sourceDirectories.map((directory) => findSourceFiles(path.resolve(root, directory))))
+    await Promise.all(
+      sourceDirectories.map((directory) =>
+        findSourceFiles(path.resolve(root, directory)),
+      ),
+    )
   ).flat()
-  for (const relativePath of rootFiles) sourceFiles.push(path.resolve(root, relativePath))
+  for (const relativePath of rootFiles)
+    sourceFiles.push(path.resolve(root, relativePath))
 
   const entries = []
   for (const file of sourceFiles.sort()) {
@@ -69,7 +91,10 @@ export async function createCommentAllowlist(options = {}) {
 async function readAllowlist(file) {
   try {
     const parsed = JSON.parse(await readFile(file, 'utf8'))
-    if (!Array.isArray(parsed.entries) || !parsed.entries.every((entry) => typeof entry === 'string')) {
+    if (
+      !Array.isArray(parsed.entries) ||
+      !parsed.entries.every((entry) => typeof entry === 'string')
+    ) {
       throw new Error(`Invalid comment allowlist: ${file}`)
     }
     return new Set(parsed.entries)
@@ -85,7 +110,12 @@ async function findSourceFiles(directory) {
     entries.map(async (entry) => {
       const file = path.join(directory, entry.name)
       if (entry.isDirectory()) return findSourceFiles(file)
-      if (!entry.isFile() || entry.name.endsWith('.test.ts') || entry.name.endsWith('.dom.test.ts')) return []
+      if (
+        !entry.isFile() ||
+        entry.name.endsWith('.test.ts') ||
+        entry.name.endsWith('.dom.test.ts')
+      )
+        return []
       return /\.(?:ts|svelte|css)$/.test(entry.name) ? [file] : []
     }),
   )
@@ -103,21 +133,52 @@ function extractComments(file, source) {
 
 function extractTypeScriptComments(source, offset = 0) {
   const regexEnds = new Map()
-  const tree = ts.createSourceFile('comments.ts', source, ts.ScriptTarget.Latest, true)
+  const templateEnds = new Map()
+  const tree = ts.createSourceFile(
+    'comments.ts',
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+  )
   const visit = (node) => {
-    if (ts.isRegularExpressionLiteral(node)) regexEnds.set(node.getStart(tree), node.end)
+    if (ts.isTemplateExpression(node)) {
+      templateEnds.set(node.head.getStart(tree), node.head.end)
+      for (const span of node.templateSpans) {
+        templateEnds.set(span.literal.getStart(tree), span.literal.end)
+      }
+    }
+    if (ts.isRegularExpressionLiteral(node))
+      regexEnds.set(node.getStart(tree), node.end)
     ts.forEachChild(node, visit)
   }
   visit(tree)
-  const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, ts.LanguageVariant.Standard, source)
+  const scanner = ts.createScanner(
+    ts.ScriptTarget.Latest,
+    false,
+    ts.LanguageVariant.Standard,
+    source,
+  )
   const comments = []
-  for (let token = scanner.scan(); token !== ts.SyntaxKind.EndOfFileToken; token = scanner.scan()) {
+  for (
+    let token = scanner.scan();
+    token !== ts.SyntaxKind.EndOfFileToken;
+    token = scanner.scan()
+  ) {
+    const templateEnd = templateEnds.get(scanner.getTokenPos())
+    if (templateEnd !== undefined) {
+      scanner.setTextPos(templateEnd)
+      continue
+    }
     const regexEnd = regexEnds.get(scanner.getTokenPos())
     if (regexEnd !== undefined) {
       scanner.setTextPos(regexEnd)
       continue
     }
-    if (token !== ts.SyntaxKind.SingleLineCommentTrivia && token !== ts.SyntaxKind.MultiLineCommentTrivia) continue
+    if (
+      token !== ts.SyntaxKind.SingleLineCommentTrivia &&
+      token !== ts.SyntaxKind.MultiLineCommentTrivia
+    )
+      continue
     comments.push({
       kind: token === ts.SyntaxKind.SingleLineCommentTrivia ? 'line' : 'block',
       start: offset + scanner.getTokenPos(),
@@ -132,7 +193,12 @@ function extractSvelteComments(source) {
   const comments = []
   const visit = (node) => {
     if (!node || typeof node !== 'object') return
-    if (node.type === 'Comment') comments.push({ kind: 'html', start: node.start, text: source.slice(node.start, node.end) })
+    if (node.type === 'Comment')
+      comments.push({
+        kind: 'html',
+        start: node.start,
+        text: source.slice(node.start, node.end),
+      })
     for (const value of Object.values(node)) {
       if (Array.isArray(value)) value.forEach(visit)
       else if (value && typeof value === 'object') visit(value)
@@ -141,16 +207,29 @@ function extractSvelteComments(source) {
   visit(tree.fragment)
   const scripts = [tree.instance, tree.module].filter(Boolean)
   for (const script of scripts) {
-    comments.push(...extractTypeScriptComments(source.slice(script.content.start, script.content.end), script.content.start))
+    comments.push(
+      ...extractTypeScriptComments(
+        source.slice(script.content.start, script.content.end),
+        script.content.start,
+      ),
+    )
   }
-  if (tree.css) comments.push(...extractDelimitedComments(source.slice(tree.css.start, tree.css.end), 'css', tree.css.start))
+  if (tree.css)
+    comments.push(
+      ...extractDelimitedComments(
+        source.slice(tree.css.start, tree.css.end),
+        'css',
+        tree.css.start,
+      ),
+    )
   return comments
 }
 
 function extractHtmlComments(source) {
   const comments = []
   const pattern = /<!--[\s\S]*?-->/g
-  for (const match of source.matchAll(pattern)) comments.push({ kind: 'html', start: match.index, text: match[0] })
+  for (const match of source.matchAll(pattern))
+    comments.push({ kind: 'html', start: match.index, text: match[0] })
   return comments
 }
 
@@ -176,7 +255,11 @@ function extractDelimitedComments(source, kind, offset = 0) {
     if (character === '/' && source[index + 1] === '*') {
       const end = source.indexOf('*/', index + 2)
       const final = end < 0 ? source.length : end + 2
-      comments.push({ kind, start: offset + index, text: source.slice(index, final) })
+      comments.push({
+        kind,
+        start: offset + index,
+        text: source.slice(index, final),
+      })
       index = final
       continue
     }
@@ -190,7 +273,12 @@ function extractTomlComments(source) {
   let offset = 0
   for (const line of source.split('\n')) {
     const start = tomlCommentStart(line)
-    if (start >= 0) comments.push({ kind: 'toml', start: offset + start, text: line.slice(start) })
+    if (start >= 0)
+      comments.push({
+        kind: 'toml',
+        start: offset + start,
+        text: line.slice(start),
+      })
     offset += line.length + 1
   }
   return comments
@@ -212,7 +300,10 @@ function tomlCommentStart(line) {
 }
 
 function commentId(relativePath, comment) {
-  const digest = createHash('sha256').update(comment.text).digest('hex').slice(0, 16)
+  const digest = createHash('sha256')
+    .update(comment.text)
+    .digest('hex')
+    .slice(0, 16)
   return `${relativePath.replaceAll('\\', '/')}:${comment.start}:${comment.kind}:${digest}`
 }
 
@@ -228,4 +319,5 @@ async function main() {
   process.exitCode = 1
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main()
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
+  await main()

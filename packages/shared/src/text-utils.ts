@@ -1,12 +1,25 @@
-export function sliceText(value: string, start = 0, end = value.length): string {
+export function sliceText(
+  value: string,
+  start = 0,
+  end = value.length,
+): string {
   let from = clampIndex(start, value.length)
   let to = clampIndex(end, value.length)
   if (to < from) to = from
 
-  if (from > 0 && isLowSurrogate(value.charCodeAt(from)) && isHighSurrogate(value.charCodeAt(from - 1))) {
+  if (
+    from > 0 &&
+    isLowSurrogate(value.charCodeAt(from)) &&
+    isHighSurrogate(value.charCodeAt(from - 1))
+  ) {
     from++
   }
-  if (to > from && to < value.length && isLowSurrogate(value.charCodeAt(to)) && isHighSurrogate(value.charCodeAt(to - 1))) {
+  if (
+    to > from &&
+    to < value.length &&
+    isLowSurrogate(value.charCodeAt(to)) &&
+    isHighSurrogate(value.charCodeAt(to - 1))
+  ) {
     to--
   }
   return value.slice(from, to)
@@ -26,7 +39,10 @@ export function duplicateNoteTitle(
 ): string {
   const normalizedSuffix = truncateText(suffix, maxLength)
   const base = title.trim() || fallback
-  return truncateText(base, Math.max(0, maxLength - normalizedSuffix.length)) + normalizedSuffix
+  return (
+    truncateText(base, Math.max(0, maxLength - normalizedSuffix.length)) +
+    normalizedSuffix
+  )
 }
 
 const utf8Encoder = new TextEncoder()

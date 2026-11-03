@@ -9,11 +9,18 @@
   const notifier = new OverlayNotifier((key) => key)
 
   function askFirst(): void {
-    void notifier.confirm({ titleKey: 'First confirmation', bodyKey: 'First body' })
+    void notifier.confirm({
+      titleKey: 'First confirmation',
+      bodyKey: 'First body',
+    })
   }
 
   function askSecond(): void {
-    void notifier.confirm({ titleKey: 'Second confirmation', bodyKey: 'Second body', danger: true })
+    void notifier.confirm({
+      titleKey: 'Second confirmation',
+      bodyKey: 'Second body',
+      danger: true,
+    })
   }
 </script>
 
@@ -40,4 +47,12 @@
   </Dialog.Content>
 </Dialog.Root>
 
-<OverlayProvider {notifier} resolveMessage={(key) => key === 'common.cancel' ? 'Cancel' : key === 'overlay.confirm' ? 'Confirm' : key} />
+<OverlayProvider
+  {notifier}
+  resolveMessage={(key) =>
+    key === 'common.cancel'
+      ? 'Cancel'
+      : key === 'overlay.confirm'
+        ? 'Confirm'
+        : key}
+/>

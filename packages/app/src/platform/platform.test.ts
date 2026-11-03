@@ -32,7 +32,9 @@ describe('platform seams', () => {
   })
 
   test('rejects sensitive structured logging fields', () => {
-    expect(isSafeLogFields({ noteId: '01j8v2rz4k4ybx4yy1fcp1mv1w', durationMs: 5 })).toBe(true)
+    expect(
+      isSafeLogFields({ noteId: '01j8v2rz4k4ybx4yy1fcp1mv1w', durationMs: 5 }),
+    ).toBe(true)
     expect(isSafeLogFields({ content: 'secret text' })).toBe(false)
     expect(isSafeLogFields({ token: '[redacted]' })).toBe(true)
     expect(isSafeLogFields({ token: 'ink_private' })).toBe(false)

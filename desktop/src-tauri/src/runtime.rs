@@ -394,7 +394,8 @@ pub(crate) fn run() {
                 "app.lifecycle.start_failed"
             );
             eprintln!(
-                "AutoNote could not start. Move the application folder to a writable location. {error}"
+                "AutoNote could not start. Move the application folder to a writable \
+                 location. {error}"
             );
         }
     }

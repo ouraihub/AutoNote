@@ -10,7 +10,10 @@ import {
 describe('cosineSimilarity', () => {
   it('returns 1 for identical vectors', () => {
     const a = new Float32Array([1, 2, 3, 4])
-    expect(cosineSimilarity(a, new Float32Array([1, 2, 3, 4]))).toBeCloseTo(1, 6)
+    expect(cosineSimilarity(a, new Float32Array([1, 2, 3, 4]))).toBeCloseTo(
+      1,
+      6,
+    )
   })
 
   it('returns 0 for orthogonal vectors', () => {
@@ -18,10 +21,14 @@ describe('cosineSimilarity', () => {
     expect(cosineSimilarity(a, new Float32Array([0, 1, 0]))).toBeCloseTo(0, 6)
   })
 
-  it('is positive for similar and negative for opposite vectors', () => {
+  it('is positive for similar and negative for opposit' + 'e vectors', () => {
     const a = new Float32Array([1, 1, 1])
-    expect(cosineSimilarity(a, new Float32Array([2, 2, 2]))).toBeGreaterThan(0.9)
-    expect(cosineSimilarity(a, new Float32Array([-1, -1, -1]))).toBeLessThan(-0.9)
+    expect(cosineSimilarity(a, new Float32Array([2, 2, 2]))).toBeGreaterThan(
+      0.9,
+    )
+    expect(cosineSimilarity(a, new Float32Array([-1, -1, -1]))).toBeLessThan(
+      -0.9,
+    )
   })
 
   it('returns 0 for zero vectors', () => {
@@ -63,7 +70,7 @@ describe('fuseByRrf', () => {
   const lexical = [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
   const semantic = [{ id: 'c' }, { id: 'a' }, { id: 'd' }]
 
-  it('ranks notes present in both lists above single-source notes', () => {
+  it('ranks notes present in both lists above single-s' + 'ource notes', () => {
     const fused = fuseByRrf(lexical, semantic)
     expect(fused[0]!.item.id).toBe('a')
     expect(fused[1]!.item.id).toBe('c')

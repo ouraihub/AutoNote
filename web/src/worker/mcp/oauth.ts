@@ -14,51 +14,68 @@ const app = createApp()
 export class AutoNoteMcpApi extends WorkerEntrypoint<Env, McpAuthProps> {
   async fetch(request: Request): Promise<Response> {
     const database = await initializeDatabase(this.env)
-    if (!await isMcpEnabled(this.env.DB)) {
-      return Response.json({ error: 'MCP is disabled in AutoNote settings' }, { status: 403 })
+    if (!(await isMcpEnabled(this.env.DB))) {
+      return Response.json(
+        { error: 'MCP is disabled in AutoNote settings' },
+        { status: 403 },
+      )
     }
     const auth = this.ctx.props
-    if (!isAuthProps(auth)) return Response.json({ error: 'Invalid OAuth grant' }, { status: 401 })
-    const user = await this.env.DB.prepare(`SELECT role FROM users WHERE id = ?1`)
+    if (!isAuthProps(auth))
+      return Response.json({ error: 'Invalid OAuth grant' }, { status: 401 })
+    const user = await this.env.DB.prepare(
+      `SELECT role FROM users WHERE id = ?1`,
+    )
       .bind(auth.userId)
       .first<{ role: string }>()
-    if (!user) return Response.json({ error: 'AutoNote account no longer exists' }, { status: 401 })
+    if (!user)
+      return Response.json(
+        { error: 'AutoNote account no longer exists' },
+        { status: 401 },
+      )
 
     const requestUrl = new URL(request.url)
     const origin = canonicalOrigin(request, this.env.PUBLIC_URL)
     const canonicalHost = new URL(origin).hostname
     const handler = createMcpHandler(
-      () => createAutoNoteMcpServer({
-        env: this.env,
-        auth: { ...auth, role: user.role === 'owner' ? 'owner' : 'member' },
-        origin,
-        ftsEnabled: database.ftsEnabled,
-        executionCtx: this.ctx,
-      }),
+      () =>
+        createAutoNoteMcpServer({
+          env: this.env,
+          auth: { ...auth, role: user.role === 'owner' ? 'owner' : 'member' },
+          origin,
+          ftsEnabled: database.ftsEnabled,
+          executionCtx: this.ctx,
+        }),
       {
         route: '/mcp',
         legacy: 'stateless',
         responseMode: 'auto',
         corsOptions: {
           origin,
-          headers: 'Authorization, Content-Type, MCP-Protocol-Version, MCP-Session-Id',
+          headers:
+            'Authorization, Content-Type, MCP-Protocol-Version, MCP-Session-Id',
           exposeHeaders: 'MCP-Protocol-Version, MCP-Session-Id',
         },
         allowedHostnames: [...new Set([requestUrl.hostname, canonicalHost])],
-        allowedOriginHostnames: [...new Set([
-          requestUrl.hostname,
-          canonicalHost,
-          'localhost',
-          '127.0.0.1',
-          '::1',
-        ])],
+        allowedOriginHostnames: [
+          ...new Set([
+            requestUrl.hostname,
+            canonicalHost,
+            'localhost',
+            '127.0.0.1',
+            '::1',
+          ]),
+        ],
       },
     )
     return handler(request, this.env, this.ctx)
   }
 }
 
-export function createOAuthProvider(request: Request, env: Env): OAuthProvider<Env> {
+export function createOAuthProvider(
+  request: Request,
+  env: Env,
+): OAuthProvider<Env> {
   const origin = canonicalOrigin(request, env.PUBLIC_URL)
   return providerForOrigin(origin, env)
 }
@@ -84,7 +101,9 @@ function providerForOrigin(origin: string, env: Env): OAuthProvider<Env> {
     scopesSupported: [...MCP_SUPPORTED_SCOPES],
     resourceMetadata: {
       resource: mcpResource,
-      ...(origin.startsWith('https:') ? { authorization_servers: [origin] } : {}),
+      ...(origin.startsWith('https:')
+        ? { authorization_servers: [origin] }
+        : {}),
       scopes_supported: [...MCP_SUPPORTED_SCOPES],
       bearer_methods_supported: ['header'],
       resource_name: 'AutoNote private knowledge base',
@@ -111,17 +130,24 @@ function providerForOrigin(origin: string, env: Env): OAuthProvider<Env> {
     },
     clientRegistrationCallback: async ({ request }) => {
       await initializeDatabase(env)
-      if (!await isMcpEnabled(env.DB)) {
-        return { code: 'access_denied', description: 'MCP is disabled', status: 403 }
+      if (!(await isMcpEnabled(env.DB))) {
+        return {
+          code: 'access_denied',
+          description: 'MCP is disabled',
+          status: 403,
+        }
       }
-      const ip = request.headers.get('CF-Connecting-IP')?.slice(0, 80) || 'unknown'
+      const ip =
+        request.headers.get('CF-Connecting-IP')?.slice(0, 80) || 'unknown'
       try {
-        await consumeAttemptBudget(env.DB, [{
-          key: `mcp-dcr:${ip}`,
-          maxAttempts: 20,
-          windowMs: 60 * 60 * 1000,
-          lockMs: 60 * 60 * 1000,
-        }])
+        await consumeAttemptBudget(env.DB, [
+          {
+            key: `mcp-dcr:${ip}`,
+            maxAttempts: 20,
+            windowMs: 60 * 60 * 1000,
+            lockMs: 60 * 60 * 1000,
+          },
+        ])
       } catch (error) {
         if (error instanceof ThrottleError) {
           return {
@@ -135,7 +161,11 @@ function providerForOrigin(origin: string, env: Env): OAuthProvider<Env> {
     },
     onError(error) {
       if (error.internal) {
-        console.warn('[autonote] OAuth error:', error.internal.category, error.internal.reason)
+        console.warn(
+          '[autonote] OAuth error:',
+          error.internal.category,
+          error.internal.reason,
+        )
       }
     },
   })
@@ -149,7 +179,11 @@ function configuredOrigin(value?: string): string | null {
   if (!value) return null
   try {
     const url = new URL(value)
-    if (url.protocol !== 'https:' && url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') {
+    if (
+      url.protocol !== 'https:' &&
+      url.hostname !== 'localhost' &&
+      url.hostname !== '127.0.0.1'
+    ) {
       return null
     }
     return url.origin
@@ -161,8 +195,10 @@ function configuredOrigin(value?: string): string | null {
 function isAuthProps(value: unknown): value is McpAuthProps {
   if (!value || typeof value !== 'object') return false
   const props = value as Partial<McpAuthProps>
-  return typeof props.userId === 'string' &&
+  return (
+    typeof props.userId === 'string' &&
     (props.role === 'owner' || props.role === 'member') &&
     Array.isArray(props.scopes) &&
     props.scopes.every((scope) => typeof scope === 'string')
+  )
 }

@@ -42,7 +42,11 @@ function note(content: string): Note {
   }
 }
 
-function savedResult(writeId: string, content: string, rev: number): NoteWriteResult {
+function savedResult(
+  writeId: string,
+  content: string,
+  rev: number,
+): NoteWriteResult {
   return { queued: false, writeId, note: { ...note(content), rev } }
 }
 
@@ -54,8 +58,13 @@ function createPort(
 }
 
 describe('NoteWriteState', () => {
-  test('keeps one save in flight; an older reply does not clear the later edit, which follows on the new revision', async () => {
-    const calls: { body: { content?: string; rev: number }; writeId: string; reply: Deferred<NoteWriteResult> }[] = []
+  test('keeps one save in flight; an older reply does not cl\
+ear the later edit, which follows on the new revision', async () => {
+    const calls: {
+      body: { content?: string; rev: number }
+      writeId: string
+      reply: Deferred<NoteWriteResult>
+    }[] = []
     const port = createPort((_, body, options) => {
       const reply = deferred<NoteWriteResult>()
       calls.push({ body, writeId: options.writeId, reply })
@@ -71,7 +80,8 @@ describe('NoteWriteState', () => {
       })(),
       onResult: (result, write) => {
         submitted.push(write)
-        if (!result.queued) state.rebase('note-1', state.get('note-1')!.writeId, result.note.rev)
+        if (!result.queued)
+          state.rebase('note-1', state.get('note-1')!.writeId, result.note.rev)
       },
     })
 
@@ -90,7 +100,8 @@ describe('NoteWriteState', () => {
     await vi.waitFor(() => expect(submitted).toHaveLength(2))
   })
 
-  test('retains failed text and flushes desktop debounce before port flush', async () => {
+  test('retains failed text and flushes d\
+esktop debounce before port flush', async () => {
     const order: string[] = []
     const port = createPort(
       async () => {
@@ -118,7 +129,8 @@ describe('NoteWriteState', () => {
     expect(states).toContain('failed')
   })
 
-  test('a follow-up save does not repeat when the edit debounce timer fires later', async () => {
+  test('a follow-up save does not repeat whe\
+n the edit debounce timer fires later', async () => {
     vi.useFakeTimers()
     try {
       let rev = 1
@@ -126,7 +138,8 @@ describe('NoteWriteState', () => {
       const first = deferred<NoteWriteResult>()
       const port = createPort(async (_, body, options) => {
         sent.push(body.rev)
-        if (body.rev !== rev) throw new BackendError('conflict', 409, 'stale revision')
+        if (body.rev !== rev)
+          throw new BackendError('conflict', 409, 'stale revision')
         if (sent.length === 1) await first.promise
         rev++
         return savedResult(options.writeId, body.content ?? '', rev)
@@ -137,7 +150,8 @@ describe('NoteWriteState', () => {
         debounceMs: 40,
         onResult: (result) => {
           const latest = state.get('note-1')
-          if (!result.queued && latest) state.rebase('note-1', latest.writeId, result.note.rev)
+          if (!result.queued && latest)
+            state.rebase('note-1', latest.writeId, result.note.rev)
         },
       })
       state.edit('note-1', { rev: 1, content: 'a' })

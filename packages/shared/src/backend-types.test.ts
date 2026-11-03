@@ -55,21 +55,39 @@ describe('cross-platform DTO schemas', () => {
 
   test('rejects invalid revisions and incorrect nullable write fields', () => {
     expect(
-      NoteWriteResultSchema.safeParse({ queued: true, writeId: 'write-1', noteId: note.id, rev: -1 }).success,
+      NoteWriteResultSchema.safeParse({
+        queued: true,
+        writeId: 'write-1',
+        noteId: note.id,
+        rev: -1,
+      }).success,
     ).toBe(false)
     expect(
-      NoteWriteResultSchema.safeParse({ queued: false, writeId: 'write-1', note: { ...note, deletedAt: undefined } })
-        .success,
+      NoteWriteResultSchema.safeParse({
+        queued: false,
+        writeId: 'write-1',
+        note: { ...note, deletedAt: undefined },
+      }).success,
     ).toBe(false)
   })
 
   test('rejects missing write event fields and invalid progress totals', () => {
     expect(
-      WriteQueueEventSchema.safeParse({ kind: 'failed', writeId: 'write-1', noteId: note.id, code: 'offline' }).success,
+      WriteQueueEventSchema.safeParse({
+        kind: 'failed',
+        writeId: 'write-1',
+        noteId: note.id,
+        code: 'offline',
+      }).success,
     ).toBe(false)
     expect(
-      ProgressEventSchema.safeParse({ jobId: 'import-1', phase: 'reading', completed: 2, total: -1, terminal: false })
-        .success,
+      ProgressEventSchema.safeParse({
+        jobId: 'import-1',
+        phase: 'reading',
+        completed: 2,
+        total: -1,
+        terminal: false,
+      }).success,
     ).toBe(false)
   })
 })

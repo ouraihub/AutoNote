@@ -88,7 +88,13 @@ impl Library {
                 let limit = number(args, "limit", 20, 1, 50)? as usize;
                 let mut versions = Vec::new();
                 for v in self.list_versions(&id)?.into_iter().take(limit) {
-                    versions.push(json!({"id":v.id,"note_id":id,"title":v.title,"size":v.size,"created_at":iso(v.created_at.get())?}));
+                    versions.push(json!({
+                        "id": v.id,
+                        "note_id": id,
+                        "title": v.title,
+                        "size": v.size,
+                        "created_at": iso(v.created_at.get())?
+                    }));
                 }
                 json!({"versions":versions})
             }
@@ -106,7 +112,14 @@ impl Library {
                     }
                     .into());
                 }
-                json!({"id":v.meta.id,"note_id":id,"title":v.meta.title,"content":v.content,"size":v.meta.size,"created_at":iso(v.meta.created_at.get())?})
+                json!({
+                    "id": v.meta.id,
+                    "note_id": id,
+                    "title": v.meta.title,
+                    "content": v.content,
+                    "size": v.meta.size,
+                    "created_at": iso(v.meta.created_at.get())?
+                })
             }
             "preview_tag_change" => library::preview_tag(self, args)?,
             "preview_folder_removal" => library::preview_folder(self, args)?,
@@ -308,7 +321,15 @@ mod tests {
                 ErrorCode::BadRequest
             );
         }
-        let end = lib.execute_mcp_read("read_note", &json!({"note_id":first.summary.id,"cursor":original.encode_utf16().count().to_string()})).unwrap();
+        let end = lib
+            .execute_mcp_read(
+                "read_note",
+                &json!({
+                    "note_id": first.summary.id,
+                    "cursor": original.encode_utf16().count().to_string()
+                }),
+            )
+            .unwrap();
         assert_eq!(end["data"]["content"], "");
         assert!(end["data"]["next_cursor"].is_null());
         let first = lib

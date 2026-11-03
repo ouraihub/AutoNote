@@ -8,7 +8,9 @@ export interface BackupArchive {
   stream: ReadableStream<Uint8Array>
 }
 
-export function backupArchiveFilename(snapshot: Pick<Snapshot, 'stamp'>): string {
+export function backupArchiveFilename(
+  snapshot: Pick<Snapshot, 'stamp'>,
+): string {
   return `autonote-backup-${snapshot.stamp}.zip`
 }
 
@@ -28,15 +30,21 @@ export function createBackupArchive(snapshot: Snapshot): BackupArchive {
     filename: backupArchiveFilename(snapshot),
     byteLength,
     byteLengthNumber,
-    stream: cancellationSafeStream(makeZip(openFiles(files, snapshot.createdAt), {
-      length: byteLength,
-      buffersAreUTF8: true,
-    })),
+    stream: cancellationSafeStream(
+      makeZip(openFiles(files, snapshot.createdAt), {
+        length: byteLength,
+        buffersAreUTF8: true,
+      }),
+    ),
   }
 }
 
 function snapshotFiles(snapshot: Snapshot): BackupFile[] {
-  return [...snapshot.payloadFiles, snapshot.manifestFile, snapshot.completeFile]
+  return [
+    ...snapshot.payloadFiles,
+    snapshot.manifestFile,
+    snapshot.completeFile,
+  ]
 }
 
 function metadataFromFiles(files: readonly BackupFile[], lastModified: Date) {
@@ -66,19 +74,25 @@ function exactSizeStream(
   file: Pick<BackupFile, 'path' | 'byteLength'>,
 ): ReadableStream<Uint8Array> {
   let bytes = 0
-  return source.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
-    transform(chunk, controller) {
-      bytes += chunk.byteLength
-      if (bytes > file.byteLength) throw new Error(`Backup source size changed: ${file.path}`)
-      controller.enqueue(chunk)
-    },
-    flush() {
-      if (bytes !== file.byteLength) throw new Error(`Backup source size changed: ${file.path}`)
-    },
-  }))
+  return source.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        bytes += chunk.byteLength
+        if (bytes > file.byteLength)
+          throw new Error(`Backup source size changed: ${file.path}`)
+        controller.enqueue(chunk)
+      },
+      flush() {
+        if (bytes !== file.byteLength)
+          throw new Error(`Backup source size changed: ${file.path}`)
+      },
+    }),
+  )
 }
 
-function cancellationSafeStream(source: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
+function cancellationSafeStream(
+  source: ReadableStream<Uint8Array>,
+): ReadableStream<Uint8Array> {
   const reader = source.getReader()
   let pending: Promise<ReadableStreamReadResult<Uint8Array>> | null = null
   let cancelled = false

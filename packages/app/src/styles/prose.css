@@ -219,7 +219,9 @@
 
 .ink-prose .markdown-details,
 .ink-prose > details:not(.callout):not(.frontmatter-properties),
-.ink-prose .markdown-example-preview details:not(.callout):not(.frontmatter-properties) {
+.ink-prose
+  .markdown-example-preview
+  details:not(.callout):not(.frontmatter-properties) {
   margin: 0.9em 0;
   overflow: clip;
   border: 1px solid var(--border-subtle);
@@ -228,7 +230,10 @@
 }
 .ink-prose .markdown-details > summary,
 .ink-prose > details:not(.callout):not(.frontmatter-properties) > summary,
-.ink-prose .markdown-example-preview details:not(.callout):not(.frontmatter-properties) > summary {
+.ink-prose
+  .markdown-example-preview
+  details:not(.callout):not(.frontmatter-properties)
+  > summary {
   padding: 0.55em 0.8em;
   color: var(--text-secondary);
   font-weight: 600;
@@ -237,22 +242,34 @@
 }
 .ink-prose .markdown-details[open] > summary,
 .ink-prose > details[open]:not(.callout):not(.frontmatter-properties) > summary,
-.ink-prose .markdown-example-preview details[open]:not(.callout):not(.frontmatter-properties) > summary {
+.ink-prose
+  .markdown-example-preview
+  details[open]:not(.callout):not(.frontmatter-properties)
+  > summary {
   border-bottom: 1px solid var(--border-subtle);
 }
 .ink-prose .markdown-details > :not(summary),
 .ink-prose > details:not(.callout):not(.frontmatter-properties) > :not(summary),
-.ink-prose .markdown-example-preview details:not(.callout):not(.frontmatter-properties) > :not(summary) {
+.ink-prose
+  .markdown-example-preview
+  details:not(.callout):not(.frontmatter-properties)
+  > :not(summary) {
   margin-inline: 0.85em;
 }
 .ink-prose .markdown-details > :nth-child(2),
 .ink-prose > details:not(.callout):not(.frontmatter-properties) > :nth-child(2),
-.ink-prose .markdown-example-preview details:not(.callout):not(.frontmatter-properties) > :nth-child(2) {
+.ink-prose
+  .markdown-example-preview
+  details:not(.callout):not(.frontmatter-properties)
+  > :nth-child(2) {
   margin-top: 0.72em;
 }
 .ink-prose .markdown-details > :last-child,
 .ink-prose > details:not(.callout):not(.frontmatter-properties) > :last-child,
-.ink-prose .markdown-example-preview details:not(.callout):not(.frontmatter-properties) > :last-child {
+.ink-prose
+  .markdown-example-preview
+  details:not(.callout):not(.frontmatter-properties)
+  > :last-child {
   margin-bottom: 0.72em;
 }
 
@@ -260,7 +277,8 @@
   --callout-color: var(--accent);
   margin: 0.9em 0;
   overflow: clip;
-  border: 1px solid color-mix(in oklab, var(--callout-color) 30%, var(--border-subtle));
+  border: 1px solid
+    color-mix(in oklab, var(--callout-color) 30%, var(--border-subtle));
   border-left: 3px solid var(--callout-color);
   border-radius: var(--r-md);
   background: color-mix(in oklab, var(--callout-color) 6%, var(--bg-inset));
@@ -371,7 +389,11 @@
   height: 0.58em;
   flex: none;
   border-radius: 3px;
-  background: linear-gradient(135deg, var(--accent), color-mix(in oklab, var(--accent) 55%, var(--success)));
+  background: linear-gradient(
+    135deg,
+    var(--accent),
+    color-mix(in oklab, var(--accent) 55%, var(--success))
+  );
   box-shadow: 0 0 0 3px var(--accent-softer);
   content: '';
 }
@@ -396,7 +418,9 @@
 .ink-prose .markdown-example-preview-body > :last-child {
   margin-bottom: 0;
 }
-.ink-prose .markdown-example-preview-body :is(.callout, .markdown-tabs, .markdown-details, .code-block, .mermaid-block),
+.ink-prose
+  .markdown-example-preview-body
+  :is(.callout, .markdown-tabs, .markdown-details, .code-block, .mermaid-block),
 .ink-prose .markdown-example-preview-body > :is(figure, details) {
   margin-block: 0;
 }

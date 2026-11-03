@@ -10,7 +10,8 @@ const target = document.getElementById('app')
 if (!target) throw new Error('Missing #app mount point')
 
 const route = parseRoute(location.pathname, import.meta.env.DEV)
-// Static importing the dev-only gallery would put it into the production application chunk.
+// Static importing the dev-only gallery would put it into the production
+// application chunk.
 if (route.kind === 'gallery') {
   // Gallery is a development-only loading boundary, excluded from production.
   const { default: Gallery } = await import('@app/gallery/Gallery.svelte')
@@ -21,7 +22,9 @@ if (route.kind === 'gallery') {
     mount(App, { target, props: { services } })
   } catch {
     new ConsoleRingLogger().error('host.lifecycle.failed', { code: 'internal' })
-    const messages = globalThis.navigator.language.startsWith('zh') ? ZH_CN_MESSAGES : EN_US_MESSAGES
+    const messages = globalThis.navigator.language.startsWith('zh')
+      ? ZH_CN_MESSAGES
+      : EN_US_MESSAGES
     const section = document.createElement('section')
     section.setAttribute('role', 'alert')
     const message = document.createElement('p')

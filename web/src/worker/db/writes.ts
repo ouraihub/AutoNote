@@ -1,18 +1,26 @@
-/** Keeps tags, backlinks, full-text indexes, and change records consistent with note writes. */
-import { extractTags, extractWikiLinks, normalizeLinkKey } from '@shared/markdown-utils'
+/**
+ * Keeps tags, backlinks, full-text indexes, and change records consistent
+ * with note writes.
+ */
+import {
+  extractTags,
+  extractWikiLinks,
+  normalizeLinkKey,
+} from '@shared/markdown-utils'
 import { newId } from '../lib/id'
 
-
-export type ChangeEntity = 'note' | 'folder' | 'tag' | 'settings' | 'profile' | 'site'
+export type ChangeEntity =
+  'note' | 'folder' | 'tag' | 'settings' | 'profile' | 'site'
 export type ChangeOp = 'upsert' | 'delete'
 
-export const FTS_QUEUE_CONFLICT_SQL = `ON CONFLICT(user_id, note_id) DO UPDATE SET
-  kind = excluded.kind,
-  created_at = CASE
-    WHEN excluded.created_at > fts_index_queue.created_at THEN excluded.created_at
-    ELSE fts_index_queue.created_at + 1
-  END`
-
+export const FTS_QUEUE_CONFLICT_SQL =
+  `ON CONFLICT(user_id, note_id) DO UPDATE SET\n` +
+  `  kind = excluded.kind,\n` +
+  `  created_at = CASE\n` +
+  `    WHEN excluded.created_at > fts_index_queue.created_at ` +
+  `THEN excluded.created_at\n` +
+  `    ELSE fts_index_queue.created_at + 1\n` +
+  `  END`
 
 export const LINK_TARGET_SUBQUERY = `(SELECT candidate.id FROM notes candidate
   WHERE candidate.user_id = links.user_id AND candidate.deleted_at IS NULL
@@ -28,7 +36,10 @@ export function changeStatement(
   at = Date.now(),
 ): D1PreparedStatement {
   return db
-    .prepare(`INSERT INTO changes (user_id, entity, entity_id, op, at) VALUES (?1, ?2, ?3, ?4, ?5)`)
+    .prepare(
+      `INSERT INTO changes (user_id, entity, entity_id, op, at) ` +
+        `VALUES (?1, ?2, ?3, ?4, ?5)`,
+    )
     .bind(userId, entity, entityId, op, at)
 }
 
@@ -41,15 +52,19 @@ export async function recordChange(
 ): Promise<number> {
   const row = await db
     .prepare(
-      `INSERT INTO changes (user_id, entity, entity_id, op, at) VALUES (?1, ?2, ?3, ?4, ?5)
-       RETURNING seq`,
+      `INSERT INTO changes (user_id, entity, entity_id, op, at) ` +
+        `VALUES (?1, ?2, ?3, ?4, ?5)\n` +
+        `       RETURNING seq`,
     )
     .bind(userId, entity, entityId, op, Date.now())
     .first<{ seq: number }>()
   return row?.seq ?? 0
 }
 
-export async function currentCursor(db: D1Database, userId: string): Promise<number> {
+export async function currentCursor(
+  db: D1Database,
+  userId: string,
+): Promise<number> {
   const row = await db
     .prepare(`SELECT MAX(seq) AS seq FROM changes WHERE user_id = ?1`)
     .bind(userId)
@@ -78,18 +93,23 @@ export interface SyncDerivedOptions {
   deleted?: boolean
 }
 
-
-export function buildNoteDerivedStatements(
-  opts: SyncDerivedOptions,
-): { statements: D1PreparedStatement[]; tags: string[] } {
+export function buildNoteDerivedStatements(opts: SyncDerivedOptions): {
+  statements: D1PreparedStatement[]
+  tags: string[]
+} {
   const { db, userId, noteId, title, content, ftsEnabled } = opts
   const now = Date.now()
   const tagNames = extractTags(content)
   const links = extractWikiLinks(content)
-  const tagRows = JSON.stringify(tagNames.map((name) => ({ id: newId(), name })))
-  const linkRows = JSON.stringify(links.map((link) => ({ key: link.key, target: link.target })))
+  const tagRows = JSON.stringify(
+    tagNames.map((name) => ({ id: newId(), name })),
+  )
+  const linkRows = JSON.stringify(
+    links.map((link) => ({ key: link.key, target: link.target })),
+  )
   const statements: D1PreparedStatement[] = []
-  const guarded = opts.expectedRev !== undefined ||
+  const guarded =
+    opts.expectedRev !== undefined ||
     opts.expectedContentHash !== undefined ||
     opts.expectedTitle !== undefined ||
     opts.expectedUpdatedAt !== undefined
@@ -116,17 +136,20 @@ export function buildNoteDerivedStatements(
     : '1 = 1'
   if (!guarded) guardValues.length = 0
 
-  const rankedTags = `WITH ranked_tags AS (
-    SELECT candidate.id,
-           ROW_NUMBER() OVER (
-             PARTITION BY json_extract(j.value, '$.name')
-             ORDER BY CASE WHEN candidate.name = json_extract(j.value, '$.name') THEN 0 ELSE 1 END,
-                      candidate.created_at ASC, candidate.id ASC
-           ) AS rank
-      FROM json_each(?2) AS j
-      JOIN tags candidate ON candidate.user_id = ?3
-       AND candidate.name = json_extract(j.value, '$.name') COLLATE NOCASE
-  )`
+  const rankedTags =
+    `WITH ranked_tags AS (\n` +
+    `    SELECT candidate.id,\n` +
+    `           ROW_NUMBER() OVER (\n` +
+    `             PARTITION BY json_extract(j.value, '$.name')\n` +
+    `             ORDER BY CASE WHEN candidate.name = ` +
+    `json_extract(j.value, '$.name') THEN 0 ELSE 1 END,\n` +
+    `                      candidate.created_at ASC, candidate.id ASC\n` +
+    `           ) AS rank\n` +
+    `      FROM json_each(?2) AS j\n` +
+    `      JOIN tags candidate ON candidate.user_id = ?3\n` +
+    `       AND candidate.name = json_extract(j.value, '$.name') ` +
+    `COLLATE NOCASE\n` +
+    `  )`
 
   statements.push(
     db
@@ -141,15 +164,17 @@ export function buildNoteDerivedStatements(
   statements.push(
     db
       .prepare(
-        `INSERT INTO tags (id, user_id, name, color, created_at)
-         SELECT json_extract(j.value, '$.id'), ?1, json_extract(j.value, '$.name'), NULL, ?2
-           FROM json_each(?3) AS j
-           LEFT JOIN tags existing
-             ON existing.user_id = ?1
-            AND existing.name = json_extract(j.value, '$.name') COLLATE NOCASE
-          WHERE ${shiftPlaceholders(guard, 3)}
-            AND existing.id IS NULL
-         ON CONFLICT(user_id, name) DO NOTHING`,
+        `INSERT INTO tags (id, user_id, name, color, created_at)\n` +
+          `         SELECT json_extract(j.value, '$.id'), ?1, ` +
+          `json_extract(j.value, '$.name'), NULL, ?2\n` +
+          `           FROM json_each(?3) AS j\n` +
+          `           LEFT JOIN tags existing\n` +
+          `             ON existing.user_id = ?1\n` +
+          `            AND existing.name = json_extract(j.value, '$.name') ` +
+          `COLLATE NOCASE\n` +
+          `          WHERE ${shiftPlaceholders(guard, 3)}\n` +
+          `            AND existing.id IS NULL\n` +
+          `         ON CONFLICT(user_id, name) DO NOTHING`,
       )
       .bind(userId, now, tagRows, ...guardValues),
     db
@@ -174,9 +199,10 @@ export function buildNoteDerivedStatements(
   statements.push(
     db
       .prepare(
-        `DELETE FROM links WHERE source_note_id = ?1
-          AND target_key NOT IN (SELECT json_extract(value, '$.key') FROM json_each(?2))
-          AND ${shiftPlaceholders(guard, 2)}`,
+        `DELETE FROM links WHERE source_note_id = ?1\n` +
+          `          AND target_key NOT IN (SELECT json_extract(value, ` +
+          `'$.key') FROM json_each(?2))\n` +
+          `          AND ${shiftPlaceholders(guard, 2)}`,
       )
       .bind(noteId, opts.deleted ? '[]' : linkRows, ...guardValues),
   )
@@ -184,22 +210,27 @@ export function buildNoteDerivedStatements(
     statements.push(
       db
         .prepare(
-          `INSERT INTO links (source_note_id, target_key, target_title, target_note_id, user_id)
-           SELECT ?1,
-                  json_extract(j.value, '$.key'),
-                  json_extract(j.value, '$.target'),
-                  (SELECT id FROM notes
-                    WHERE user_id = ?2 AND deleted_at IS NULL
-                      AND title_key = json_extract(j.value, '$.key')
-                    ORDER BY created_at ASC, id ASC LIMIT 1),
-                  ?2
-             FROM json_each(?3) AS j
-            WHERE ${shiftPlaceholders(guard, 3)}
-           ON CONFLICT(source_note_id, target_key) DO UPDATE SET
-             target_title = excluded.target_title,
-             target_note_id = excluded.target_note_id
-           WHERE links.target_title IS NOT excluded.target_title
-              OR links.target_note_id IS NOT excluded.target_note_id`,
+          `INSERT INTO links (source_note_id, target_key, target_title, ` +
+            `target_note_id, user_id)\n` +
+            `           SELECT ?1,\n` +
+            `                  json_extract(j.value, '$.key'),\n` +
+            `                  json_extract(j.value, '$.target'),\n` +
+            `                  (SELECT id FROM notes\n` +
+            `                    WHERE user_id = ?2 AND deleted_at IS NULL\n` +
+            `                      AND title_key = ` +
+            `json_extract(j.value, '$.key')\n` +
+            `                    ORDER BY created_at ASC, id ASC LIMIT 1),\n` +
+            `                  ?2\n` +
+            `             FROM json_each(?3) AS j\n` +
+            `            WHERE ${shiftPlaceholders(guard, 3)}\n` +
+            `           ON CONFLICT(source_note_id, target_key) ` +
+            `DO UPDATE SET\n` +
+            `             target_title = excluded.target_title,\n` +
+            `             target_note_id = excluded.target_note_id\n` +
+            `           WHERE links.target_title IS NOT ` +
+            `excluded.target_title\n` +
+            `              OR links.target_note_id IS NOT ` +
+            `excluded.target_note_id`,
         )
         .bind(noteId, userId, linkRows, ...guardValues),
     )
@@ -214,7 +245,13 @@ export function buildNoteDerivedStatements(
            SELECT ?1, ?2, ?3, ?4 WHERE ${shiftPlaceholders(guard, 4)}
            ${FTS_QUEUE_CONFLICT_SQL}`,
         )
-        .bind(userId, noteId, opts.deleted ? 'delete' : 'upsert', queueVersion, ...guardValues),
+        .bind(
+          userId,
+          noteId,
+          opts.deleted ? 'delete' : 'upsert',
+          queueVersion,
+          ...guardValues,
+        ),
     )
   }
 
@@ -239,10 +276,16 @@ export function buildNoteDerivedStatements(
 }
 
 function shiftPlaceholders(sql: string, offset: number): string {
-  return sql.replace(/\?(\d+)/g, (_match, value: string) => `?${Number(value) + offset}`)
+  return sql.replace(
+    /\?(\d+)/g,
+    (_match, value: string) => `?${Number(value) + offset}`,
+  )
 }
 
-export async function pruneOrphanTags(db: D1Database, userId: string): Promise<void> {
+export async function pruneOrphanTags(
+  db: D1Database,
+  userId: string,
+): Promise<void> {
   await db
     .prepare(
       `DELETE FROM tags

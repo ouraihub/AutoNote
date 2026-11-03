@@ -19,12 +19,31 @@
 <Dialog.Root bind:open={notifier.open} onOpenChange={closeFromOpenChange}>
   <Dialog.Content showCloseButton={false}>
     <Dialog.Header>
-      <Dialog.Title>{notifier.active ? resolveMessage(notifier.active.request.titleKey, notifier.active.request.params) : ''}</Dialog.Title>
-      <Dialog.Description>{notifier.active ? resolveMessage(notifier.active.request.bodyKey, notifier.active.request.params) : ''}</Dialog.Description>
+      <Dialog.Title
+        >{notifier.active
+          ? resolveMessage(
+              notifier.active.request.titleKey,
+              notifier.active.request.params,
+            )
+          : ''}</Dialog.Title
+      >
+      <Dialog.Description
+        >{notifier.active
+          ? resolveMessage(
+              notifier.active.request.bodyKey,
+              notifier.active.request.params,
+            )
+          : ''}</Dialog.Description
+      >
     </Dialog.Header>
     <Dialog.Footer>
-      <Button variant="outline" onclick={() => notifier.settle(false)}>{resolveMessage('common.cancel')}</Button>
-      <Button variant={notifier.active?.request.danger ? 'destructive' : 'default'} onclick={() => notifier.settle(true)}>
+      <Button variant="outline" onclick={() => notifier.settle(false)}
+        >{resolveMessage('common.cancel')}</Button
+      >
+      <Button
+        variant={notifier.active?.request.danger ? 'destructive' : 'default'}
+        onclick={() => notifier.settle(true)}
+      >
         {resolveMessage('overlay.confirm')}
       </Button>
     </Dialog.Footer>

@@ -1,6 +1,11 @@
 import type { Folder, NoteSummary, Tag } from '@shared/types'
 import type { BackendSession } from '@shared/backend-types'
-import type { CachedNoteContent, OutboxItem, OutboxPayload, ShellData } from './types'
+import type {
+  CachedNoteContent,
+  OutboxItem,
+  OutboxPayload,
+  ShellData,
+} from './types'
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -101,7 +106,9 @@ function isPublicUser(value: unknown): boolean {
   )
 }
 
-export function isCachedNoteContent(value: unknown): value is CachedNoteContent {
+export function isCachedNoteContent(
+  value: unknown,
+): value is CachedNoteContent {
   if (!record(value)) return false
   return (
     typeof value.content === 'string' &&
@@ -109,8 +116,10 @@ export function isCachedNoteContent(value: unknown): value is CachedNoteContent 
     value.rev >= 1 &&
     finite(value.updatedAt) &&
     (value.writeId === undefined || typeof value.writeId === 'string') &&
-    (value.pendingTitle === undefined || typeof value.pendingTitle === 'string') &&
-    (value.contentDirty === undefined || typeof value.contentDirty === 'boolean')
+    (value.pendingTitle === undefined ||
+      typeof value.pendingTitle === 'string') &&
+    (value.contentDirty === undefined ||
+      typeof value.contentDirty === 'boolean')
   )
 }
 
@@ -133,7 +142,8 @@ export function isOutboxItem(value: unknown): value is OutboxItem {
     typeof value.id === 'string' &&
     typeof value.clientId === 'string' &&
     typeof value.writeId === 'string' &&
-    (value.dependsOnWriteId === undefined || typeof value.dependsOnWriteId === 'string') &&
+    (value.dependsOnWriteId === undefined ||
+      typeof value.dependsOnWriteId === 'string') &&
     typeof value.noteId === 'string' &&
     isOutboxPayload(value.payload) &&
     safeInteger(value.attempts) &&

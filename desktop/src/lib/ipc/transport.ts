@@ -1,14 +1,17 @@
 import { invoke, convertFileSrc, Channel } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
 import type { CallOptions, TransferOptions } from '@app/backend'
 import { isProgressEvent } from '@shared/backend-types'
-import type { FlushResult } from '@shared/backend-types'
+import type {
+  FlushResult,
+  McpLocalStatus,
+  ProgressEvent,
+} from '@shared/backend-types'
 import type { SyncResponse } from '@shared/types'
-import type { McpLocalStatus, ProgressEvent } from '@shared/backend-types'
 import type { SyncStatus } from './ports/remote-sync'
 import type { CommandArgs, CommandResults, TransferArgs } from './commands'
 import { cancelled, invalidResponse, ipcError } from './errors'
-import { isSyncResponse, record, validateResponse } from './validation'
+import { record, validateResponse } from './validation'
+import { IpcEventListeners } from './events'
 
 export interface IpcTransport {
   invoke<K extends keyof CommandArgs>(
@@ -32,26 +35,34 @@ export interface IpcTransport {
   ): Promise<T | null>
   reindex(options?: CallOptions): Promise<{ ok: true; indexed: number }>
   flushNotes(noteId?: string, options?: CallOptions): Promise<FlushResult>
-  onPrepareClose(flush: () => Promise<FlushResult>, closing: (active: boolean) => void): Promise<() => void>
+  onPrepareClose(
+    flush: () => Promise<FlushResult>,
+    closing: (active: boolean) => void,
+  ): Promise<() => void>
   listenIntents(listener: (intent: 'new-note') => void): Promise<() => void>
   listenSyncStatus(listener: (status: SyncStatus) => void): Promise<() => void>
-  listenMcpStatus(listener: (status: McpLocalStatus) => void): Promise<() => void>
+  listenMcpStatus(
+    listener: (status: McpLocalStatus) => void,
+  ): Promise<() => void>
   dispose(): Promise<void>
 }
 
 type IpcFailureObserver = (command: string, code: string) => void
 let failureObserver: IpcFailureObserver | undefined
-export function observeIpcFailures(observer: IpcFailureObserver | undefined): void {
+export function observeIpcFailures(
+  observer: IpcFailureObserver | undefined,
+): void {
   failureObserver = observer
 }
 function reportFailure(command: string, error: unknown): void {
   const code = ipcError(error).code
-  if (command !== 'app_log' && code !== 'cancelled') failureObserver?.(command, code)
+  if (command !== 'app_log' && code !== 'cancelled')
+    failureObserver?.(command, code)
 }
 export class TauriTransport implements IpcTransport {
   #disposed = false
   #pending = new Set<Promise<unknown>>()
-  #listeners = new Set<() => void>()
+  #events = new IpcEventListeners()
   #jobs = new Map<string, () => Promise<unknown>>()
   #writes = new Set<Promise<unknown>>()
   cancellationFailed = false
@@ -104,33 +115,26 @@ export class TauriTransport implements IpcTransport {
       throw error
     }
   }
-  async #listen<T>(event: string, listener: (payload: T) => void): Promise<() => void> {
-    if (this.#disposed) throw cancelled()
-    const release = await listen<T>(event, ({ payload }) => {
-      if (!this.#disposed) listener(payload)
-    })
-    if (this.#disposed) {
-      release()
-      throw cancelled()
-    }
-    const unlisten = () => {
-      release()
-      this.#listeners.delete(unlisten)
-    }
-    this.#listeners.add(unlisten)
-    return unlisten
+  listenLibrary(
+    listener: (payload: SyncResponse) => void,
+  ): Promise<() => void> {
+    return this.#events.listenLibrary(listener)
   }
-  listenLibrary(listener: (payload: SyncResponse) => void): Promise<() => void> {
-    return this.#listen<unknown>('autonote://library-changed', (payload) => {
-      if (isSyncResponse(payload)) listener(payload)
-    })
-  }
-  async flushNotes(noteId?: string, options?: CallOptions): Promise<FlushResult> {
+  async flushNotes(
+    noteId?: string,
+    options?: CallOptions,
+  ): Promise<FlushResult> {
     const writes = await Promise.allSettled([...this.#writes])
-    const result = await this.invoke('notes_flush', noteId === undefined ? {} : { noteId }, options)
+    const result = await this.invoke(
+      'notes_flush',
+      noteId === undefined ? {} : { noteId },
+      options,
+    )
     return {
       pending: result.pending,
-      failed: result.failed + writes.filter((write) => write.status === 'rejected').length,
+      failed:
+        result.failed +
+        writes.filter((write) => write.status === 'rejected').length,
     }
   }
   changesSince(since: number): Promise<SyncResponse> {
@@ -145,11 +149,17 @@ export class TauriTransport implements IpcTransport {
     bytes: ArrayBuffer,
     options?: CallOptions,
   ): Promise<{ received: number }> {
-    const result = await this.#call<{ received: number }>('files_upload_chunk', bytes, options, {
-      'x-autonote-upload-id': uploadId,
-      'x-autonote-offset': String(offset),
-    })
-    if (!record(result) || result.received !== offset + bytes.byteLength) throw invalidResponse()
+    const result = await this.#call<{ received: number }>(
+      'files_upload_chunk',
+      bytes,
+      options,
+      {
+        'x-autonote-upload-id': uploadId,
+        'x-autonote-offset': String(offset),
+      },
+    )
+    if (!record(result) || result.received !== offset + bytes.byteLength)
+      throw invalidResponse()
     return result
   }
   async invokeJob<T>(
@@ -168,7 +178,8 @@ export class TauriTransport implements IpcTransport {
         isProgressEvent(event) &&
         event.jobId === jobId &&
         (event.total === null || event.completed <= event.total) &&
-        (previous?.phase !== event.phase || event.completed >= previous.completed)
+        (previous?.phase !== event.phase ||
+          event.completed >= previous.completed)
       ) {
         terminal = event.terminal
         previous = event
@@ -184,17 +195,24 @@ export class TauriTransport implements IpcTransport {
     }
     options?.signal?.addEventListener('abort', abort, { once: true })
     try {
-      const result = await this.#call<unknown>(command, { ...args, jobId, channel })
+      const result = await this.#call<unknown>(command, {
+        ...args,
+        jobId,
+        channel,
+      })
       if (!record(result)) throw invalidResponse()
       if (result.kind === 'cancelled') return null
-      if (result.kind !== 'completed' || !record(result.value)) throw invalidResponse()
+      if (result.kind !== 'completed' || !record(result.value))
+        throw invalidResponse()
       const value = result.value
       if (
         command === 'transfer_export'
           ? value.saved !== true
           : !Array.isArray(value.warnings) ||
             value.warnings.length > 100 ||
-            !value.warnings.every((warning: unknown) => typeof warning === 'string') ||
+            !value.warnings.every(
+              (warning: unknown) => typeof warning === 'string',
+            ) ||
             ![
               'createdNotes',
               'updatedNotes',
@@ -204,7 +222,11 @@ export class TauriTransport implements IpcTransport {
               'skippedAttachments',
             ].every((key) => {
               const count = value[key]
-              return typeof count === 'number' && Number.isSafeInteger(count) && count >= 0
+              return (
+                typeof count === 'number' &&
+                Number.isSafeInteger(count) &&
+                count >= 0
+              )
             })
       )
         throw invalidResponse()
@@ -228,88 +250,62 @@ export class TauriTransport implements IpcTransport {
     this.#jobs.set(jobId, cancel)
     options?.signal?.addEventListener('abort', abort, { once: true })
     try {
-      const result = await this.#call<{ ok: true; indexed: number }>('search_reindex', { jobId, onProgress })
-      if (!record(result) || result.ok !== true || !Number.isSafeInteger(result.indexed)) throw invalidResponse()
+      const result = await this.#call<{ ok: true; indexed: number }>(
+        'search_reindex',
+        { jobId, onProgress },
+      )
+      if (
+        !record(result) ||
+        result.ok !== true ||
+        !Number.isSafeInteger(result.indexed)
+      )
+        throw invalidResponse()
       return result
     } finally {
       options?.signal?.removeEventListener('abort', abort)
       this.#jobs.delete(jobId)
     }
   }
-  async onPrepareClose(flush: () => Promise<FlushResult>, closing: (active: boolean) => void): Promise<() => void> {
-    const releaseCancelled = await this.#listen('autonote://close-cancelled', () => closing(false))
-    try {
-      const releasePrepare = await this.#listen<unknown>('autonote://prepare-close', (payload) => {
-        if (!record(payload) || typeof payload.requestId !== 'number' || !Number.isSafeInteger(payload.requestId))
-          return
-        const requestId = payload.requestId
-        closing(true)
-        void (async () => {
-          let result: FlushResult
-          try {
-            result = await flush()
-          } catch {
-            result = { pending: 0, failed: 1 }
-          }
-          await this.invoke('desktop_close_ack', { requestId, ...result })
-        })().catch(() => {
-          closing(false)
-        })
-      })
-      return () => {
-        releasePrepare()
-        releaseCancelled()
-        closing(false)
-      }
-    } catch (error) {
-      releaseCancelled()
-      throw error
-    }
+  onPrepareClose(
+    flush: () => Promise<FlushResult>,
+    closing: (active: boolean) => void,
+  ): Promise<() => void> {
+    return this.#events.onPrepareClose(flush, closing, (requestId, result) =>
+      this.invoke('desktop_close_ack', { requestId, ...result }),
+    )
   }
   listenIntents(listener: (intent: 'new-note') => void): Promise<() => void> {
-    return this.#listen<unknown>('autonote://ui-intent', (intent) => {
-      if (intent === 'new-note') listener(intent)
-    })
+    return this.#events.listenIntents(listener)
   }
-  listenSyncStatus(listener: (status: SyncStatus) => void): Promise<() => void> {
-    return this.#listen<unknown>('autonote://sync-status', (payload) => {
-      try {
-        validateResponse('sync_status', payload)
-      } catch {
-        return
-      }
-      listener(payload as SyncStatus)
-    })
+  listenSyncStatus(
+    listener: (status: SyncStatus) => void,
+  ): Promise<() => void> {
+    return this.#events.listenSyncStatus(listener)
   }
-  listenMcpStatus(listener: (status: McpLocalStatus) => void): Promise<() => void> {
-    return this.#listen<unknown>('autonote://mcp-status', (payload) => {
-      if (
-        record(payload) &&
-        typeof payload.running === 'boolean' &&
-        typeof payload.port === 'number' &&
-        Number.isInteger(payload.port) &&
-        payload.port >= 1024 &&
-        payload.port <= 65535 &&
-        (payload.endpoint === null || typeof payload.endpoint === 'string') &&
-        (payload.error === null || typeof payload.error === 'string')
-      )
-        listener(payload as unknown as McpLocalStatus)
-    })
+  listenMcpStatus(
+    listener: (status: McpLocalStatus) => void,
+  ): Promise<() => void> {
+    return this.#events.listenMcpStatus(listener)
   }
   async dispose(): Promise<void> {
     if (this.#disposed) return
     await Promise.allSettled([...this.#jobs.values()].map((cancel) => cancel()))
     this.#disposed = true
-    for (const release of this.#listeners) release()
+    this.#events.dispose()
     await Promise.allSettled([...this.#pending])
   }
 }
 
 // Non-domain diagnostic panels share the same sole Tauri boundary.
 const diagnostics = new TauriTransport()
-export function call<K extends keyof CommandArgs>(command: K, args: CommandArgs[K]): Promise<CommandResults[K]> {
+export function call<K extends keyof CommandArgs>(
+  command: K,
+  args: CommandArgs[K],
+): Promise<CommandResults[K]> {
   return diagnostics.invoke(command, args)
 }
-export function listenSyncStatus(listener: (status: SyncStatus) => void): Promise<() => void> {
+export function listenSyncStatus(
+  listener: (status: SyncStatus) => void,
+): Promise<() => void> {
   return diagnostics.listenSyncStatus(listener)
 }

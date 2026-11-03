@@ -5,9 +5,22 @@
   import type { SettingsState } from '@app/state/settings.svelte'
   import type { I18nState } from '@app/i18n/runtime.svelte'
   import type { Notifier } from '@app/platform/notifier'
-  import { setBackend, setI18n, setNotifier, setSession, setSettings } from '@app/root/context'
+  import {
+    setBackend,
+    setI18n,
+    setNotifier,
+    setSession,
+    setSettings,
+  } from '@app/root/context'
 
-  let { component: Dynamic, backend, session, i18n, notifier, settings }: {
+  let {
+    component: Dynamic,
+    backend,
+    session,
+    i18n,
+    notifier,
+    settings,
+  }: {
     component: Component<Record<string, never>>
     backend: Backend
     session: SessionState

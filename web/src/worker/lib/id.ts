@@ -1,6 +1,3 @@
-
-
-
 const ALPHABET = '0123456789abcdefghjkmnpqrstvwxyz'
 
 export function newId(): string {
@@ -17,7 +14,6 @@ export function newId(): string {
   return ts + rand
 }
 
-
 export function newSlug(): string {
   const bytes = new Uint8Array(20)
   crypto.getRandomValues(bytes)
@@ -30,7 +26,6 @@ const SLUG_RE = /^[0-9a-hjkmnp-tv-z]{20}$/
 export function isValidSlug(value: unknown): value is string {
   return typeof value === 'string' && SLUG_RE.test(value)
 }
-
 
 export function idTime(id: string): number {
   let n = 0

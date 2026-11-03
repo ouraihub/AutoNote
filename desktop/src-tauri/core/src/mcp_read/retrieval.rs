@@ -37,9 +37,13 @@ pub(super) fn search(lib: &Library, tool: &str, args: &Value) -> Result<Value, c
         })
         .collect::<Vec<_>>();
     if tool == "search" {
-        Ok(
-            json!({"results": results.iter().map(|v| json!({"id":v["id"],"title":v["title"],"url":v["url"]})).collect::<Vec<_>>(), "mode":"lexical"}),
-        )
+        Ok(json!({
+            "results": results
+                .iter()
+                .map(|v| json!({"id":v["id"],"title":v["title"],"url":v["url"]}))
+                .collect::<Vec<_>>(),
+            "mode": "lexical"
+        }))
     } else {
         Ok(json!({"results":results,"query":query,"mode":"lexical","next_cursor":null}))
     }
@@ -53,9 +57,18 @@ pub(super) fn fetch(lib: &Library, args: &Value) -> Result<Value, crate::AppErro
     let text = crate::markdown::truncate_utf16(&note.content, 40_000);
     let created_at = iso(note.summary.created_at.get())?;
     let updated_at = iso(note.summary.updated_at.get())?;
-    Ok(
-        json!({"id":note.summary.id,"title":note.summary.title,"text":text,"url":url(note.summary.id),"metadata":{"rev":note.summary.rev,"created_at":created_at,"updated_at":updated_at,"truncated":text.len() < note.content.len()}}),
-    )
+    Ok(json!({
+        "id": note.summary.id,
+        "title": note.summary.title,
+        "text": text,
+        "url": url(note.summary.id),
+        "metadata": {
+            "rev": note.summary.rev,
+            "created_at": created_at,
+            "updated_at": updated_at,
+            "truncated": text.len() < note.content.len()
+        }
+    }))
 }
 
 pub(super) fn read_note(lib: &Library, args: &Value) -> Result<Value, crate::AppError> {
@@ -89,9 +102,21 @@ pub(super) fn read_note(lib: &Library, args: &Value) -> Result<Value, crate::App
     let end = cursor + content.encode_utf16().count();
     let has_more = start + content.len() < note.content.len();
     let next_cursor = has_more.then(|| end.to_string());
-    Ok(
-        json!({"note_id":note.summary.id,"title":note.summary.title,"rev":note.summary.rev,"text":content,"content":content,"outline":[],"section":args.get("section").and_then(Value::as_str).map(|slug| json!({"slug":slug})),"start_offset":cursor,"end_offset":end,"total_chars":note.content.encode_utf16().count(),"has_more":has_more,"next_cursor":next_cursor}),
-    )
+    Ok(json!({
+        "note_id": note.summary.id,
+        "title": note.summary.title,
+        "rev": note.summary.rev,
+        "text": content,
+        "content": content,
+        "outline": [],
+        "section": args.get("section").and_then(Value::as_str)
+            .map(|slug| json!({"slug":slug})),
+        "start_offset": cursor,
+        "end_offset": end,
+        "total_chars": note.content.encode_utf16().count(),
+        "has_more": has_more,
+        "next_cursor": next_cursor
+    }))
 }
 
 pub(super) fn list_notes(lib: &Library, args: &Value) -> Result<Value, crate::AppError> {
@@ -169,7 +194,18 @@ pub(super) fn list_notes(lib: &Library, args: &Value) -> Result<Value, crate::Ap
     };
     let mut notes = Vec::with_capacity(page.len());
     for note in page {
-        notes.push(json!({"id":note.id,"title":note.title,"url":url(&note.id),"excerpt":note.excerpt,"tags":note.tags,"rev":note.rev,"starred":note.is_starred,"archived":note.is_archived,"deleted_at":note.deleted_at.map(|time| iso(time.get())).transpose()?,"updated_at":iso(note.updated_at.get())?}));
+        notes.push(json!({
+            "id": note.id,
+            "title": note.title,
+            "url": url(&note.id),
+            "excerpt": note.excerpt,
+            "tags": note.tags,
+            "rev": note.rev,
+            "starred": note.is_starred,
+            "archived": note.is_archived,
+            "deleted_at": note.deleted_at.map(|time| iso(time.get())).transpose()?,
+            "updated_at": iso(note.updated_at.get())?
+        }));
     }
     Ok(json!({"notes":notes,"next_cursor":next_cursor}))
 }

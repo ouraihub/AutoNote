@@ -7,7 +7,9 @@ import { rowToUser, USER_COLUMNS } from '../middleware/auth'
 import { getAllowRegistration } from './instance-settings'
 
 export async function buildSiteInfo(env: Env): Promise<SiteInfo> {
-  const row = await env.DB.prepare(`SELECT 1 AS n FROM users LIMIT 1`).first<{ n: number }>()
+  const row = await env.DB.prepare(`SELECT 1 AS n FROM users LIMIT 1`).first<{
+    n: number
+  }>()
   return {
     name: env.APP_NAME || 'AutoNote',
     initialized: (row?.n ?? 0) > 0,
@@ -32,14 +34,22 @@ export function publicUser(user: Variables['user']): PublicUser {
   }
 }
 
-export async function loadUser(env: Env, id: string): Promise<Variables['user'] | null> {
-  const row = await env.DB.prepare(`SELECT ${USER_COLUMNS} FROM users WHERE id = ?1`)
+export async function loadUser(
+  env: Env,
+  id: string,
+): Promise<Variables['user'] | null> {
+  const row = await env.DB.prepare(
+    `SELECT ${USER_COLUMNS} FROM users WHERE id = ?1`,
+  )
     .bind(id)
     .first<Parameters<typeof rowToUser>[0]>()
   return row ? rowToUser(row) : null
 }
 
-export async function sessionInfo(env: Env, user: Variables['user']): Promise<SessionInfo> {
+export async function sessionInfo(
+  env: Env,
+  user: Variables['user'],
+): Promise<SessionInfo> {
   return {
     user: publicUser(user),
     site: await buildSiteInfo(env),

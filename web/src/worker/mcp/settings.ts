@@ -27,15 +27,22 @@ export async function isMcpEnabled(db: D1Database): Promise<boolean> {
   return stored !== '0'
 }
 
-export async function setMcpEnabled(db: D1Database, enabled: boolean): Promise<void> {
+export async function setMcpEnabled(
+  db: D1Database,
+  enabled: boolean,
+): Promise<void> {
   await setMeta(db, MCP_ENABLED_KEY, enabled ? '1' : '0')
 }
 
-export async function getMcpPreferences(db: D1Database, userId: string): Promise<McpPreferences> {
-  const row = await db.prepare(
-    `SELECT write_enabled, trash_enabled, updated_at
+export async function getMcpPreferences(
+  db: D1Database,
+  userId: string,
+): Promise<McpPreferences> {
+  const row = await db
+    .prepare(
+      `SELECT write_enabled, trash_enabled, updated_at
        FROM mcp_preferences WHERE user_id = ?1`,
-  )
+    )
     .bind(userId)
     .first<McpPreferencesRow>()
   return row ? toPreferences(row) : defaultMcpPreferences()
@@ -57,20 +64,23 @@ export async function putMcpPreferences(
   userId: string,
   value: McpPreferences,
 ): Promise<void> {
-  await db.prepare(
-    `INSERT INTO mcp_preferences (
+  await db
+    .prepare(
+      `INSERT INTO mcp_preferences (
        user_id, write_enabled, trash_enabled, updated_at
      ) VALUES (?1, ?2, ?3, ?4)
      ON CONFLICT(user_id) DO UPDATE SET
        write_enabled = excluded.write_enabled,
        trash_enabled = excluded.trash_enabled,
        updated_at = excluded.updated_at`,
-  ).bind(
-    userId,
-    value.writeEnabled ? 1 : 0,
-    value.trashEnabled ? 1 : 0,
-    value.updatedAt,
-  ).run()
+    )
+    .bind(
+      userId,
+      value.writeEnabled ? 1 : 0,
+      value.trashEnabled ? 1 : 0,
+      value.updatedAt,
+    )
+    .run()
 }
 
 export function grantedMcpScopes(
@@ -79,9 +89,13 @@ export function grantedMcpScopes(
 ): string[] {
   const requestedSet = new Set(requested.length ? requested : [MCP_SCOPES.read])
   const granted: string[] = [MCP_SCOPES.read]
-  if (preferences.writeEnabled && requestedSet.has(MCP_SCOPES.write)) granted.push(MCP_SCOPES.write)
-  if (preferences.trashEnabled && requestedSet.has(MCP_SCOPES.trash)) granted.push(MCP_SCOPES.trash)
-  return granted.filter((scope) => requestedSet.has(scope) || scope === MCP_SCOPES.read)
+  if (preferences.writeEnabled && requestedSet.has(MCP_SCOPES.write))
+    granted.push(MCP_SCOPES.write)
+  if (preferences.trashEnabled && requestedSet.has(MCP_SCOPES.trash))
+    granted.push(MCP_SCOPES.trash)
+  return granted.filter(
+    (scope) => requestedSet.has(scope) || scope === MCP_SCOPES.read,
+  )
 }
 
 function defaultMcpPreferences(): McpPreferences {

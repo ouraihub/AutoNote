@@ -1,20 +1,68 @@
 import { z } from 'zod'
-import type { ModelPricing, ModelType, Protocol, ReasoningConfig } from '@ouraihub/aether-ui/ports'
+import type {
+  ModelPricing,
+  ModelType,
+  Protocol,
+  ReasoningConfig,
+} from '@ouraihub/aether-ui/ports'
 import { inferReasoning } from '@ouraihub/aether-core/providers'
 import { charCount, badRequest } from '../kit'
 
-export const PROTOCOLS = ['anthropic-messages', 'openai-chat', 'openai-responses'] as const
-const MODEL_TYPES = ['chat', 'image', 'video', 'tts', 'stt', 'embedding', 'rerank', 'unknown'] as const
-const EFFORTS = ['default', 'none', 'auto', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
-const DIALECTS = ['openai', 'anthropic-budget', 'anthropic-adaptive', 'thinking-type', 'qwen'] as const
-const tokenLimit = z.number().int().min(0).max(0xffff_ffff).nullable().default(null)
+export const PROTOCOLS = [
+  'anthropic-messages',
+  'openai-chat',
+  'openai-responses',
+] as const
+const MODEL_TYPES = [
+  'chat',
+  'image',
+  'video',
+  'tts',
+  'stt',
+  'embedding',
+  'rerank',
+  'unknown',
+] as const
+const EFFORTS = [
+  'default',
+  'none',
+  'auto',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+] as const
+const DIALECTS = [
+  'openai',
+  'anthropic-budget',
+  'anthropic-adaptive',
+  'thinking-type',
+  'qwen',
+] as const
+const tokenLimit = z
+  .number()
+  .int()
+  .min(0)
+  .max(0xffff_ffff)
+  .nullable()
+  .default(null)
 export const ReasoningSchema = z
   .strictObject({
     dialect: z.enum(DIALECTS),
     efforts: z.array(z.enum(EFFORTS)).min(1),
-    budgetTokens: z.number().int().min(0).max(0xffff_ffff).nullable().default(null),
+    budgetTokens: z
+      .number()
+      .int()
+      .min(0)
+      .max(0xffff_ffff)
+      .nullable()
+      .default(null),
   })
-  .transform(({ budgetTokens, ...config }) => (budgetTokens === null ? config : { ...config, budgetTokens }))
+  .transform(({ budgetTokens, ...config }) =>
+    budgetTokens === null ? config : { ...config, budgetTokens },
+  )
 
 const PricingSchema = z.strictObject({
   currency: z.enum(['USD', 'CNY']),
@@ -107,19 +155,26 @@ export function readReasoning(
 ): ReasoningConfig | null {
   if (raw === 'none') return null
   if (raw !== null) return ReasoningSchema.parse(JSON.parse(raw))
-  return modelType === 'chat' ? inferReasoning(modelId, protocol, baseUrl, maxOutput) : null
+  return modelType === 'chat'
+    ? inferReasoning(modelId, protocol, baseUrl, maxOutput)
+    : null
 }
 
 export const label80 = (field: string, raw: string | null): string | null => {
   const value = raw?.trim() || null
-  if (value !== null && charCount(value) > 80) throw badRequest(field, 'too_long', 80)
+  if (value !== null && charCount(value) > 80)
+    throw badRequest(field, 'too_long', 80)
   return value
 }
 
-function validatePricing(pricing: ModelPricing | null, modelType: ModelType): void {
+function validatePricing(
+  pricing: ModelPricing | null,
+  modelType: ModelType,
+): void {
   if (pricing === null) return
   const { tiers } = pricing
-  const price = (value: number | null) => value === null || (Number.isFinite(value) && value >= 0 && value <= 1e6)
+  const price = (value: number | null) =>
+    value === null || (Number.isFinite(value) && value >= 0 && value <= 1e6)
   if (
     modelType !== 'chat' ||
     !tiers.length ||
@@ -128,18 +183,26 @@ function validatePricing(pricing: ModelPricing | null, modelType: ModelType): vo
     tiers.some(
       (tier, index) =>
         !Number.isSafeInteger(tier.minInputTokens) ||
-        (index > 0 && tier.minInputTokens <= tiers[index - 1]!.minInputTokens) ||
-        ![tier.input, tier.output, tier.cacheRead, tier.cacheWrite].every(price),
+        (index > 0 &&
+          tier.minInputTokens <= tiers[index - 1]!.minInputTokens) ||
+        ![tier.input, tier.output, tier.cacheRead, tier.cacheWrite].every(
+          price,
+        ),
     )
   )
     throw badRequest('pricing', 'invalid')
 }
 
-export function validateModel(model: z.infer<typeof ModelSchema>, protocol: Protocol): void {
+export function validateModel(
+  model: z.infer<typeof ModelSchema>,
+  protocol: Protocol,
+): void {
   label80('name', model.name)
   label80('groupName', model.groupName)
-  if (model.contextWindow !== null && model.contextWindow < 1) throw badRequest('contextWindow', 'invalid')
-  if (model.maxOutput !== null && model.maxOutput < 1) throw badRequest('maxOutput', 'invalid')
+  if (model.contextWindow !== null && model.contextWindow < 1)
+    throw badRequest('contextWindow', 'invalid')
+  if (model.maxOutput !== null && model.maxOutput < 1)
+    throw badRequest('maxOutput', 'invalid')
   if (
     model.modelType === 'chat' &&
     model.contextWindow !== null &&
@@ -148,7 +211,10 @@ export function validateModel(model: z.infer<typeof ModelSchema>, protocol: Prot
   )
     throw badRequest('maxOutput', 'exceeds_context')
   validatePricing(model.pricing, model.modelType)
-  if (model.nativeWebSearch && (model.modelType !== 'chat' || protocol === 'openai-chat'))
+  if (
+    model.nativeWebSearch &&
+    (model.modelType !== 'chat' || protocol === 'openai-chat')
+  )
     throw badRequest('nativeWebSearch', 'unsupported_protocol')
 }
 
@@ -165,13 +231,20 @@ const RESERVED_HEADERS: Record<string, true> = {
   cookie: true,
 }
 
-export function imageBase(raw: string | null | undefined): string | null | undefined {
+export function imageBase(
+  raw: string | null | undefined,
+): string | null | undefined {
   const url = raw?.trim() ?? ''
   if (!url) return null
-  return new TextEncoder().encode(url).length <= 2048 && /^https?:\/\//.test(url) ? url : undefined
+  return new TextEncoder().encode(url).length <= 2048 &&
+    /^https?:\/\//.test(url)
+    ? url
+    : undefined
 }
 
-export function cleanHeaders(raw: Record<string, string>): Record<string, string> {
+export function cleanHeaders(
+  raw: Record<string, string>,
+): Record<string, string> {
   const entries = Object.entries(raw)
   if (entries.length > 20) throw badRequest('headers', 'too_many')
   const headers: [string, string][] = []
@@ -179,9 +252,15 @@ export function cleanHeaders(raw: Record<string, string>): Record<string, string
   for (const [rawName, value] of entries) {
     const name = rawName.trim()
     const lower = name.toLowerCase()
-    if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,100}$/.test(name) || seen.has(lower) || charCount(value) > 2048 || /[\r\n]/.test(value))
+    if (
+      !/^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,100}$/.test(name) ||
+      seen.has(lower) ||
+      charCount(value) > 2048 ||
+      /[\r\n]/.test(value)
+    )
       throw badRequest('headers', 'invalid')
-    if (Object.hasOwn(RESERVED_HEADERS, lower)) throw badRequest('headers', 'reserved')
+    if (Object.hasOwn(RESERVED_HEADERS, lower))
+      throw badRequest('headers', 'reserved')
     seen.add(lower)
     headers.push([name, value])
   }
@@ -191,12 +270,15 @@ export function cleanHeaders(raw: Record<string, string>): Record<string, string
 export function validateSave(input: ProviderSaveInput): void {
   const name = charCount(input.name.trim())
   if (name === 0 || name > 80) throw badRequest('name', 'out_of_range', 80)
-  if (input.notes !== undefined && charCount(input.notes) > 10_000) throw badRequest('notes', 'out_of_range', 10_000)
-  if (input.endpoints.length > 20) throw badRequest('endpoints', 'out_of_range', 20)
+  if (input.notes !== undefined && charCount(input.notes) > 10_000)
+    throw badRequest('notes', 'out_of_range', 10_000)
+  if (input.endpoints.length > 20)
+    throw badRequest('endpoints', 'out_of_range', 20)
   const slugs = new Set<string>()
   const ids = new Set<string>()
   for (const endpoint of input.endpoints) {
-    if (!/^[a-z0-9-]{1,40}$/.test(endpoint.slug)) throw badRequest('slug', 'invalid_slug')
+    if (!/^[a-z0-9-]{1,40}$/.test(endpoint.slug))
+      throw badRequest('slug', 'invalid_slug')
     if (slugs.has(endpoint.slug)) throw badRequest('slug', 'duplicate')
     slugs.add(endpoint.slug)
     if (endpoint.id !== undefined) {
@@ -204,12 +286,17 @@ export function validateSave(input: ProviderSaveInput): void {
       ids.add(endpoint.id)
     }
     const url = endpoint.baseUrl.trim()
-    if (new TextEncoder().encode(url).length > 2048) throw badRequest('baseUrl', 'out_of_range', 2048)
-    if (url && !url.startsWith('http://') && !url.startsWith('https://')) throw badRequest('baseUrl', 'invalid_url')
-    if (imageBase(endpoint.imageBaseUrl) === undefined) throw badRequest('imageBaseUrl', 'invalid_url')
-    if (imageBase(endpoint.imageEditBaseUrl) === undefined) throw badRequest('imageEditBaseUrl', 'invalid_url')
+    if (new TextEncoder().encode(url).length > 2048)
+      throw badRequest('baseUrl', 'out_of_range', 2048)
+    if (url && !url.startsWith('http://') && !url.startsWith('https://'))
+      throw badRequest('baseUrl', 'invalid_url')
+    if (imageBase(endpoint.imageBaseUrl) === undefined)
+      throw badRequest('imageBaseUrl', 'invalid_url')
+    if (imageBase(endpoint.imageEditBaseUrl) === undefined)
+      throw badRequest('imageEditBaseUrl', 'invalid_url')
     if (endpoint.headers !== undefined) cleanHeaders(endpoint.headers)
-    if (endpoint.models.length > 1000) throw badRequest('models', 'out_of_range', 1000)
+    if (endpoint.models.length > 1000)
+      throw badRequest('models', 'out_of_range', 1000)
     const models = new Set<string>()
     for (const model of endpoint.models) {
       if (!model.id) throw badRequest('models', 'empty_id')

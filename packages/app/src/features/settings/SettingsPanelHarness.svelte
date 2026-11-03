@@ -6,7 +6,16 @@
   import type { NotesState } from '@app/state/notes.svelte'
   import type { SettingsState } from '@app/state/settings.svelte'
   import type { Notifier } from '@app/platform/notifier'
-  import { setBackend, setExtensions, setI18n, setNotes, setNotifier, setSession, setSettings, setUi } from '@app/root/context'
+  import {
+    setBackend,
+    setExtensions,
+    setI18n,
+    setNotes,
+    setNotifier,
+    setSession,
+    setSettings,
+    setUi,
+  } from '@app/root/context'
   import type { UiState } from '@app/state/ui.svelte'
   import SettingsPanel from './SettingsPanel.svelte'
 
@@ -26,12 +35,20 @@
   function provide(): void {
     setBackend(props.backend)
     setExtensions({ settingsSections: props.extensions, aboutPanels: [] })
-    setSession({ ...props.session, get epoch() { return props.epoch ?? props.session.epoch } } as SessionState)
+    setSession({
+      ...props.session,
+      get epoch() {
+        return props.epoch ?? props.session.epoch
+      },
+    } as SessionState)
     setI18n(props.i18n)
     setSettings(props.settings)
     setNotes(props.notes)
     setNotifier(props.notifier)
-    setUi({ openPanel() {}, settingsSection: props.settingsSection ?? null } as unknown as UiState)
+    setUi({
+      openPanel() {},
+      settingsSection: props.settingsSection ?? null,
+    } as unknown as UiState)
   }
   provide()
 </script>

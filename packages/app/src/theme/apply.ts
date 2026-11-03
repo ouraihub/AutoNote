@@ -16,11 +16,18 @@ export interface ThemeDocument {
   documentElement: HTMLElement
 }
 
-export function resolveTheme(theme: ThemePref, prefersDark: boolean): 'light' | 'dark' {
+export function resolveTheme(
+  theme: ThemePref,
+  prefersDark: boolean,
+): 'light' | 'dark' {
   return theme === 'system' ? (prefersDark ? 'dark' : 'light') : theme
 }
 
-export function applyTheme(document: ThemeDocument, appearance: ThemeAppearance, prefersDark: boolean): void {
+export function applyTheme(
+  document: ThemeDocument,
+  appearance: ThemeAppearance,
+  prefersDark: boolean,
+): void {
   const root = document.documentElement
   root.dataset.theme = resolveTheme(appearance.theme, prefersDark)
   root.dataset.accent = appearance.accent
@@ -47,7 +54,10 @@ export class ThemeController {
     this.#darkMedia = darkMedia
     this.#reducedMotionMedia = reducedMotionMedia
     this.#darkMedia.addEventListener('change', this.#onDarkChanged)
-    this.#reducedMotionMedia.addEventListener('change', this.#onReducedMotionChanged)
+    this.#reducedMotionMedia.addEventListener(
+      'change',
+      this.#onReducedMotionChanged,
+    )
     this.apply()
   }
 
@@ -61,7 +71,10 @@ export class ThemeController {
     if (this.#disposed) return
     this.#disposed = true
     this.#darkMedia.removeEventListener('change', this.#onDarkChanged)
-    this.#reducedMotionMedia.removeEventListener('change', this.#onReducedMotionChanged)
+    this.#reducedMotionMedia.removeEventListener(
+      'change',
+      this.#onReducedMotionChanged,
+    )
   }
 
   private apply(): void {
@@ -70,6 +83,9 @@ export class ThemeController {
   }
 
   private applyMotion(): void {
-    this.#document.documentElement.dataset.motion = this.#reducedMotionMedia.matches ? 'reduced' : 'full'
+    this.#document.documentElement.dataset.motion = this.#reducedMotionMedia
+      .matches
+      ? 'reduced'
+      : 'full'
   }
 }

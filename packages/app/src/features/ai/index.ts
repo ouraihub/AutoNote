@@ -8,7 +8,9 @@ import McpClientSection from './settings/McpClientSection.svelte'
 import ChatPanel from './chat/ChatPanel.svelte'
 import WritingToolbar from './writing/WritingToolbar.svelte'
 
-export function aiHostExtensions(backend: Pick<Backend, 'aiHost'>): HostExtensions {
+export function aiHostExtensions(
+  backend: Pick<Backend, 'aiHost'>,
+): HostExtensions {
   if (!backend.aiHost) return { settingsSections: [], aboutPanels: [] }
   return {
     settingsSections: [
@@ -33,28 +35,36 @@ export function aiHostExtensions(backend: Pick<Backend, 'aiHost'>): HostExtensio
           ]
         : []),
       ...(backend.aiHost.kit.skills
-        ? [{
-            id: 'skills',
-            order: 30,
-            titleKey: 'ai.skills_title',
-            icon: BookOpen,
-            canShow: () => true,
-            component: SkillsSection,
-          }]
+        ? [
+            {
+              id: 'skills',
+              order: 30,
+              titleKey: 'ai.skills_title',
+              icon: BookOpen,
+              canShow: () => true,
+              component: SkillsSection,
+            },
+          ]
         : []),
       ...(backend.aiHost.kit.mcpClient
-        ? [{
-            id: 'mcp-client',
-            order: 31,
-            titleKey: 'ai.mcp_client_title',
-            icon: Blocks,
-            canShow: () => true,
-            component: McpClientSection,
-          }]
+        ? [
+            {
+              id: 'mcp-client',
+              order: 31,
+              titleKey: 'ai.mcp_client_title',
+              icon: Blocks,
+              canShow: () => true,
+              component: McpClientSection,
+            },
+          ]
         : []),
     ],
     aboutPanels: [],
-    workspacePanel: { titleKey: 'chat.title', icon: Sparkles, component: ChatPanel },
+    workspacePanel: {
+      titleKey: 'chat.title',
+      icon: Sparkles,
+      component: ChatPanel,
+    },
     writingToolbar: { component: WritingToolbar },
   }
 }

@@ -174,7 +174,16 @@ impl Stage {
             .prefix("transfer-")
             .tempdir_in(root)?;
         let db = Connection::open(directory.path().join("plan.sqlite"))?;
-        db.execute_batch("PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; CREATE TABLE entries(path TEXT PRIMARY KEY COLLATE NOCASE,object TEXT NOT NULL,size INTEGER NOT NULL,hash TEXT NOT NULL); CREATE TABLE notes(id TEXT PRIMARY KEY, data TEXT NOT NULL); CREATE TABLE attachments(hash TEXT PRIMARY KEY,data TEXT NOT NULL); CREATE TABLE mappings(source TEXT PRIMARY KEY,target TEXT NOT NULL); CREATE TABLE warnings(message TEXT); CREATE TABLE metadata(key TEXT PRIMARY KEY,value TEXT NOT NULL);")?;
+        db.execute_batch(concat!(
+            "PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; ",
+            "CREATE TABLE entries(path TEXT PRIMARY KEY COLLATE NOCASE,object TEXT NOT NULL,",
+            "size INTEGER NOT NULL,hash TEXT NOT NULL); CREATE TABLE notes(\
+             id TEXT PRIMARY KEY,data TEXT NOT NULL); ",
+            "CREATE TABLE attachments(hash TEXT PRIMARY KEY,data TEXT NOT NULL); ",
+            "CREATE TABLE mappings(source TEXT PRIMARY KEY,target TEXT NOT NULL); ",
+            "CREATE TABLE warnings(message TEXT); CREATE TABLE metadata(\
+             key TEXT PRIMARY KEY,value TEXT NOT NULL);",
+        ))?;
         db.execute_batch("CREATE TABLE path_keys(key TEXT PRIMARY KEY);")?;
         db.execute_batch("CREATE TABLE published(id TEXT PRIMARY KEY,hash TEXT NOT NULL);")?;
         db.execute("INSERT INTO metadata VALUES('job',?1)", [&service.job_id])?;
@@ -195,8 +204,16 @@ impl Stage {
             let mut published = self.db.prepare("SELECT id FROM published")?;
             for raw in published.query_map([], |r| r.get::<_, String>(0))? {
                 let id = raw?;
-                if !crate::id::is_valid_id(&id) { return Err(Error::invalid("source", "invalid publication journal")) }
-                let used: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM attachments WHERE id=?1) OR EXISTS(SELECT 1 FROM notes WHERE instr(content,?2)>0) OR EXISTS(SELECT 1 FROM note_versions WHERE instr(content,?2)>0)", params![id,format!("/api/files/{id}")], |r| r.get(0))?;
+                if !crate::id::is_valid_id(&id) {
+                    return Err(Error::invalid("source", "invalid publication journal"));
+                }
+                let used: bool = conn.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM attachments WHERE id=?1) \
+                     OR EXISTS(SELECT 1 FROM notes WHERE instr(content,?2)>0) \
+                     OR EXISTS(SELECT 1 FROM note_versions WHERE instr(content,?2)>0)",
+                    params![id, format!("/api/files/{id}")],
+                    |r| r.get(0),
+                )?;
                 if !used {
                     let path = library.files.transfer_root().join(&id);
                     match std::fs::remove_file(path) {
@@ -390,7 +407,10 @@ impl Stage {
                 }
             }
         }
-        self.db.execute_batch("CREATE TABLE input_paths(path TEXT PRIMARY KEY); INSERT INTO input_paths SELECT path FROM entries;")?;
+        self.db.execute_batch(
+            "CREATE TABLE input_paths(path TEXT PRIMARY KEY); \
+             INSERT INTO input_paths SELECT path FROM entries;",
+        )?;
         Ok(())
     }
     fn folder(

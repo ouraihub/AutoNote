@@ -16,8 +16,11 @@ export function welcomeNoteContent(locale: AppLocale): string {
   return WELCOME_NOTE_CONTENT[locale]
 }
 
-export function welcomeNoteTemplates(preferredLocale: AppLocale = 'zh-CN'): WelcomeNoteTemplate[] {
-  const secondaryLocale: AppLocale = preferredLocale === 'zh-CN' ? 'en-US' : 'zh-CN'
+export function welcomeNoteTemplates(
+  preferredLocale: AppLocale = 'zh-CN',
+): WelcomeNoteTemplate[] {
+  const secondaryLocale: AppLocale =
+    preferredLocale === 'zh-CN' ? 'en-US' : 'zh-CN'
   return [preferredLocale, secondaryLocale].map((locale) => ({
     locale,
     content: welcomeNoteContent(locale),

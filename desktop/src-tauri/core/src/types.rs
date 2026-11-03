@@ -27,7 +27,17 @@ const ID_LEN: usize = 26;
 fn is_id_shape(value: &str) -> bool {
     value.len() == ID_LEN
         && value.bytes().all(|byte| {
-            matches!(byte, b'0'..=b'9' | b'a'..=b'h' | b'j' | b'k' | b'm' | b'n' | b'p'..=b't' | b'v'..=b'z')
+            matches!(
+                byte,
+                b'0'..=b'9'
+                    | b'a'..=b'h'
+                    | b'j'
+                    | b'k'
+                    | b'm'
+                    | b'n'
+                    | b'p'..=b't'
+                    | b'v'..=b'z'
+            )
         })
 }
 
@@ -142,8 +152,11 @@ macro_rules! int_type {
             /// Validates the range.
             ///
             /// # Errors
-            ///
-            #[doc = concat!("`Error::InvalidInput` unless `", stringify!($min), " <= value <= MAX_SAFE_INTEGER`.")]
+            #[doc = concat!(
+                "`Error::InvalidInput` unless `",
+                stringify!($min),
+                " <= value <= MAX_SAFE_INTEGER`."
+            )]
             pub fn new(value: i64) -> Result<Self, Error> {
                 if ($min..=MAX_SAFE_INTEGER).contains(&value) {
                     Ok(Self(value))

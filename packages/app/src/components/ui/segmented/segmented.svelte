@@ -14,11 +14,25 @@
     value?: string
   }
 
-  let { ariaLabel, options, disabled = false, value = $bindable('') }: Props = $props()
+  let {
+    ariaLabel,
+    options,
+    disabled = false,
+    value = $bindable(''),
+  }: Props = $props()
 </script>
 
-<ToggleGroup.Root type="single" variant="outline" size="sm" bind:value disabled={disabled} aria-label={ariaLabel}>
+<ToggleGroup.Root
+  type="single"
+  variant="outline"
+  size="sm"
+  bind:value
+  {disabled}
+  aria-label={ariaLabel}
+>
   {#each options as option (option.value)}
-    <ToggleGroup.Item value={option.value} disabled={option.disabled ?? false}>{option.label}</ToggleGroup.Item>
+    <ToggleGroup.Item value={option.value} disabled={option.disabled ?? false}
+      >{option.label}</ToggleGroup.Item
+    >
   {/each}
 </ToggleGroup.Root>

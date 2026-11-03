@@ -8,13 +8,24 @@
  * feature degrades to plain lexical search instead of failing (the old
  * behavior that surfaced as HTTP 503s).
  */
-import { toPlainText } from '@shared/markdown-utils'
-import { truncateText } from '@shared/text-utils'
 import { getMeta, selectQueueUsersRoundRobin, setMeta } from '../db/metadata'
 import type { Env } from '../env'
+import {
+  cosineSimilarity,
+  decodeVector,
+  encodeVector,
+  semanticWhere,
+} from './ai-search-tail'
+import { extractEmbedding } from './ai-embedding'
+export {
+  cosineSimilarity,
+  decodeVector,
+  encodeVector,
+  semanticSnippet,
+} from './ai-search-tail'
+export { extractEmbedding } from './ai-embedding'
 
 export const AI_EMBEDDING_MODEL = '@cf/baai/bge-m3'
-const AI_EMBEDDING_DIMS = 1024
 const EMBED_TEXT_MAX_CHARS = 4_000
 const MAX_SEMANTIC_VECTORS = 8_000
 const SEMANTIC_TOP_K = 40
@@ -22,7 +33,7 @@ const DRAIN_USERS_PER_RUN = 10
 const DRAIN_PER_USER = 25
 const AI_DRAIN_CURSOR_META_KEY = 'ai-index-drain-user-v1'
 const ENQUEUE_CHUNK = 200
-export const RRF_K = 60
+export { RRF_K, fuseByRrf, type FusedHit } from './ai-ranking'
 
 export type AiIndexKind = 'embed' | 'delete'
 
@@ -77,10 +88,16 @@ export async function getAiSearchStatus(
 ): Promise<AiSearchStatus> {
   const [enabled, indexed, pending] = await Promise.all([
     isAiSearchEnabled(db, userId),
-    db.prepare(`SELECT COUNT(*) AS n FROM ai_note_embeddings WHERE user_id = ?1`)
-      .bind(userId).first<{ n: number }>(),
-    db.prepare(`SELECT COUNT(*) AS n FROM ai_index_queue WHERE user_id = ?1`)
-      .bind(userId).first<{ n: number }>(),
+    db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM ai_note_embeddings WHERE user_id = ?1`,
+      )
+      .bind(userId)
+      .first<{ n: number }>(),
+    db
+      .prepare(`SELECT COUNT(*) AS n FROM ai_index_queue WHERE user_id = ?1`)
+      .bind(userId)
+      .first<{ n: number }>(),
   ])
   return {
     available: isAiSearchAvailable(env),
@@ -100,8 +117,11 @@ export async function setAiSearchEnabled(
   await setMeta(db, aiSearchPrefKey(userId), enabled ? '1' : '0')
 }
 
-export async function isAiSearchEnabled(db: D1Database, userId: string): Promise<boolean> {
-  return await getMeta(db, aiSearchPrefKey(userId)) === '1'
+export async function isAiSearchEnabled(
+  db: D1Database,
+  userId: string,
+): Promise<boolean> {
+  return (await getMeta(db, aiSearchPrefKey(userId))) === '1'
 }
 
 // Stored in app_meta instead of a column on mcp_preferences: D1 does not
@@ -134,14 +154,18 @@ export function noteIndexQueueStatement(
   kind: AiIndexKind,
   now = Date.now(),
 ): D1PreparedStatement {
-  const guard = kind === 'embed'
-    ? ` WHERE EXISTS (SELECT 1 FROM app_meta WHERE key = ?5 AND value = '1')`
-    : ` WHERE ${aiDeleteNeededSql('?1', '?2')}`
+  const guard =
+    kind === 'embed'
+      ? ` WHERE EXISTS (SELECT 1 FROM app_meta WHERE key = ?5 AND value = '1')`
+      : ` WHERE ${aiDeleteNeededSql('?1', '?2')}`
   const statement = db.prepare(
-    `INSERT OR REPLACE INTO ai_index_queue (user_id, note_id, kind, created_at)
-     SELECT ?1, ?2, ?3,
-       MAX(?4, COALESCE((SELECT created_at + 1 FROM ai_index_queue
-         WHERE user_id = ?1 AND note_id = ?2), ?4))${guard}`,
+    'INSERT OR REPLACE INTO ai_index_queue ' +
+      '(user_id, note_id, kind, created_at)\n' +
+      '     SELECT ?1, ?2, ?3,\n' +
+      '       ' +
+      'MAX(?4, COALESCE((SELECT created_at + 1 FROM ai_index_queue\n' +
+      '         ' +
+      `WHERE user_id = ?1 AND note_id = ?2), ?4))${guard}`,
   )
   return kind === 'embed'
     ? statement.bind(userId, noteId, kind, now, aiSearchPrefKey(userId))
@@ -160,28 +184,41 @@ export async function enqueueAllNotesForIndex(
   userId: string,
   now = Date.now(),
 ): Promise<number> {
-  const boundary = await db.prepare(
-    `SELECT MAX(id) AS id FROM notes WHERE user_id = ?1 AND deleted_at IS NULL`,
-  ).bind(userId).first<{ id: string | null }>()
+  const boundary = await db
+    .prepare(
+      `SELECT MAX(id) AS id FROM notes ` +
+        `WHERE user_id = ?1 AND deleted_at IS NULL`,
+    )
+    .bind(userId)
+    .first<{ id: string | null }>()
   const lastId = boundary?.id
   if (!lastId) return 0
 
   let cursor = ''
   let enqueued = 0
   while (cursor < lastId) {
-    const { results } = await db.prepare(
-      `SELECT id FROM notes
+    const { results } = await db
+      .prepare(
+        `SELECT id FROM notes
         WHERE user_id = ?1 AND deleted_at IS NULL AND id > ?2 AND id <= ?3
         ORDER BY id ASC LIMIT ?4`,
-    ).bind(userId, cursor, lastId, ENQUEUE_CHUNK).all<{ id: string }>()
+      )
+      .bind(userId, cursor, lastId, ENQUEUE_CHUNK)
+      .all<{ id: string }>()
     if (!results.length) break
 
-    const statements = results.map(({ id }) => db.prepare(
-      `INSERT OR REPLACE INTO ai_index_queue (user_id, note_id, kind, created_at)
-       SELECT ?1, ?2, 'embed',
-         MAX(?3, COALESCE((SELECT created_at + 1 FROM ai_index_queue
-           WHERE user_id = ?1 AND note_id = ?2), ?3))`,
-    ).bind(userId, id, now))
+    const statements = results.map(({ id }) =>
+      db
+        .prepare(
+          'INSERT OR REPLACE INTO ai_index_queue ' +
+            '(user_id, note_id, kind, created_at)\n' +
+            "       SELECT ?1, ?2, 'embed',\n" +
+            '         ' +
+            'MAX(?3, COALESCE((SELECT created_at + 1 FROM ai_index_queue\n' +
+            '           WHERE user_id = ?1 AND note_id = ?2), ?3))',
+        )
+        .bind(userId, id, now),
+    )
     await db.batch(statements)
     enqueued += results.length
     cursor = results[results.length - 1]!.id
@@ -189,12 +226,18 @@ export async function enqueueAllNotesForIndex(
   return enqueued
 }
 
-export async function clearAiIndex(db: D1Database, userId: string): Promise<number> {
-  const row = await db.prepare(
-    `SELECT COUNT(*) AS n FROM ai_note_embeddings WHERE user_id = ?1`,
-  ).bind(userId).first<{ n: number }>()
+export async function clearAiIndex(
+  db: D1Database,
+  userId: string,
+): Promise<number> {
+  const row = await db
+    .prepare(`SELECT COUNT(*) AS n FROM ai_note_embeddings WHERE user_id = ?1`)
+    .bind(userId)
+    .first<{ n: number }>()
   await db.batch([
-    db.prepare(`DELETE FROM ai_note_embeddings WHERE user_id = ?1`).bind(userId),
+    db
+      .prepare(`DELETE FROM ai_note_embeddings WHERE user_id = ?1`)
+      .bind(userId),
     db.prepare(`DELETE FROM ai_index_queue WHERE user_id = ?1`).bind(userId),
   ])
   return row?.n ?? 0
@@ -206,7 +249,10 @@ export async function clearAiIndex(db: D1Database, userId: string): Promise<numb
  * processed sequentially so Workers AI rate limits are respected; a failing
  * item stops the batch and is retried on the next run.
  */
-export async function drainAiIndexQueue(env: Env, max: number): Promise<{ processed: number }> {
+export async function drainAiIndexQueue(
+  env: Env,
+  max: number,
+): Promise<{ processed: number }> {
   if (!env.AI) return { processed: 0 }
   const budget = Math.max(0, Math.trunc(max))
   if (!Number.isFinite(budget) || budget === 0) return { processed: 0 }
@@ -219,35 +265,55 @@ export async function drainAiIndexQueue(env: Env, max: number): Promise<{ proces
   )
   for (const user_id of users) {
     if (processed >= budget) break
-    if (!await isAiSearchEnabled(env.DB, user_id)) {
-      // The account turned AI search off; its queue would otherwise grow forever.
-      await env.DB.prepare(`DELETE FROM ai_index_queue WHERE user_id = ?1`).bind(user_id).run()
+    if (!(await isAiSearchEnabled(env.DB, user_id))) {
+      // The account turned AI search off;
+      // its queue would otherwise grow forever.
+      await env.DB.prepare(`DELETE FROM ai_index_queue WHERE user_id = ?1`)
+        .bind(user_id)
+        .run()
       continue
     }
-    processed += await drainUserQueue(env, user_id, Math.min(budget - processed, DRAIN_PER_USER))
+    processed += await drainUserQueue(
+      env,
+      user_id,
+      Math.min(budget - processed, DRAIN_PER_USER),
+    )
   }
   return { processed }
 }
 
-async function drainUserQueue(env: Env, userId: string, max: number): Promise<number> {
+async function drainUserQueue(
+  env: Env,
+  userId: string,
+  max: number,
+): Promise<number> {
   const { results } = await env.DB.prepare(
     `SELECT note_id, kind, created_at FROM ai_index_queue
       WHERE user_id = ?1 ORDER BY created_at ASC LIMIT ?2`,
-  ).bind(userId, max).all<QueueRow>()
+  )
+    .bind(userId, max)
+    .all<QueueRow>()
   let done = 0
   for (const item of results) {
     try {
       await processQueueItem(env, userId, item)
       done++
     } catch (error) {
-      console.warn('[autonote] AI index drain paused:', error instanceof Error ? error.message : error)
+      console.warn(
+        '[autonote] AI index drain paused:',
+        error instanceof Error ? error.message : error,
+      )
       break
     }
   }
   return done
 }
 
-async function processQueueItem(env: Env, userId: string, item: QueueRow): Promise<void> {
+async function processQueueItem(
+  env: Env,
+  userId: string,
+  item: QueueRow,
+): Promise<void> {
   const db = env.DB
   const ai = env.AI
   if (!ai) return
@@ -257,57 +323,92 @@ async function processQueueItem(env: Env, userId: string, item: QueueRow): Promi
     WHERE user_id = ?6 AND note_id = ?7 AND kind = ?8 AND created_at = ?9)`
   if (item.kind === 'delete') {
     await db.batch([
-      db.prepare(
-        `DELETE FROM ai_note_embeddings
+      db
+        .prepare(
+          `DELETE FROM ai_note_embeddings
           WHERE user_id = ?1 AND note_id = ?2 AND ${queueGuard}`,
-      ).bind(userId, item.note_id, userId, item.note_id, item.kind, item.created_at),
-      db.prepare(
-        `DELETE FROM ai_index_queue
-          WHERE user_id = ?1 AND note_id = ?2 AND kind = ?3 AND created_at = ?4`,
-      ).bind(userId, item.note_id, item.kind, item.created_at),
+        )
+        .bind(
+          userId,
+          item.note_id,
+          userId,
+          item.note_id,
+          item.kind,
+          item.created_at,
+        ),
+      db
+        .prepare(
+          'DELETE FROM ai_index_queue\n' +
+            '          WHERE user_id = ?1 AND note_id = ?2 ' +
+            'AND kind = ?3 AND created_at = ?4',
+        )
+        .bind(userId, item.note_id, item.kind, item.created_at),
     ])
     return
   }
-  const note = await db.prepare(
-    `SELECT title, content FROM notes
+  const note = await db
+    .prepare(
+      `SELECT title, content FROM notes
       WHERE id = ?1 AND user_id = ?2 AND deleted_at IS NULL`,
-  ).bind(item.note_id, userId).first<{ title: string; content: string }>()
+    )
+    .bind(item.note_id, userId)
+    .first<{ title: string; content: string }>()
   if (!note) {
     await db.batch([
-      db.prepare(
-        `DELETE FROM ai_note_embeddings
+      db
+        .prepare(
+          `DELETE FROM ai_note_embeddings
           WHERE user_id = ?1 AND note_id = ?2 AND ${queueGuard}`,
-      ).bind(userId, item.note_id, userId, item.note_id, item.kind, item.created_at),
-      db.prepare(
-        `DELETE FROM ai_index_queue
-          WHERE user_id = ?1 AND note_id = ?2 AND kind = ?3 AND created_at = ?4`,
-      ).bind(userId, item.note_id, item.kind, item.created_at),
+        )
+        .bind(
+          userId,
+          item.note_id,
+          userId,
+          item.note_id,
+          item.kind,
+          item.created_at,
+        ),
+      db
+        .prepare(
+          'DELETE FROM ai_index_queue\n' +
+            '          WHERE user_id = ?1 AND note_id = ?2 ' +
+            'AND kind = ?3 AND created_at = ?4',
+        )
+        .bind(userId, item.note_id, item.kind, item.created_at),
     ])
     return
   }
   const text = `${note.title}\n${note.content}`.slice(0, EMBED_TEXT_MAX_CHARS)
   const vector = await embedText(ai, text)
   await db.batch([
-    db.prepare(
-      `INSERT INTO ai_note_embeddings (user_id, note_id, model, vector, indexed_at)
-       SELECT ?1, ?2, ?3, ?4, ?5 WHERE ${insertQueueGuard}
-       ON CONFLICT(user_id, note_id) DO UPDATE SET
-         vector = excluded.vector, indexed_at = excluded.indexed_at`,
-    ).bind(
-      userId,
-      item.note_id,
-      AI_EMBEDDING_MODEL,
-      encodeVector(vector),
-      Date.now(),
-      userId,
-      item.note_id,
-      item.kind,
-      item.created_at,
-    ),
-    db.prepare(
-      `DELETE FROM ai_index_queue
-        WHERE user_id = ?1 AND note_id = ?2 AND kind = ?3 AND created_at = ?4`,
-    ).bind(userId, item.note_id, item.kind, item.created_at),
+    db
+      .prepare(
+        'INSERT INTO ai_note_embeddings ' +
+          '(user_id, note_id, model, vector, indexed_at)\n' +
+          '       ' +
+          `SELECT ?1, ?2, ?3, ?4, ?5 WHERE ${insertQueueGuard}\n` +
+          '       ON CONFLICT(user_id, note_id) DO UPDATE SET\n' +
+          '         ' +
+          'vector = excluded.vector, indexed_at = excluded.indexed_at',
+      )
+      .bind(
+        userId,
+        item.note_id,
+        AI_EMBEDDING_MODEL,
+        encodeVector(vector),
+        Date.now(),
+        userId,
+        item.note_id,
+        item.kind,
+        item.created_at,
+      ),
+    db
+      .prepare(
+        'DELETE FROM ai_index_queue\n' +
+          '        WHERE user_id = ?1 AND note_id = ?2 ' +
+          'AND kind = ?3 AND created_at = ?4',
+      )
+      .bind(userId, item.note_id, item.kind, item.created_at),
   ])
 }
 
@@ -323,27 +424,31 @@ export async function searchSemanticNotes(
   query: string,
   filters: SemanticFilters,
 ): Promise<SemanticSearchHit[] | null> {
-  if (!env.AI || !await isAiSearchEnabled(db, userId)) return null
+  if (!env.AI || !(await isAiSearchEnabled(db, userId))) return null
   const queryVector = await embedText(env.AI, query)
   const { binds, where } = semanticWhere(userId, filters)
   binds.push(MAX_SEMANTIC_VECTORS)
-  const { results } = await db.prepare(
-    `SELECT n.id, n.title, n.excerpt, n.rev, n.updated_at, e.vector
+  const { results } = await db
+    .prepare(
+      `SELECT n.id, n.title, n.excerpt, n.rev, n.updated_at, e.vector
        FROM ai_note_embeddings e JOIN notes n
          ON n.id = e.note_id AND n.user_id = e.user_id
       WHERE ${where}
       LIMIT ?${binds.length}`,
-  ).bind(...binds).all<EmbeddingRow>()
+    )
+    .bind(...binds)
+    .all<EmbeddingRow>()
   if (!results.length) return []
 
   const scored = results.map((row) => ({
     row,
     score: cosineSimilarity(queryVector, decodeVector(row.vector)),
   }))
-  scored.sort((a, b) =>
-    b.score - a.score ||
-    b.row.updated_at - a.row.updated_at ||
-    a.row.id.localeCompare(b.row.id),
+  scored.sort(
+    (a, b) =>
+      b.score - a.score ||
+      b.row.updated_at - a.row.updated_at ||
+      a.row.id.localeCompare(b.row.id),
   )
   return scored.slice(0, SEMANTIC_TOP_K).map(({ row, score }) => ({
     id: row.id,
@@ -355,111 +460,11 @@ export async function searchSemanticNotes(
   }))
 }
 
-/**
- * Reciprocal-rank fusion: merges two ranked lists into one by rank, so a
- * note that ranks well in both lexical and semantic search surfaces above
- * one that only appears in a single index.
- */
-export interface FusedHit<T> {
-  item: T
-  rrf: number
-  sources: Set<'lexical' | 'semantic'>
-}
-
-export function fuseByRrf<T extends { id: string }>(
-  lexical: readonly T[],
-  semantic: readonly T[],
-  k = RRF_K,
-): FusedHit<T>[] {
-  const combined = new Map<string, FusedHit<T>>()
-  const push = (list: readonly T[], source: 'lexical' | 'semantic') => {
-    for (let index = 0; index < list.length; index++) {
-      const item = list[index]!
-      const key = item.id
-      const existing = combined.get(key)
-      if (existing) {
-        existing.rrf += 1 / (k + index + 1)
-        existing.sources.add(source)
-      } else {
-        combined.set(key, { item, rrf: 1 / (k + index + 1), sources: new Set([source]) })
-      }
-    }
-  }
-  push(lexical, 'lexical')
-  push(semantic, 'semantic')
-  return [...combined.values()].sort((a, b) =>
-    b.rrf - a.rrf ||
-    b.sources.size - a.sources.size ||
-    a.item.id.localeCompare(b.item.id),
-  )
-}
-
 /** Calls the Workers AI embedding model and returns a Float32Array. */
-export async function embedText(ai: NonNullable<Env['AI']>, text: string): Promise<Float32Array> {
+export async function embedText(
+  ai: NonNullable<Env['AI']>,
+  text: string,
+): Promise<Float32Array> {
   const result = await ai.run(AI_EMBEDDING_MODEL, { text: [text] })
   return extractEmbedding(result)
-}
-
-/** Handles both the `{ data: [{ embedding }] }` and `{ shape, data }` shapes. */
-export function extractEmbedding(result: unknown): Float32Array {
-  const data = (result as { data?: unknown } | null)?.data
-  if (Array.isArray(data)) {
-    const first = data[0] as { embedding?: unknown } | unknown[] | undefined
-    if (first && typeof first === 'object' && !Array.isArray(first)) {
-      const embedding = (first as { embedding?: unknown }).embedding
-      if (Array.isArray(embedding)) return Float32Array.from(embedding as number[])
-    } else if (Array.isArray(first)) {
-      return Float32Array.from(first as number[])
-    }
-  }
-  throw new Error('Unexpected embedding response shape')
-}
-
-export function encodeVector(vector: Float32Array): ArrayBuffer {
-  return new Float32Array(vector).buffer
-}
-
-export function decodeVector(buffer: ArrayBuffer): Float32Array {
-  const view = new Float32Array(buffer)
-  return view.length === AI_EMBEDDING_DIMS ? view : view.slice(0, AI_EMBEDDING_DIMS)
-}
-
-export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
-  const length = Math.min(a.length, b.length)
-  let dot = 0
-  let normA = 0
-  let normB = 0
-  for (let index = 0; index < length; index++) {
-    dot += a[index]! * b[index]!
-    normA += a[index]! * a[index]!
-    normB += b[index]! * b[index]!
-  }
-  const denominator = Math.sqrt(normA) * Math.sqrt(normB)
-  return denominator === 0 ? 0 : dot / denominator
-}
-
-export function semanticSnippet(excerpt: string, radius = 90): string {
-  const plain = toPlainText(excerpt).replace(/\s+/g, ' ').trim()
-  if (!plain) return ''
-  return truncateText(plain, radius * 2) + (plain.length > radius * 2 ? '…' : '')
-}
-
-function semanticWhere(userId: string, filters: SemanticFilters): { binds: unknown[]; where: string } {
-  const binds: unknown[] = [userId]
-  let where = `e.user_id = ?1 AND n.deleted_at IS NULL`
-  if (filters.starred === true) where += ' AND n.is_starred = 1'
-  if (filters.archived === true) where += ' AND n.is_archived = 1'
-  else if (filters.archived === false) where += ' AND n.is_archived = 0'
-  for (const tag of filters.tags ?? []) {
-    binds.push(tag)
-    where += ` AND EXISTS (SELECT 1 FROM note_tags nt JOIN tags t ON t.id = nt.tag_id
-        WHERE nt.note_id = n.id AND t.user_id = n.user_id
-          AND t.name = ?${binds.length} COLLATE NOCASE)`
-  }
-  if (filters.folder) {
-    binds.push(filters.folder)
-    where += ` AND EXISTS (SELECT 1 FROM folders f WHERE f.id = n.folder_id
-        AND f.name = ?${binds.length} COLLATE NOCASE AND f.user_id = n.user_id)`
-  }
-  return { binds, where }
 }

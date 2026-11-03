@@ -20,8 +20,13 @@ pub(crate) const NOTE_COLUMNS_FULL: &str = "n.id, n.folder_id, n.title, n.excerp
     (SELECT GROUP_CONCAT(t.name, char(1)) FROM note_tags nt \
       JOIN tags t ON t.id = nt.tag_id WHERE nt.note_id = n.id) AS tag_names, n.content";
 
-pub(crate) const FOLDER_COLUMNS: &str = "f.id, f.parent_id, f.name, f.icon, f.color, f.position, f.created_at, f.updated_at, (SELECT COUNT(*) FROM notes n WHERE n.folder_id = f.id AND n.deleted_at IS NULL) AS note_count";
-pub(crate) const TAG_COLUMNS: &str = "t.id, t.name, t.color, t.created_at, (SELECT COUNT(*) FROM note_tags nt JOIN notes n ON n.id = nt.note_id WHERE nt.tag_id = t.id AND n.deleted_at IS NULL) AS note_count";
+pub(crate) const FOLDER_COLUMNS: &str = "f.id, f.parent_id, f.name, f.icon, f.color, \
+     f.position, f.created_at, f.updated_at, \
+     (SELECT COUNT(*) FROM notes n WHERE n.folder_id = f.id \
+      AND n.deleted_at IS NULL) AS note_count";
+pub(crate) const TAG_COLUMNS: &str = "t.id, t.name, t.color, t.created_at, \
+     (SELECT COUNT(*) FROM note_tags nt JOIN notes n ON n.id = nt.note_id \
+      WHERE nt.tag_id = t.id AND n.deleted_at IS NULL) AS note_count";
 pub(crate) const VERSION_COLUMNS: &str = "id, note_id, title, size, created_at";
 pub(crate) const ATTACHMENT_COLUMNS: &str =
     "id, note_id, filename, mime, size, width, height, created_at";

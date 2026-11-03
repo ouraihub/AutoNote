@@ -19,19 +19,33 @@ export class HttpFilesPort implements FilesPort {
   }
 
   async list(cursor?: string, options?: CallOptions): Promise<AttachmentPage> {
-    const result = await this.#transport.json<{ files: AttachmentWithUsage[]; nextCursor?: string | null }>({
+    const result = await this.#transport.json<{
+      files: AttachmentWithUsage[]
+      nextCursor?: string | null
+    }>({
       path: '/api/files',
       query: { cursor },
       signal: options?.signal,
     })
     return {
-      files: result.files.map((file) => ({ ...file, url: this.#resolveFileUrl(file.url) })),
+      files: result.files.map((file) => ({
+        ...file,
+        url: this.#resolveFileUrl(file.url),
+      })),
       nextCursor: result.nextCursor ?? null,
     }
   }
-  async upload(file: File, noteId?: string, options?: CallOptions): Promise<Attachment> {
+  async upload(
+    file: File,
+    noteId?: string,
+    options?: CallOptions,
+  ): Promise<Attachment> {
     if (file.size > LIMITS.attachmentMaxBytes)
-      throw new BackendError('payload_too_large', 413, 'The file exceeds the 25 MB limit')
+      throw new BackendError(
+        'payload_too_large',
+        413,
+        'The file exceeds the 25 MB limit',
+      )
     const form = new FormData()
     form.set('file', file)
     if (noteId !== undefined) form.set('noteId', noteId)
@@ -50,7 +64,9 @@ export class HttpFilesPort implements FilesPort {
       signal: options?.signal,
     })
   }
-  prune(options?: CallOptions): Promise<{ removed: number; freedBytes: number }> {
+  prune(
+    options?: CallOptions,
+  ): Promise<{ removed: number; freedBytes: number }> {
     return this.#transport.json<{ removed: number; freedBytes: number }>({
       method: 'POST',
       path: '/api/files/prune',

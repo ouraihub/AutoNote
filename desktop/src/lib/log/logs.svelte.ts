@@ -20,7 +20,9 @@ export class LogsState {
   get visible(): LogEntry[] {
     return (
       this.onlyProblems
-        ? this.entries.filter((entry) => entry.level === 'ERROR' || entry.level === 'WARN')
+        ? this.entries.filter(
+            (entry) => entry.level === 'ERROR' || entry.level === 'WARN',
+          )
         : this.entries
     ).toReversed()
   }
@@ -31,7 +33,10 @@ export class LogsState {
     const generation = this.#generation
     this.loading = true
     try {
-      const [entries, available] = await Promise.all([this.client.readLogs(300), this.client.readAvailability()])
+      const [entries, available] = await Promise.all([
+        this.client.readLogs(300),
+        this.client.readAvailability(),
+      ])
       if (generation !== this.#generation) return
       this.entries = entries
       this.available = available
@@ -41,7 +46,8 @@ export class LogsState {
     } finally {
       if (generation === this.#generation) {
         this.loading = false
-        if (this.#active) this.#timer = window.setTimeout(() => void this.refresh(), 2000)
+        if (this.#active)
+          this.#timer = window.setTimeout(() => void this.refresh(), 2000)
       }
     }
   }

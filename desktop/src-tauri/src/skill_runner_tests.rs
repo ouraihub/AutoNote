@@ -10,7 +10,14 @@ fn fixture(source: &str) -> (tempfile::TempDir, SkillRunner, RunRequest, PathBuf
     let root = tempfile::tempdir().unwrap();
     let package = root.path().join("package");
     fs::create_dir_all(package.join("scripts")).unwrap();
-    fs::write(package.join("SKILL.md"), "---\nname: runner-test\ndescription: Exercise packaged scripts\n---\nRun the packaged script.").unwrap();
+    fs::write(
+        package.join("SKILL.md"),
+        concat!(
+            "---\nname: runner-test\ndescription: Exercise packaged scripts\n---\n",
+            "Run the packaged script."
+        ),
+    )
+    .unwrap();
     fs::write(package.join("scripts/run.js"), source).unwrap();
     fs::create_dir(package.join("references")).unwrap();
     fs::write(package.join("references/input.txt"), "pinned reference").unwrap();

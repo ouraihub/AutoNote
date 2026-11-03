@@ -1,7 +1,16 @@
-import { DEFAULT_SETTINGS, mergeSettings, mergeSettingsPatch } from '@shared/constants'
+import {
+  DEFAULT_SETTINGS,
+  mergeSettings,
+  mergeSettingsPatch,
+} from '@shared/constants'
 import type { ErrorCode, SettingsPatch } from '@shared/backend-types'
 import type { UserSettings } from '@shared/types'
-import { BackendError, isBackendError, type CallOptions, type SettingsPort } from '@app/backend'
+import {
+  BackendError,
+  isBackendError,
+  type CallOptions,
+  type SettingsPort,
+} from '@app/backend'
 import type { Logger } from '@app/log/logger'
 import type { Notifier } from '@app/platform'
 
@@ -38,7 +47,11 @@ export class SettingsState {
   #error = $state.raw<ErrorCode | null>(null)
   #status = $state<SettingsSaveStatus>('idle')
   #outstanding = $derived(mergePatches(this.#inFlightPatch, this.#pendingPatch))
-  #current = $derived(this.#outstanding ? mergeSettingsPatch(this.#persisted, this.#outstanding) : this.#persisted)
+  #current = $derived(
+    this.#outstanding
+      ? mergeSettingsPatch(this.#persisted, this.#outstanding)
+      : this.#persisted,
+  )
 
   #port: SettingsPort
   #notifier: Notifier
@@ -94,7 +107,12 @@ export class SettingsState {
       this.#persisted = mergeSettings(remote)
     } catch (error) {
       if (!isBackendError(error)) throw error
-      if (epoch !== this.#epoch || sequence !== this.#sequence || error.code === 'cancelled') return
+      if (
+        epoch !== this.#epoch ||
+        sequence !== this.#sequence ||
+        error.code === 'cancelled'
+      )
+        return
       this.#error = error.code
       this.#logger.warn('settings.load.failed', { code: error.code })
     }
@@ -126,7 +144,10 @@ export class SettingsState {
 
   #reset(owner: string | null): void {
     const discarded = this.#outstanding
-    if (discarded) this.#logger.warn('settings.pending.discarded', { sections: Object.keys(discarded).length })
+    if (discarded)
+      this.#logger.warn('settings.pending.discarded', {
+        sections: Object.keys(discarded).length,
+      })
     this.#clearTimer()
     this.#owner = owner
     this.#epoch++
@@ -158,7 +179,8 @@ export class SettingsState {
 
   #refreshStatus(): void {
     if (this.#inFlight) this.#status = 'saving'
-    else if (this.#cancelTimer) this.#status = this.#error ? 'retrying' : 'scheduled'
+    else if (this.#cancelTimer)
+      this.#status = this.#error ? 'retrying' : 'scheduled'
     else this.#status = 'idle'
   }
 
@@ -169,13 +191,23 @@ export class SettingsState {
     this.#pendingPatch = null
     this.#shouldNotify = false
     this.#inFlightPatch = outgoing
-    const task = this.#send(outgoing, shouldNotify, this.#epoch, ++this.#sequence)
+    const task = this.#send(
+      outgoing,
+      shouldNotify,
+      this.#epoch,
+      ++this.#sequence,
+    )
     this.#inFlight = task
     this.#refreshStatus()
     await task
   }
 
-  async #send(outgoing: SettingsPatch, shouldNotify: boolean, epoch: number, sequence: number): Promise<void> {
+  async #send(
+    outgoing: SettingsPatch,
+    shouldNotify: boolean,
+    epoch: number,
+    sequence: number,
+  ): Promise<void> {
     let saved: UserSettings
     try {
       saved = await this.#port.save(outgoing)
@@ -189,20 +221,33 @@ export class SettingsState {
         throw error
       }
       this.#error = error.code
-      this.#logger.warn('settings.save.failed', { code: error.code, retryInMs: this.#retryDelayMs })
+      this.#logger.warn('settings.save.failed', {
+        code: error.code,
+        retryInMs: this.#retryDelayMs,
+      })
       if (shouldNotify) {
-        this.#notifier.toast({ id: 'settings-save-failed', key: 'session.could_not_save_settings', tone: 'error' })
+        this.#notifier.toast({
+          id: 'settings-save-failed',
+          key: 'session.could_not_save_settings',
+          tone: 'error',
+        })
         this.#shouldNotify = false
       }
       this.#schedule(this.#retryDelayMs)
-      this.#retryDelayMs = Math.min(SETTINGS_RETRY_MAX_MS, this.#retryDelayMs * 2)
+      this.#retryDelayMs = Math.min(
+        SETTINGS_RETRY_MAX_MS,
+        this.#retryDelayMs * 2,
+      )
       return
     }
     if (epoch !== this.#epoch) return
     this.#settle()
     this.#retryDelayMs = SETTINGS_RETRY_BASE_MS
     this.#error = null
-    this.#persisted = sequence === this.#sequence ? mergeSettings(saved) : mergeSettingsPatch(this.#persisted, outgoing)
+    this.#persisted =
+      sequence === this.#sequence
+        ? mergeSettings(saved)
+        : mergeSettingsPatch(this.#persisted, outgoing)
     if (this.#pendingPatch && !this.#cancelTimer) this.#schedule(0)
     else this.#refreshStatus()
   }
@@ -213,14 +258,21 @@ export class SettingsState {
   }
 }
 
-function mergePatches(first: SettingsPatch | null, second: SettingsPatch | null): SettingsPatch | null {
+function mergePatches(
+  first: SettingsPatch | null,
+  second: SettingsPatch | null,
+): SettingsPatch | null {
   if (!first) return second
   if (!second) return first
   const merged: SettingsPatch = {}
-  if (first.appearance || second.appearance) merged.appearance = { ...first.appearance, ...second.appearance }
-  if (first.editor || second.editor) merged.editor = { ...first.editor, ...second.editor }
-  if (first.preview || second.preview) merged.preview = { ...first.preview, ...second.preview }
-  if (first.backup || second.backup) merged.backup = { ...first.backup, ...second.backup }
+  if (first.appearance || second.appearance)
+    merged.appearance = { ...first.appearance, ...second.appearance }
+  if (first.editor || second.editor)
+    merged.editor = { ...first.editor, ...second.editor }
+  if (first.preview || second.preview)
+    merged.preview = { ...first.preview, ...second.preview }
+  if (first.backup || second.backup)
+    merged.backup = { ...first.backup, ...second.backup }
   if (first.sync || second.sync) merged.sync = { ...first.sync, ...second.sync }
   return merged
 }
@@ -228,10 +280,17 @@ function mergePatches(first: SettingsPatch | null, second: SettingsPatch | null)
 function assertValidPatch(base: UserSettings, patch: SettingsPatch): void {
   const candidate = mergeSettingsPatch(base, patch)
   for (const [section, values] of Object.entries(patch)) {
-    if (!isSettingsSection(section) || values === null || typeof values !== 'object' || Array.isArray(values)) {
+    if (
+      !isSettingsSection(section) ||
+      values === null ||
+      typeof values !== 'object' ||
+      Array.isArray(values)
+    ) {
       throw new BackendError('bad_request', 0, 'Invalid settings patch')
     }
-    const accepted: Readonly<Record<string, unknown>> = Object.fromEntries(Object.entries(candidate[section]))
+    const accepted: Readonly<Record<string, unknown>> = Object.fromEntries(
+      Object.entries(candidate[section]),
+    )
     for (const [key, value] of Object.entries(values)) {
       if (!Object.hasOwn(accepted, key) || !Object.is(accepted[key], value)) {
         throw new BackendError('bad_request', 0, 'Invalid settings patch')

@@ -23,3 +23,17 @@ index 953177eddeab1a2f4f94bf751522a55c34d2d1af..af400300ba464524b520c67e7f0c9689
  
    remove = (index: number): void => {
      const [image] = this.images.splice(index, 1)
+diff --git a/src/chat/ChatPanel.svelte b/src/chat/ChatPanel.svelte
+--- a/src/chat/ChatPanel.svelte
++++ b/src/chat/ChatPanel.svelte
+@@ -75,7 +75,9 @@
+   const MODES: PermissionMode[] = ['default', 'plan', 'accept_edits', 'auto', 'full_access']
+   const isAgent = $derived(purpose === 'agent')
+   const allowedModes: PermissionMode[] = $derived(
+-    isAgent ? MODES.filter((mode) => permissionModes.includes(mode)) : ['default'],
++    isAgent || purpose === 'chat'
++      ? MODES.filter((mode) => permissionModes.includes(mode))
++      : ['default'],
+   )
+   let fullAccess = $state(false)
+   const mode: PermissionMode = $derived(

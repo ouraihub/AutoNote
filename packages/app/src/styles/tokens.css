@@ -1,13 +1,14 @@
 :is(:root, [data-app-root]) {
   --font-ui:
-    'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', Inter, Roboto,
-    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;
+    'Inter Variable', -apple-system, BlinkMacSystemFont,
+    'Segoe UI Variable Text', 'Segoe UI', Inter, Roboto, 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;
   --font-serif:
-    'Iowan Old Style', 'Source Serif 4', Charter, Georgia, 'Songti SC', 'Noto Serif CJK SC', 'Source Han Serif SC',
-    'SimSun', serif;
+    'Iowan Old Style', 'Source Serif 4', Charter, Georgia, 'Songti SC',
+    'Noto Serif CJK SC', 'Source Han Serif SC', 'SimSun', serif;
   --font-mono:
-    ui-monospace, 'SF Mono', 'JetBrains Mono', 'Cascadia Code', 'Cascadia Mono', Consolas, 'Liberation Mono', Menlo,
-    'Sarasa Mono SC', monospace;
+    ui-monospace, 'SF Mono', 'JetBrains Mono', 'Cascadia Code', 'Cascadia Mono',
+    Consolas, 'Liberation Mono', Menlo, 'Sarasa Mono SC', monospace;
 
   --r-xs: 4px;
   --r-sm: 6px;
@@ -76,9 +77,11 @@
 
   --shadow-sm: 0 1px 2px oklch(0% 0 0 / 40%);
   --shadow-pop:
-    0 0 0 1px oklch(100% 0 0 / 7%), 0 8px 24px -6px oklch(0% 0 0 / 60%), 0 20px 48px -12px oklch(0% 0 0 / 45%);
+    0 0 0 1px oklch(100% 0 0 / 7%), 0 8px 24px -6px oklch(0% 0 0 / 60%),
+    0 20px 48px -12px oklch(0% 0 0 / 45%);
   --shadow-modal:
-    0 0 0 1px oklch(100% 0 0 / 8%), 0 16px 40px -8px oklch(0% 0 0 / 65%), 0 40px 80px -20px oklch(0% 0 0 / 55%);
+    0 0 0 1px oklch(100% 0 0 / 8%), 0 16px 40px -8px oklch(0% 0 0 / 65%),
+    0 40px 80px -20px oklch(0% 0 0 / 55%);
 
   --scrim: oklch(0% 0 0 / 55%);
   --selection: color-mix(in oklab, var(--accent) 30%, transparent);
@@ -130,9 +133,11 @@
   --shadow-sm: 0 1px 2px oklch(20% 0.01 265 / 6%);
   --shadow-pop:
     0 0 0 1px oklch(20% 0.01 265 / 6%), 0 2px 4px -1px oklch(20% 0.01 265 / 5%),
-    0 12px 28px -8px oklch(20% 0.01 265 / 12%), 0 24px 56px -16px oklch(20% 0.01 265 / 10%);
+    0 12px 28px -8px oklch(20% 0.01 265 / 12%),
+    0 24px 56px -16px oklch(20% 0.01 265 / 10%);
   --shadow-modal:
-    0 0 0 1px oklch(20% 0.01 265 / 7%), 0 8px 16px -4px oklch(20% 0.01 265 / 8%),
+    0 0 0 1px oklch(20% 0.01 265 / 7%),
+    0 8px 16px -4px oklch(20% 0.01 265 / 8%),
     0 24px 48px -12px oklch(20% 0.01 265 / 16%);
 
   --scrim: oklch(35% 0.01 265 / 32%);

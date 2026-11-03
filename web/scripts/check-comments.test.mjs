@@ -8,8 +8,10 @@ import { checkComments, createCommentAllowlist } from './check-comments.mjs'
 test('comment checker accepts exact allowlisted Svelte and public API comments', async () => {
   await withFixture(
     {
-      'packages/app/src/api.ts': '/** Public API contract. */\nexport const value = 1\n',
-      'web/src/client/view.svelte': '<!-- Template rationale. --><script>/** Script rationale. */ const value = 1</script><style>/* Style rationale. */</style>{value}',
+      'packages/app/src/api.ts':
+        '/** Public API contract. */\nexport const value = 1\n',
+      'web/src/client/view.svelte':
+        '<!-- Template rationale. --><script>/** Script rationale. */ const value = 1</script><style>/* Style rationale. */</style>{value}',
     },
     async (root) => {
       await writeAllowlist(root)
@@ -22,10 +24,15 @@ test('comment checker rejects unapproved Svelte template script and style commen
   await withFixture(
     {
       'packages/app/src/api.ts': 'export const value = 1\n',
-      'web/src/client/view.svelte': '<!-- Template rationale. --><script>// Script rationale\nconst value = 1</script><style>/* Style rationale. */</style>{value}',
+      'web/src/client/view.svelte':
+        '<!-- Template rationale. --><script>// Script rationale\nconst value = 1</script><style>/* Style rationale. */</style>{value}',
     },
     async (root) => {
-      assert.equal((await run(root)).filter((error) => error.includes('unapproved')).length, 3)
+      assert.equal(
+        (await run(root)).filter((error) => error.includes('unapproved'))
+          .length,
+        3,
+      )
     },
   )
 })
@@ -33,8 +40,10 @@ test('comment checker rejects unapproved Svelte template script and style commen
 test('comment checker ignores URL and Markdown-like markers in strings', async () => {
   await withFixture(
     {
-      'packages/app/src/api.ts': "export const url = 'https://example.test/a//b'\nexport const markdown = '```// not a comment```'\n",
-      'web/src/client/view.svelte': '<p title="https://example.test/a//b">AutoNote</p>',
+      'packages/app/src/api.ts':
+        "export const url = 'https://example.test/a//b'\nexport const markdown = '```// not a comment```'\n",
+      'web/src/client/view.svelte':
+        '<p title="https://example.test/a//b">AutoNote</p>',
     },
     async (root) => assert.deepEqual(await run(root), []),
   )
@@ -43,13 +52,33 @@ test('comment checker ignores URL and Markdown-like markers in strings', async (
 test('comment checker distinguishes regex markers from real comments', async () => {
   await withFixture(
     {
-      'packages/app/src/api.ts': String.raw`export const protocol = /^https?:\/\//.test('https://example.test')` + '\n',
-      'web/src/client/view.svelte': '<script>const pattern = /[/*]/; // Explain constraint\n</script>',
+      'packages/app/src/api.ts':
+        String.raw`export const protocol = /^https?:\/\//.test('https://example.test')` +
+        '\n',
+      'web/src/client/view.svelte':
+        '<script>const pattern = /[/*]/; // Explain constraint\n</script>',
     },
     async (root) => {
       const errors = await run(root)
       assert.equal(errors.length, 1)
       assert.match(errors[0], /view\.svelte.*unapproved line comment/)
+    },
+  )
+})
+
+test('comment checker scans interpolation comments but not template text markers', async () => {
+  await withFixture(
+    {
+      'packages/app/src/api.ts':
+        'const protocol = "https:"\nconst host = "example.test"\n' +
+        'export const url = `${protocol}//${host}/path`\n' +
+        'export const value = `${/* Actual interpolation constraint */ host}//tail`\n',
+      'web/src/client/view.svelte': '<p>AutoNote</p>',
+    },
+    async (root) => {
+      const errors = await run(root)
+      assert.equal(errors.length, 1)
+      assert.match(errors[0], /api\.ts.*unapproved block comment/)
     },
   )
 })

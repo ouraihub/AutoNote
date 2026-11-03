@@ -25,7 +25,8 @@ class MediaQueryStub implements MediaQueryLike {
 }
 
 describe('ThemeController', () => {
-  test('tracks system theme and releases both media listeners on disposal', () => {
+  test('tracks system theme and releases\
+ both media listeners on disposal', () => {
     const root = document.createElement('html')
     const dark = new MediaQueryStub(false)
     const motion = new MediaQueryStub(false)
@@ -38,7 +39,12 @@ describe('ThemeController', () => {
 
     dark.change(true)
     motion.change(true)
-    expect(root.dataset).toMatchObject({ theme: 'dark', accent: 'cinnabar', background: 'paper', motion: 'reduced' })
+    expect(root.dataset).toMatchObject({
+      theme: 'dark',
+      accent: 'cinnabar',
+      background: 'paper',
+      motion: 'reduced',
+    })
 
     controller.dispose()
     dark.change(false)

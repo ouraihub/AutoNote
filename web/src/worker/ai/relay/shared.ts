@@ -7,7 +7,12 @@ export const MAX_CONCURRENT_MANUAL = 8
 export const MAX_CONCURRENT_GITHUB = 32
 export const GITHUB_KEY_TTL_MS = 6 * 3_600_000
 export const BUSY_RETRY_SECONDS = '2'
-export const KEEP_HEADERS = ['anthropic-version', 'anthropic-beta', 'content-type', 'accept']
+export const KEEP_HEADERS = [
+  'anthropic-version',
+  'anthropic-beta',
+  'content-type',
+  'accept',
+]
 export const KEY_STATUS = [401, 402, 403, 429]
 
 export interface RelayKey {
@@ -48,9 +53,19 @@ export interface LineRow {
   modelType: 'chat' | 'image'
 }
 
-export const relayError = (status: number, type: string, message: string, headers?: HeadersInit): Response =>
-  Response.json({ type: 'error', error: { type, message } }, { status, headers })
+export const relayError = (
+  status: number,
+  type: string,
+  message: string,
+  headers?: HeadersInit,
+): Response =>
+  Response.json(
+    { type: 'error', error: { type, message } },
+    { status, headers },
+  )
 
-export const today = (now: number): string => new Date(now).toISOString().slice(0, 10)
+export const today = (now: number): string =>
+  new Date(now).toISOString().slice(0, 10)
 
-export const normalizeWorkflow = (workflow: string): string => workflow.replace(/^[^/]+\/[^/]+/, (repo) => repo.toLowerCase())
+export const normalizeWorkflow = (workflow: string): string =>
+  workflow.replace(/^[^/]+\/[^/]+/, (repo) => repo.toLowerCase())

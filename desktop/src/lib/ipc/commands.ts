@@ -30,7 +30,12 @@ import type {
   TagPatch,
   TagPatchResult,
 } from '@shared/backend-types'
-import type { BindPreview, SyncLoginReply, SyncStatus, SyncTotpReply } from './ports/remote-sync'
+import type {
+  BindPreview,
+  SyncLoginReply,
+  SyncStatus,
+  SyncTotpReply,
+} from './ports/remote-sync'
 import type { AppInfo, LogEntry } from '../host/desktop-types'
 import type { McpApiKey, McpPreferences } from '@shared/types'
 import type { McpLocalStatus } from '@shared/backend-types'
@@ -64,7 +69,9 @@ export interface CommandArgs {
   mcp_create_key: { name: string }
   mcp_revoke_key: { id: string }
   mcp_get_preferences: Empty
-  mcp_save_preferences: { patch: Partial<Pick<McpPreferences, 'writeEnabled' | 'trashEnabled'>> }
+  mcp_save_preferences: {
+    patch: Partial<Pick<McpPreferences, 'writeEnabled' | 'trashEnabled'>>
+  }
   sync_login: { origin: string; username: string; password: string }
   sync_complete_totp: { loginId: string; challengeToken: string; code: string }
   sync_status: Empty
@@ -105,7 +112,12 @@ export interface CommandArgs {
   search_graph: { query: GraphQuery }
   jobs_cancel: { jobId: string }
   files_list: { cursor?: string }
-  files_upload_begin: { filename: string; mime: string; size: number; noteId?: string }
+  files_upload_begin: {
+    filename: string
+    mime: string
+    size: number
+    noteId?: string
+  }
   files_upload_finish: { uploadId: string }
   files_upload_cancel: { uploadId: string }
   files_remove: { id: string }
@@ -193,5 +205,6 @@ export interface CommandResults {
   transfer_cancel: { accepted: boolean }
 }
 export type TransferArgs =
-  { format: 'zip' | 'json' } | { source: 'files' | 'folder'; conflict: 'skip' | 'newer' | 'duplicate' }
+  | { format: 'zip' | 'json' }
+  | { source: 'files' | 'folder'; conflict: 'skip' | 'newer' | 'duplicate' }
 export type TransferValue = { saved: true } | ImportResult

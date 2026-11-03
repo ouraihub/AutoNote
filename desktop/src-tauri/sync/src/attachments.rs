@@ -442,7 +442,14 @@ mod tests {
         let local = "01arz3ndektsv4rrffq69g5fav";
         let remote = "01arz3ndektsv4rrffq69g5faz";
         let source = format!(
-            "---\nfile: '/api/files/{local}'\nprose: 'literal {local}'\n---\n中文 ![image](/api/files/{local})\nplain /api/files/{local}\n`![code](/api/files/{local})`\n```\n![fenced](/api/files/{local})\n```\n<!-- ![hidden](/api/files/{local}) -->\n"
+            concat!(
+                "---\nfile: '/api/files/{local}'\nprose: 'literal {local}'\n---\n",
+                "中文 ![image](/api/files/{local})\nplain /api/files/{local}\n",
+                "`![code](/api/files/{local})`\n```\n",
+                "![fenced](/api/files/{local})\n```\n",
+                "<!-- ![hidden](/api/files/{local}) -->\n"
+            ),
+            local = local
         );
         let original = source.clone();
         let ranges = references(&source)?;

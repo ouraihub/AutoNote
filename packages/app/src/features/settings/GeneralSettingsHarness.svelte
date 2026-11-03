@@ -5,7 +5,15 @@
   import type { SessionState } from '@app/state/session.svelte'
   import type { SettingsState } from '@app/state/settings.svelte'
   import type { Notifier } from '@app/platform/notifier'
-  import { setBackend, setExtensions, setI18n, setNotes, setNotifier, setSession, setSettings } from '@app/root/context'
+  import {
+    setBackend,
+    setExtensions,
+    setI18n,
+    setNotes,
+    setNotifier,
+    setSession,
+    setSettings,
+  } from '@app/root/context'
   import AppearanceSettings from './AppearanceSettings.svelte'
   import EditorSettings from './EditorSettings.svelte'
   import SyncSettings from './SyncSettings.svelte'
@@ -22,7 +30,8 @@
     session: SessionState
     notifier: Notifier
   }
-  let { section, backend, settings, i18n, notes, session, notifier }: Props = $props()
+  let { section, backend, settings, i18n, notes, session, notifier }: Props =
+    $props()
   function provide(): void {
     setBackend(backend)
     setExtensions({ settingsSections: [], aboutPanels: [] })

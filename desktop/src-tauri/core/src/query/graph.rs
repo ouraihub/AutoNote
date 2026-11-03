@@ -64,7 +64,10 @@ pub struct GraphResponse {
 const EDGE_LIMIT: i64 = 10_000;
 const LINK_SCAN_LIMIT: i64 = 50_000;
 const UNRESOLVED_LIMIT: usize = 50;
-const DEGREE: &str = "(SELECT COUNT(*) FROM links l WHERE l.target_note_id=n.id AND l.source_note_id<>n.id) + (SELECT COUNT(*) FROM links l WHERE l.source_note_id=n.id AND l.target_note_id IS NOT NULL)";
+const DEGREE: &str = "(SELECT COUNT(*) FROM links l \
+    WHERE l.target_note_id=n.id AND l.source_note_id<>n.id) + \
+    (SELECT COUNT(*) FROM links l WHERE l.source_note_id=n.id \
+    AND l.target_note_id IS NOT NULL)";
 const BASE: &str = "n.deleted_at IS NULL AND n.is_archived=0";
 
 fn filters(q: &GraphQuery, binds: &mut Vec<Value>) -> String {
@@ -86,11 +89,17 @@ fn filters(q: &GraphQuery, binds: &mut Vec<Value>) -> String {
         binds.push(id.as_str().to_owned().into());
     }
     if let Some(tag) = q.tag.as_deref().filter(|s| !s.is_empty()) {
-        sql.push_str(" AND EXISTS(SELECT 1 FROM note_tags nt JOIN tags t ON t.id=nt.tag_id WHERE nt.note_id=n.id AND t.name=? COLLATE NOCASE)");
+        sql.push_str(
+            " AND EXISTS(SELECT 1 FROM note_tags nt JOIN tags t ON t.id=nt.tag_id \
+             WHERE nt.note_id=n.id AND t.name=? COLLATE NOCASE)",
+        );
         binds.push(tag.to_owned().into());
     }
     if q.include_orphans == Some(false) {
-        sql.push_str(" AND EXISTS(SELECT 1 FROM links l WHERE l.target_note_id IS NOT NULL AND (l.source_note_id=n.id OR l.target_note_id=n.id))");
+        sql.push_str(
+            " AND EXISTS(SELECT 1 FROM links l WHERE l.target_note_id IS NOT NULL \
+             AND (l.source_note_id=n.id OR l.target_note_id=n.id))",
+        );
     }
     sql
 }
@@ -98,9 +107,12 @@ fn local_prefix(mode: &str) -> &'static str {
     if mode == "local" {
         "WITH RECURSIVE walk(id,depth) AS (
             SELECT ?1, 0 UNION
-            SELECT CASE WHEN l.source_note_id=walk.id THEN l.target_note_id ELSE l.source_note_id END, walk.depth+1
-            FROM walk JOIN links l ON l.target_note_id IS NOT NULL AND (l.source_note_id=walk.id OR l.target_note_id=walk.id)
-            JOIN notes neighbor ON neighbor.id=CASE WHEN l.source_note_id=walk.id THEN l.target_note_id ELSE l.source_note_id END
+            SELECT CASE WHEN l.source_note_id=walk.id THEN l.target_note_id \
+            ELSE l.source_note_id END, walk.depth+1
+            FROM walk JOIN links l ON l.target_note_id IS NOT NULL \
+            AND (l.source_note_id=walk.id OR l.target_note_id=walk.id)
+            JOIN notes neighbor ON neighbor.id=CASE WHEN l.source_note_id=walk.id \
+            THEN l.target_note_id ELSE l.source_note_id END
               AND neighbor.deleted_at IS NULL AND neighbor.is_archived=0
             WHERE walk.depth<?2
           ), nearby AS (SELECT id,MIN(depth) depth FROM walk GROUP BY id) "
@@ -147,8 +159,10 @@ fn load_nodes(
     };
     let sql = format!(
         "{prefix}SELECT n.id,n.title,n.folder_id,f.name,f.color, \
-        (SELECT COUNT(*) FROM links l WHERE l.target_note_id=n.id AND l.source_note_id<>n.id) AS inbound, \
-        (SELECT COUNT(*) FROM links l WHERE l.source_note_id=n.id AND l.target_note_id IS NOT NULL) AS outbound \
+        (SELECT COUNT(*) FROM links l WHERE l.target_note_id=n.id \
+        AND l.source_note_id<>n.id) AS inbound, \
+        (SELECT COUNT(*) FROM links l WHERE l.source_note_id=n.id \
+        AND l.target_note_id IS NOT NULL) AS outbound \
         {from} LEFT JOIN folders f ON f.id=n.folder_id AND f.deleted_at IS NULL \
         WHERE {where_sql} ORDER BY {sort} {DEGREE} DESC,n.updated_at DESC,n.id ASC LIMIT ?"
     );
@@ -210,48 +224,144 @@ impl Library {
             return Err(Error::invalid("tag", "tag too long"));
         }
         self.read(|conn| {
-            if mode=="local" && let Some(center)=&q.center {
-                let exists:bool=conn.query_row("SELECT EXISTS(SELECT 1 FROM notes WHERE id=?1 AND deleted_at IS NULL AND is_archived=0)",[center.as_str()],|r|r.get(0))?;
-                if !exists {return Err(Error::invalid("center","center note unavailable"));}
+            if mode == "local"
+                && let Some(center) = &q.center
+            {
+                let exists: bool = conn.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM notes WHERE id=?1 \
+                     AND deleted_at IS NULL AND is_archived=0)",
+                    [center.as_str()],
+                    |r| r.get(0),
+                )?;
+                if !exists {
+                    return Err(Error::invalid("center", "center note unavailable"));
+                }
             }
-            let note_limit=if q.include_unresolved==Some(true) {(limit-50).max(1)} else {limit};
-            let (mut nodes,total)=load_nodes(conn,q,mode,depth,note_limit+1)?;
-            let mut truncated=nodes.len()>note_limit as usize || total>note_limit as usize;
+            let note_limit = if q.include_unresolved == Some(true) {
+                (limit - 50).max(1)
+            } else {
+                limit
+            };
+            let (mut nodes, total) = load_nodes(conn, q, mode, depth, note_limit + 1)?;
+            let mut truncated = nodes.len() > note_limit as usize || total > note_limit as usize;
             nodes.truncate(note_limit as usize);
-            let ids:HashSet<String>=nodes.iter().map(|n|n.id.clone()).collect();
-            let mut edges=Vec::new();let mut unresolved=HashMap::<String,(String,HashSet<String>)>::new();
+            let ids: HashSet<String> = nodes.iter().map(|n| n.id.clone()).collect();
+            let mut edges = Vec::new();
+            let mut unresolved = HashMap::<String, (String, HashSet<String>)>::new();
             if !nodes.is_empty() {
-                let mut stmt=conn.prepare("SELECT source_note_id,target_note_id,target_key,target_title FROM links WHERE source_note_id=?1 ORDER BY target_key LIMIT ?2")?;
-                let mut scanned=0_i64;let mut candidates=0_i64;let mut seen=HashSet::new();
+                let mut stmt = conn.prepare(
+                    "SELECT source_note_id,target_note_id,target_key,target_title FROM links \
+                     WHERE source_note_id=?1 ORDER BY target_key LIMIT ?2",
+                )?;
+                let mut scanned = 0_i64;
+                let mut candidates = 0_i64;
+                let mut seen = HashSet::new();
                 for node in &nodes {
-                    let links=stmt.query_map(params![node.id,LINK_SCAN_LIMIT+1],|r|Ok((r.get::<_,String>(0)?,r.get::<_,Option<String>>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?)))?;
+                    let links = stmt.query_map(params![node.id, LINK_SCAN_LIMIT + 1], |r| {
+                        Ok((
+                            r.get::<_, String>(0)?,
+                            r.get::<_, Option<String>>(1)?,
+                            r.get::<_, String>(2)?,
+                            r.get::<_, String>(3)?,
+                        ))
+                    })?;
                     for link in links {
-                        let (source,target,key,title)=link?;
-                        scanned+=1;if scanned>LINK_SCAN_LIMIT {truncated=true;break;}
-                        if target.as_ref().is_some_and(|id|ids.contains(id.as_str())) || (target.is_none() && q.include_unresolved==Some(true)) {
-                            candidates+=1;if candidates>EDGE_LIMIT {truncated=true;break;}
+                        let (source, target, key, title) = link?;
+                        scanned += 1;
+                        if scanned > LINK_SCAN_LIMIT {
+                            truncated = true;
+                            break;
+                        }
+                        if target.as_ref().is_some_and(|id| ids.contains(id.as_str()))
+                            || (target.is_none() && q.include_unresolved == Some(true))
+                        {
+                            candidates += 1;
+                            if candidates > EDGE_LIMIT {
+                                truncated = true;
+                                break;
+                            }
                             match target {
-                                Some(target) if source!=target => {if seen.insert((source.clone(),target.clone())) {edges.push(GraphEdge{source,target});}},
-                                None => {if unresolved.len()>=UNRESOLVED_LIMIT && !unresolved.contains_key(&key) {truncated=true;continue;}unresolved.entry(key).or_insert_with(||(title,HashSet::new())).1.insert(source);},
-                                Some(_) => {},
+                                Some(target) if source != target => {
+                                    if seen.insert((source.clone(), target.clone())) {
+                                        edges.push(GraphEdge { source, target });
+                                    }
+                                }
+                                None => {
+                                    if unresolved.len() >= UNRESOLVED_LIMIT
+                                        && !unresolved.contains_key(&key)
+                                    {
+                                        truncated = true;
+                                        continue;
+                                    }
+                                    unresolved
+                                        .entry(key)
+                                        .or_insert_with(|| (title, HashSet::new()))
+                                        .1
+                                        .insert(source);
+                                }
+                                Some(_) => {}
                             }
                         }
                     }
-                    if scanned>LINK_SCAN_LIMIT || candidates>EDGE_LIMIT {break;}
+                    if scanned > LINK_SCAN_LIMIT || candidates > EDGE_LIMIT {
+                        break;
+                    }
                 }
             }
-            let mut tag_stmt=conn.prepare("SELECT t.name,t.color FROM note_tags nt JOIN tags t ON t.id=nt.tag_id WHERE nt.note_id=?1 ORDER BY t.name COLLATE NOCASE")?;
+            let mut tag_stmt = conn.prepare(
+                "SELECT t.name,t.color FROM note_tags nt JOIN tags t ON t.id=nt.tag_id \
+                 WHERE nt.note_id=?1 ORDER BY t.name COLLATE NOCASE",
+            )?;
             for node in &mut nodes {
-                node.tags=tag_stmt.query_map([&node.id],|r|Ok(GraphTag{name:r.get(0)?,color:r.get(1)?}))?.collect::<rusqlite::Result<Vec<_>>>()?;
+                node.tags = tag_stmt
+                    .query_map([&node.id], |r| {
+                        Ok(GraphTag {
+                            name: r.get(0)?,
+                            color: r.get(1)?,
+                        })
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
             }
-            let unresolved_count=unresolved.len();
-            for (key,(title,sources)) in unresolved {
-                let id=format!("unresolved:{key}");
-                for source in &sources {edges.push(GraphEdge{source:source.clone(),target:id.clone()});}
-                nodes.push(GraphNode{id,title,kind:"unresolved",degree:sources.len() as u64,in_degree:sources.len() as u64,out_degree:0,folder_id:None,folder_name:None,folder_color:None,tags:Vec::new()});
+            let unresolved_count = unresolved.len();
+            for (key, (title, sources)) in unresolved {
+                let id = format!("unresolved:{key}");
+                for source in &sources {
+                    edges.push(GraphEdge {
+                        source: source.clone(),
+                        target: id.clone(),
+                    });
+                }
+                nodes.push(GraphNode {
+                    id,
+                    title,
+                    kind: "unresolved",
+                    degree: sources.len() as u64,
+                    in_degree: sources.len() as u64,
+                    out_degree: 0,
+                    folder_id: None,
+                    folder_name: None,
+                    folder_color: None,
+                    tags: Vec::new(),
+                });
             }
-            let total_edges=edges.len();
-            Ok(GraphResponse{nodes,edges,meta:GraphMeta{mode:mode.to_owned(),center_id:if mode=="local" {q.center.as_ref().map(ToString::to_string)}else{None},depth,total_nodes:total+unresolved_count,total_edges,truncated,limit}})
+            let total_edges = edges.len();
+            Ok(GraphResponse {
+                nodes,
+                edges,
+                meta: GraphMeta {
+                    mode: mode.to_owned(),
+                    center_id: if mode == "local" {
+                        q.center.as_ref().map(ToString::to_string)
+                    } else {
+                        None
+                    },
+                    depth,
+                    total_nodes: total + unresolved_count,
+                    total_edges,
+                    truncated,
+                    limit,
+                },
+            })
         })
     }
 }

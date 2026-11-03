@@ -1,11 +1,18 @@
-import { APP_VERSION, GITHUB_PACKAGE_URL, GITHUB_REPOSITORY_URL } from '../../release'
+import {
+  APP_VERSION,
+  GITHUB_PACKAGE_URL,
+  GITHUB_REPOSITORY_URL,
+} from '../../release'
 import type { UpdateCheckResponse } from '@shared/types'
 import { isValidVersion } from '@shared/version'
 
 const UPDATE_FETCH_TIMEOUT_MS = 5_000
 const MAX_PACKAGE_RESPONSE_BYTES = 64 * 1024
 
-type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+type Fetcher = (
+  input: RequestInfo | URL,
+  init?: RequestInit,
+) => Promise<Response>
 type FetchResult =
   | { kind: 'version'; version: string }
   | { kind: 'failure'; reason: string; status?: number; detail?: string }
@@ -58,12 +65,14 @@ async function fetchRepositoryVersion(
   } catch (error) {
     return {
       kind: 'failure',
-      reason: error instanceof Error && error.name === 'TimeoutError'
-        ? 'timeout'
-        : 'fetch_error',
-      detail: error instanceof Error
-        ? `${error.name}: ${error.message}`.slice(0, 240)
-        : typeof error,
+      reason:
+        error instanceof Error && error.name === 'TimeoutError'
+          ? 'timeout'
+          : 'fetch_error',
+      detail:
+        error instanceof Error
+          ? `${error.name}: ${error.message}`.slice(0, 240)
+          : typeof error,
     }
   }
 
@@ -73,21 +82,28 @@ async function fetchRepositoryVersion(
   }
 
   const declaredLength = Number(response.headers.get('Content-Length'))
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_PACKAGE_RESPONSE_BYTES) {
+  if (
+    Number.isFinite(declaredLength) &&
+    declaredLength > MAX_PACKAGE_RESPONSE_BYTES
+  ) {
     await response.body?.cancel().catch(() => {})
     return { kind: 'failure', reason: 'response_too_large' }
   }
 
   let text: string | null
   try {
-    text = await readResponseTextWithinLimit(response, MAX_PACKAGE_RESPONSE_BYTES)
+    text = await readResponseTextWithinLimit(
+      response,
+      MAX_PACKAGE_RESPONSE_BYTES,
+    )
   } catch (error) {
     return {
       kind: 'failure',
       reason: 'body_read_error',
-      detail: error instanceof Error
-        ? `${error.name}: ${error.message}`.slice(0, 240)
-        : typeof error,
+      detail:
+        error instanceof Error
+          ? `${error.name}: ${error.message}`.slice(0, 240)
+          : typeof error,
     }
   }
   if (text === null) return { kind: 'failure', reason: 'response_too_large' }

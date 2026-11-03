@@ -66,7 +66,41 @@ pub struct Sync {
 }
 
 fn defaults() -> Value {
-    json!({"appearance":{"language":"zh-CN","theme":"system","accent":"cinnabar","background":"paper","density":"comfortable","proseFont":"sans","proseSize":16,"proseWidth":"normal","proseLineHeight":1.65},"editor":{"fontSize":15,"fontFamily":"mono","lineNumbers":false,"typewriter":false,"focusMode":false,"spellcheck":false,"showToolbar":true,"tabSize":2,"autoSaveDelay":500},"preview":{"layout":"live","syncScroll":true,"showToc":true,"math":true,"mermaid":true,"codeBlockCollapse":true,"codeBlockCollapseLines":24},"backup":{"schedule":"sixHourly"},"sync":{"realtime":true,"pollIntervalMs":15000}})
+    json!({
+        "appearance": {
+            "language": "zh-CN",
+            "theme": "system",
+            "accent": "cinnabar",
+            "background": "paper",
+            "density": "comfortable",
+            "proseFont": "sans",
+            "proseSize": 16,
+            "proseWidth": "normal",
+            "proseLineHeight": 1.65
+        },
+        "editor": {
+            "fontSize": 15,
+            "fontFamily": "mono",
+            "lineNumbers": false,
+            "typewriter": false,
+            "focusMode": false,
+            "spellcheck": false,
+            "showToolbar": true,
+            "tabSize": 2,
+            "autoSaveDelay": 500
+        },
+        "preview": {
+            "layout": "live",
+            "syncScroll": true,
+            "showToc": true,
+            "math": true,
+            "mermaid": true,
+            "codeBlockCollapse": true,
+            "codeBlockCollapseLines": 24
+        },
+        "backup": { "schedule": "sixHourly" },
+        "sync": { "realtime": true, "pollIntervalMs": 15000 }
+    })
 }
 fn load(conn: &rusqlite::Connection) -> Result<UserSettings, Error> {
     let mut base = defaults();
@@ -164,13 +198,47 @@ impl Library {
         let parts = patch
             .as_object()
             .ok_or(Error::invalid("settings", "expected object"))?;
-        self.write(origin,|w|{
-            let mut current=load(&w.tx)?;
-            let mut base=serde_json::to_value(&current).map_err(|_|Error::invalid("settings","cannot encode settings"))?;
-            for (key,value) in parts {let obj=value.as_object().ok_or(Error::invalid("settings","partition must be object"))?;let target=base.get_mut(key).and_then(Value::as_object_mut).ok_or(Error::invalid("settings","unknown partition"))?;for (field,v) in obj {if !target.contains_key(field){return Err(Error::invalid("settings","unknown field"));}target.insert(field.clone(),v.clone());}}
-            current=serde_json::from_value(base).map_err(|_|Error::invalid("settings","invalid patch value"))?;validate(&current)?;
-            for key in parts.keys(){let value=serde_json::to_value(&current).map_err(|_|Error::invalid("settings","encode failed"))?[key].to_string();w.tx.execute("INSERT INTO prefs(key,value,updated_at) VALUES(?1,?2,?3) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",params![key,value,w.now.get()])?;}
-            if !parts.is_empty(){w.changes.settings_changed=true;w.tx.execute("INSERT INTO changes(entity,entity_id,op,at) VALUES('settings','user','upsert',?1)",[w.now.get()])?;}
+        self.write(origin, |w| {
+            let mut current = load(&w.tx)?;
+            let mut base = serde_json::to_value(&current)
+                .map_err(|_| Error::invalid("settings", "cannot encode settings"))?;
+            for (key, value) in parts {
+                let obj = value
+                    .as_object()
+                    .ok_or(Error::invalid("settings", "partition must be object"))?;
+                let target = base
+                    .get_mut(key)
+                    .and_then(Value::as_object_mut)
+                    .ok_or(Error::invalid("settings", "unknown partition"))?;
+                for (field, value) in obj {
+                    if !target.contains_key(field) {
+                        return Err(Error::invalid("settings", "unknown field"));
+                    }
+                    target.insert(field.clone(), value.clone());
+                }
+            }
+            current = serde_json::from_value(base)
+                .map_err(|_| Error::invalid("settings", "invalid patch value"))?;
+            validate(&current)?;
+            for key in parts.keys() {
+                let value = serde_json::to_value(&current)
+                    .map_err(|_| Error::invalid("settings", "encode failed"))?[key]
+                    .to_string();
+                w.tx.execute(
+                    "INSERT INTO prefs(key,value,updated_at) VALUES(?1,?2,?3) \
+                     ON CONFLICT(key) DO UPDATE SET value=excluded.value,\
+                     updated_at=excluded.updated_at",
+                    params![key, value, w.now.get()],
+                )?;
+            }
+            if !parts.is_empty() {
+                w.changes.settings_changed = true;
+                w.tx.execute(
+                    "INSERT INTO changes(entity,entity_id,op,at) \
+                     VALUES('settings','user','upsert',?1)",
+                    [w.now.get()],
+                )?;
+            }
             Ok(current)
         })
     }
@@ -193,15 +261,20 @@ impl Library {
         ];
         self.read(|conn| {
             let values = conn.query_row(
-                "SELECT COUNT(CASE WHEN deleted_at IS NULL THEN 1 END), COUNT(deleted_at),
-                   (SELECT COUNT(*) FROM folders WHERE deleted_at IS NULL), (SELECT COUNT(*) FROM tags),
-                   (SELECT COUNT(*) FROM attachments), (SELECT COALESCE(SUM(size),0) FROM attachments),
-                   COALESCE(SUM(CASE WHEN deleted_at IS NULL THEN char_count ELSE 0 END),0),
-                   COALESCE(SUM(CASE WHEN deleted_at IS NULL THEN word_count ELSE 0 END),0),
-                   (SELECT COUNT(*) FROM note_versions), (SELECT COUNT(*) FROM links)
+                "SELECT COUNT(CASE WHEN deleted_at IS NULL THEN 1 END), COUNT(deleted_at), \
+                   (SELECT COUNT(*) FROM folders WHERE deleted_at IS NULL), \
+                   (SELECT COUNT(*) FROM tags), (SELECT COUNT(*) FROM attachments), \
+                   (SELECT COALESCE(SUM(size),0) FROM attachments), \
+                   COALESCE(SUM(CASE WHEN deleted_at IS NULL THEN char_count ELSE 0 END),0), \
+                   COALESCE(SUM(CASE WHEN deleted_at IS NULL THEN word_count ELSE 0 END),0), \
+                   (SELECT COUNT(*) FROM note_versions), (SELECT COUNT(*) FROM links) \
                  FROM notes",
                 [],
-                |r| (0..10).map(|i| r.get::<_, i64>(i)).collect::<rusqlite::Result<Vec<_>>>(),
+                |r| {
+                    (0..10)
+                        .map(|i| r.get::<_, i64>(i))
+                        .collect::<rusqlite::Result<Vec<_>>>()
+                },
             )?;
             Ok(KEYS.into_iter().zip(values).collect())
         })
@@ -291,7 +364,9 @@ impl Library {
             .map_err(|_| Error::invalid("profile", "cannot encode profile"))?;
         self.write(WriteOrigin::Ui, |w| {
             w.tx.execute(
-                "INSERT INTO prefs(key,value,updated_at) VALUES('profile',?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",
+                "INSERT INTO prefs(key,value,updated_at) VALUES('profile',?1,?2) \
+                 ON CONFLICT(key) DO UPDATE SET \
+                 value=excluded.value,updated_at=excluded.updated_at",
                 params![value, w.now.get()],
             )?;
             Ok(())

@@ -11,7 +11,9 @@
   const i18n = getI18n()
   let prefs = $state<DesktopStatus>()
   let busy = $state(false)
-  let error = $state<'common.action_failed' | 'desktop.shortcutUnavailable' | null>(null)
+  let error = $state<
+    'common.action_failed' | 'desktop.shortcutUnavailable' | null
+  >(null)
   onMount(() => {
     let active = true
     void call('desktop_prefs_get', undefined)
@@ -39,7 +41,9 @@
       })
     } catch (cause) {
       error =
-        isBackendError(cause) && cause.code === 'conflict' ? 'desktop.shortcutUnavailable' : 'common.action_failed'
+        isBackendError(cause) && cause.code === 'conflict'
+          ? 'desktop.shortcutUnavailable'
+          : 'common.action_failed'
     } finally {
       busy = false
     }
@@ -49,7 +53,10 @@
 <div class="space-y-6">
   {#if prefs}
     <section>
-      <SettingRow title={i18n.t('desktop.closeToTray')} description={i18n.t('desktop.closeToTrayHint')}>
+      <SettingRow
+        title={i18n.t('desktop.closeToTray')}
+        description={i18n.t('desktop.closeToTrayHint')}
+      >
         <Switch
           id="close-to-tray"
           label={i18n.t('desktop.closeToTray')}
@@ -78,15 +85,28 @@
         />
       </SettingRow>
       <div class="flex justify-end pt-3">
-        <Button variant="primary" size="sm" loading={busy} onclick={() => void save()}>{i18n.t('common.save')}</Button>
+        <Button
+          variant="primary"
+          size="sm"
+          loading={busy}
+          onclick={() => void save()}>{i18n.t('common.save')}</Button
+        >
       </div>
-      {#if !prefs.trayAvailable}<p role="status" class="mt-2 text-[11.5px] text-[var(--text-tertiary)]">
+      {#if !prefs.trayAvailable}<p
+          role="status"
+          class="mt-2 text-[11.5px] text-[var(--text-tertiary)]"
+        >
           {i18n.t('desktop.trayUnavailable')}
         </p>{/if}
-      {#if !prefs.logAvailable}<p role="status" class="mt-2 text-[11.5px] text-[var(--text-tertiary)]">
+      {#if !prefs.logAvailable}<p
+          role="status"
+          class="mt-2 text-[11.5px] text-[var(--text-tertiary)]"
+        >
           {i18n.t('desktop.logUnavailable')}
         </p>{/if}
     </section>
   {/if}
-  {#if error}<p role="alert" class="text-[11.5px] text-[var(--danger)]">{i18n.t(error)}</p>{/if}
+  {#if error}<p role="alert" class="text-[11.5px] text-[var(--danger)]">
+      {i18n.t(error)}
+    </p>{/if}
 </div>

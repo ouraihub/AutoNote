@@ -1,5 +1,10 @@
 import type { Context } from 'hono'
-import { currentCursor, recordChange, type ChangeEntity, type ChangeOp } from '../db/writes'
+import {
+  currentCursor,
+  recordChange,
+  type ChangeEntity,
+  type ChangeOp,
+} from '../db/writes'
 import { drainFtsQueue, FTS_DRAIN_DELAY_MS } from '../db/fts'
 import { notifySyncHub } from '../realtime/sync-hub'
 import type { AppBindings } from '../env'
@@ -10,13 +15,14 @@ interface ScheduledFtsDrain {
   promise: Promise<void>
 }
 
-const scheduledFtsDrains = new WeakMap<D1Database, Map<string, ScheduledFtsDrain>>()
-
+const scheduledFtsDrains = new WeakMap<
+  D1Database,
+  Map<string, ScheduledFtsDrain>
+>()
 
 export function originOf(c: Context<AppBindings>): string | null {
   return c.req.header('X-AutoNote-Origin')?.slice(0, 128) || null
 }
-
 
 export async function commitChange(
   c: Context<AppBindings>,
@@ -26,22 +32,19 @@ export async function commitChange(
 ): Promise<number> {
   const userId = c.get('userId')
   const cursor = await recordChange(c.env.DB, userId, entity, entityId, op)
-  c.executionCtx?.waitUntil(notifySyncHub(c.env.SYNC_HUB, userId, cursor, originOf(c)))
+  c.executionCtx?.waitUntil(
+    notifySyncHub(c.env.SYNC_HUB, userId, cursor, originOf(c)),
+  )
   return cursor
 }
-
 
 export async function broadcastCursor(
   c: Context<AppBindings>,
   knownCursor?: number,
 ): Promise<number> {
   const userId = c.get('userId')
-  return broadcastUserCursor(
-    c.env,
-    userId,
-    originOf(c),
-    knownCursor,
-    (task) => c.executionCtx?.waitUntil(task),
+  return broadcastUserCursor(c.env, userId, originOf(c), knownCursor, (task) =>
+    c.executionCtx?.waitUntil(task),
   )
 }
 

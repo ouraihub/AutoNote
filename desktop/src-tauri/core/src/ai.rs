@@ -72,7 +72,9 @@ impl Library {
             .map_err(|_| Error::invalid("aiRoles", "cannot encode settings"))?;
         self.write(WriteOrigin::Ui, |w| {
             w.tx.execute(
-                "INSERT INTO prefs(key,value,updated_at) VALUES('aiRoles',?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",
+                "INSERT INTO prefs(key,value,updated_at) VALUES('aiRoles',?1,?2) \
+                 ON CONFLICT(key) DO UPDATE SET \
+                 value=excluded.value,updated_at=excluded.updated_at",
                 params![value, w.now.get()],
             )?;
             Ok(())

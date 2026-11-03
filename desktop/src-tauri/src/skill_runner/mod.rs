@@ -79,9 +79,20 @@ fn risk_language(
 }
 
 fn selection_choices(snapshots: &[Arc<Snapshot>]) -> Vec<serde_json::Value> {
-    snapshots.iter().flat_map(|skill| skill.scripts.iter().map(move |path| {
-        serde_json::json!({"properties":{"skillId":{"enum":[skill.id]},"revision":{"enum":[skill.revision]},"path":{"enum":[path]}}})
-    })).collect()
+    snapshots
+        .iter()
+        .flat_map(|skill| {
+            skill.scripts.iter().map(move |path| {
+                serde_json::json!({
+                    "properties": {
+                        "skillId": {"enum": [skill.id]},
+                        "revision": {"enum": [skill.revision]},
+                        "path": {"enum": [path]}
+                    }
+                })
+            })
+        })
+        .collect()
 }
 
 fn failure(code: &str, message: impl ToString, unknown: bool) -> ToolError {

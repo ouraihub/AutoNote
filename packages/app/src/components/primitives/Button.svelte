@@ -37,8 +37,10 @@
   disabled={disabled || loading}
   aria-busy={loading || undefined}
   class={cn(
-    'inline-flex shrink-0 items-center justify-center font-medium whitespace-nowrap select-none',
-    'transition-[background-color,border-color,color,box-shadow,transform] duration-[var(--dur-fast)] ease-[var(--ease-out)]',
+    'inline-flex shrink-0 items-center justify-center ' +
+      'font-medium whitespace-nowrap select-none',
+    'transition-[background-color,border-color,color,box-shadow,transform] ' +
+      'duration-[var(--dur-fast)] ease-[var(--ease-out)]',
     'active:translate-y-px disabled:pointer-events-none disabled:opacity-45',
     BUTTON_VARIANTS[variant],
     SIZES[size],
@@ -53,7 +55,14 @@
       fill="none"
       aria-hidden="true"
       class="shrink-0 animate-[ink-spin_0.7s_linear_infinite]"
-      ><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2.5" opacity="0.2" /><path
+      ><circle
+        cx="12"
+        cy="12"
+        r="9"
+        stroke="currentColor"
+        stroke-width="2.5"
+        opacity="0.2"
+      /><path
         d="M21 12a9 9 0 0 0-9-9"
         stroke="currentColor"
         stroke-width="2.5"

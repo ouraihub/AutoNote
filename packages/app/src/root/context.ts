@@ -24,4 +24,5 @@ export const [getSession, setSession] = createContext<SessionState>()
 export const [getSettings, setSettings] = createContext<SettingsState>()
 export const [getUi, setUi] = createContext<UiState>()
 export const [getOrganize, setOrganize] = createContext<OrganizeActions>()
-export const [getRegisterFlush, setRegisterFlush] = createContext<(flush: () => Promise<void>) => () => void>()
+export const [getRegisterFlush, setRegisterFlush] =
+  createContext<(flush: () => Promise<void>) => () => void>()

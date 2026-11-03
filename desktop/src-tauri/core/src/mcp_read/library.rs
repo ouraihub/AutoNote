@@ -24,7 +24,14 @@ pub(super) fn preview_tag(lib: &Library, args: &Value) -> Result<Value, crate::A
                 id: id.to_string(),
             })
         })?;
-    let affected=lib.read(|conn| Ok(conn.query_row("SELECT COUNT(*) FROM note_tags nt JOIN notes n ON n.id=nt.note_id WHERE nt.tag_id=?1 AND n.deleted_at IS NULL",[id.as_str()],|r|r.get::<_,i64>(0))?))?;
+    let affected = lib.read(|conn| {
+        Ok(conn.query_row(
+            "SELECT COUNT(*) FROM note_tags nt JOIN notes n ON n.id=nt.note_id \
+             WHERE nt.tag_id=?1 AND n.deleted_at IS NULL",
+            [id.as_str()],
+            |r| r.get::<_, i64>(0),
+        )?)
+    })?;
     Ok(json!({"tag":tag,"next_name":next,"affected_notes":affected,"risks":[]}))
 }
 pub(super) fn preview_folder(lib: &Library, args: &Value) -> Result<Value, crate::AppError> {
@@ -78,9 +85,15 @@ pub(super) fn attachment(lib: &Library, args: &Value) -> Result<Value, crate::Ap
     let (bytes, meta, hash) = lib.files_sync_source(&id)?;
     let end = (cursor + max).min(bytes.len());
     use base64::Engine;
-    Ok(
-        json!({"attachment_id":id,"filename":meta.filename,"mime":meta.mime,"size":bytes.len(),"data":base64::engine::general_purpose::STANDARD.encode(&bytes[cursor..end]),"next_cursor":(end<bytes.len()).then_some(end),"sha256":hash}),
-    )
+    Ok(json!({
+        "attachment_id": id,
+        "filename": meta.filename,
+        "mime": meta.mime,
+        "size": bytes.len(),
+        "data": base64::engine::general_purpose::STANDARD.encode(&bytes[cursor..end]),
+        "next_cursor": (end < bytes.len()).then_some(end),
+        "sha256": hash
+    }))
 }
 pub(super) fn properties(lib: &Library, args: &Value) -> Result<Value, crate::AppError> {
     let id = note_id(args)?;

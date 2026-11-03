@@ -420,8 +420,16 @@ mod tests {
                 ErrorCode::InvalidResponse
             );
         }
-        let scoped = SessionCookie::parse(&site, &login,
-            "autonote_session=secret; Domain=example.test; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=90", now).unwrap();
+        let scoped = SessionCookie::parse(
+            &site,
+            &login,
+            concat!(
+                "autonote_session=secret; Domain=example.test; ",
+                "Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=90"
+            ),
+            now,
+        )
+        .unwrap();
         assert!(
             scoped
                 .request_header(&site.as_url().join("api/auth/child").unwrap(), now)

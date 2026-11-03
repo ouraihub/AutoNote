@@ -23,7 +23,8 @@
     } catch (cause) {
       if (active) {
         error = true
-        errorMessage = cause instanceof Error ? cause.message : 'desktop startup failed'
+        errorMessage =
+          cause instanceof Error ? cause.message : 'desktop startup failed'
       }
     } finally {
       loading = false
@@ -44,9 +45,14 @@
 
 <div class="h-dvh min-h-0">
   <div bind:this={target} class="h-full min-h-0"></div>
-  {#if error}<section class="absolute inset-0 flex flex-col items-center justify-center gap-4" role="alert">
+  {#if error}<section
+      class="absolute inset-0 flex flex-col items-center justify-center gap-4"
+      role="alert"
+    >
       <p>{i18n.t('desktop.startupFailed')}</p>
       <code class="max-w-xl break-all text-xs opacity-70">{errorMessage}</code>
-      <Button disabled={loading} onclick={() => void start()}>{i18n.t('desktop.retry')}</Button>
+      <Button disabled={loading} onclick={() => void start()}
+        >{i18n.t('desktop.retry')}</Button
+      >
     </section>{/if}
 </div>

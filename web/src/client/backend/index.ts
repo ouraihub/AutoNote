@@ -14,7 +14,11 @@ import { DEFAULT_SETTINGS } from '@shared/constants'
 import type { UserSettings } from '@shared/types'
 import { createLocalDb, type KvStore } from '../local'
 import type { PageSignals, Timers } from '../platform'
-import { LeaseReplayLock, NavigatorReplayLock, type ReplayLock } from '../outbox'
+import {
+  LeaseReplayLock,
+  NavigatorReplayLock,
+  type ReplayLock,
+} from '../outbox'
 import { SyncPuller, SyncEngine, type SocketFactory } from '../sync'
 import { HttpTransport, type FetchLike } from './transport'
 import { BroadcastTabBus, type TabBus, type TabMessage } from './tab-bus'
@@ -100,22 +104,36 @@ export function createWebBackend(deps: WebBackendDeps): Backend {
         count: 1,
       }),
     onMigrationFailure: () =>
-      deps.logger.error('local.migration.failed', { keyKind: 'user', code: 'internal', count: 1 }),
+      deps.logger.error('local.migration.failed', {
+        keyKind: 'user',
+        code: 'internal',
+        count: 1,
+      }),
   })
   const lock =
     deps.lock ??
-    new NavigatorReplayLock(new LeaseReplayLock(deps.kv, localDb, deps.clock), () => localDb.activeUserId())
+    new NavigatorReplayLock(
+      new LeaseReplayLock(deps.kv, localDb, deps.clock),
+      () => localDb.activeUserId(),
+    )
   let accountController = new AbortController()
   const transport = new HttpTransport({
     ...deps,
     bus,
     captureCurrent: () => {
       const epoch = accountController
-      return () => accountController === epoch && !epoch.signal.aborted && !lifetime.signal.aborted
+      return () =>
+        accountController === epoch &&
+        !epoch.signal.aborted &&
+        !lifetime.signal.aborted
     },
     fetch: async (request) => {
       const epoch = accountController
-      const signal = AbortSignal.any([request.signal, lifetime.signal, epoch.signal])
+      const signal = AbortSignal.any([
+        request.signal,
+        lifetime.signal,
+        epoch.signal,
+      ])
       const response = await deps.fetch(new Request(request, { signal }))
       if (signal.aborted || accountController !== epoch)
         throw new BackendError('cancelled', 0, 'Account request superseded')
@@ -134,13 +152,18 @@ export function createWebBackend(deps: WebBackendDeps): Backend {
     changes.emit(event)
     if (
       event.kind === 'sync' &&
-      (event.payload.settingsChanged || event.payload.profileChanged || event.payload.siteChanged)
+      (event.payload.settingsChanged ||
+        event.payload.profileChanged ||
+        event.payload.siteChanged)
     )
       changes.emit({ kind: 'settings' })
   }
   const adoptSettings = (value: UserSettings): void => {
     settings = value
-    engine?.updateConfig(siteRealtime && value.sync.realtime, value.sync.pollIntervalMs)
+    engine?.updateConfig(
+      siteRealtime && value.sync.realtime,
+      value.sync.pollIntervalMs,
+    )
   }
   const adoptSession = (value: BackendSession): BackendSession => {
     if (disposed) throw new BackendError('cancelled', 0, 'Backend disposed')
@@ -184,7 +207,8 @@ export function createWebBackend(deps: WebBackendDeps): Backend {
           getAutoSaveDelay: () => settings.editor.autoSaveDelay,
           onUnauthenticated,
           requestPull: (force) => {
-            if (owner === next && notes === port) void engine?.pullNow({ force }).catch(() => undefined)
+            if (owner === next && notes === port)
+              void engine?.pullNow({ force }).catch(() => undefined)
           },
         })
         engine = new SyncEngine({
@@ -200,7 +224,8 @@ export function createWebBackend(deps: WebBackendDeps): Backend {
         const snapshot = port.snapshot.bind(port)
         port.snapshot = async (options?: CallOptions) => {
           const result = await snapshot(options)
-          if (notes === port && !options?.signal?.aborted && !disposed) sync.start(result.cursor)
+          if (notes === port && !options?.signal?.aborted && !disposed)
+            sync.start(result.cursor)
           return result
         }
       }
@@ -226,7 +251,12 @@ export function createWebBackend(deps: WebBackendDeps): Backend {
   })
   const account = sessionPort.account
   const requireNotes = (): HttpNotesPort => {
-    if (!notes || disposed) throw new BackendError(disposed ? 'cancelled' : 'unauthenticated', 401, 'No active session')
+    if (!notes || disposed)
+      throw new BackendError(
+        disposed ? 'cancelled' : 'unauthenticated',
+        401,
+        'No active session',
+      )
     return notes
   }
   const notesPort: NotesPort = {
@@ -238,13 +268,17 @@ export function createWebBackend(deps: WebBackendDeps): Backend {
     remove: (id, options) => requireNotes().remove(id, options),
     restore: (id, options) => requireNotes().restore(id, options),
     purge: (id, options) => requireNotes().purge(id, options),
-    duplicate: (id, body, options) => requireNotes().duplicate(id, body, options),
+    duplicate: (id, body, options) =>
+      requireNotes().duplicate(id, body, options),
     emptyTrash: (options) => requireNotes().emptyTrash(options),
     versions: (id, options) => requireNotes().versions(id, options),
-    version: (id, versionId, options) => requireNotes().version(id, versionId, options),
-    restoreVersion: (id, versionId, options) => requireNotes().restoreVersion(id, versionId, options),
+    version: (id, versionId, options) =>
+      requireNotes().version(id, versionId, options),
+    restoreVersion: (id, versionId, options) =>
+      requireNotes().restoreVersion(id, versionId, options),
     backlinks: (id, options) => requireNotes().backlinks(id, options),
-    flush: async (id, options) => (notes ? notes.flush(id, options) : { pending: 0, failed: 0 }),
+    flush: async (id, options) =>
+      notes ? notes.flush(id, options) : { pending: 0, failed: 0 },
     syncNow: (options) => requireNotes().syncNow(options),
   }
   const assertAllSaved = async (options?: CallOptions): Promise<void> => {
@@ -253,7 +287,11 @@ export function createWebBackend(deps: WebBackendDeps): Backend {
     if (result.pending || result.failed || journal.length)
       throw new BackendError('conflict', 409, 'Local changes are still pending')
   }
-  const settingsPort = new HttpSettingsPort({ transport, bus, clientId: deps.clientId })
+  const settingsPort = new HttpSettingsPort({
+    transport,
+    bus,
+    clientId: deps.clientId,
+  })
   return {
     kind: 'web',
     capabilities: {
@@ -288,10 +326,13 @@ export function createWebBackend(deps: WebBackendDeps): Backend {
       },
       account: {
         totp: account.totp,
-        register: async (...args) => adoptSession(await account.register(...args)),
+        register: async (...args) =>
+          adoptSession(await account.register(...args)),
         login: async (...args) => {
           const value = await account.login(...args)
-          return 'twoFactorRequired' in value ? value : (adoptSession(value as BackendSession) as PasswordLoginResult)
+          return 'twoFactorRequired' in value
+            ? value
+            : (adoptSession(value as BackendSession) as PasswordLoginResult)
         },
         completeTotpLogin: async (...args) => {
           const value = await account.completeTotpLogin(...args)
@@ -334,8 +375,15 @@ export function createWebBackend(deps: WebBackendDeps): Backend {
     }),
     tags: new HttpTagsPort({ transport, beforeTextChange: assertAllSaved }),
     search: new HttpSearchPort({ transport }),
-    files: new HttpFilesPort({ transport, ...(deps.resolveFileUrl ? { resolveFileUrl: deps.resolveFileUrl } : {}) }),
-    transfer: new HttpTransferPort({ transport, logger: deps.logger, clock: deps.clock }),
+    files: new HttpFilesPort({
+      transport,
+      ...(deps.resolveFileUrl ? { resolveFileUrl: deps.resolveFileUrl } : {}),
+    }),
+    transfer: new HttpTransferPort({
+      transport,
+      logger: deps.logger,
+      clock: deps.clock,
+    }),
     aiHost: createHttpAiHostPort(transport, deps.logger),
     share: new HttpSharePort({ transport }),
     backup: new HttpBackupPort({ transport }),

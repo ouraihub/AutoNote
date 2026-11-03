@@ -35,18 +35,23 @@ class FailingStorage implements StorageLike {
 }
 
 describe('Web platform boundaries', () => {
-  test('persists preferences under a dedicated non-content namespace', async () => {
-    const storage = new MemoryStorage()
-    const prefs = new WebPrefsStore(storage)
+  test(
+    'persists preferences under a dedicated non-content ' + 'namespace',
+    async () => {
+      const storage = new MemoryStorage()
+      const prefs = new WebPrefsStore(storage)
 
-    await prefs.save('layout', 'split')
+      await prefs.save('layout', 'split')
 
-    expect(await prefs.load('layout')).toBe('split')
-    await prefs.remove('layout')
-    expect(await prefs.load('layout')).toBeUndefined()
-  })
+      expect(await prefs.load('layout')).toBe('split')
+      await prefs.remove('layout')
+      expect(await prefs.load('layout')).toBeUndefined()
+    },
+  )
 
-  test('turns blocked browser storage into a structured safe error', async () => {
+  test(
+    'turns blocked browser storage into a structured safe error',
+    async () => {
     const prefs = new WebPrefsStore(new FailingStorage())
 
     await expect(prefs.load('layout')).rejects.toSatisfy((error: unknown) => {
@@ -70,14 +75,20 @@ describe('Web platform boundaries', () => {
 
   test('keeps the latest 200 safe log entries and excludes secrets', () => {
     const entries: unknown[] = []
-    const logger = new ConsoleRingLogger({ console: fakeConsole(entries), clock: () => 42 })
+    const logger = new ConsoleRingLogger({
+      console: fakeConsole(entries),
+      clock: () => 42,
+    })
 
-    for (let index = 0; index < 201; index += 1) logger.info('host.lifecycle.started', { index })
+    for (let index = 0; index < 201; index += 1)
+      logger.info('host.lifecycle.started', { index })
     logger.error('host.lifecycle.failed', { token: 'not-safe' })
 
     expect(logger.entries()).toHaveLength(200)
     expect(logger.entries()[0]?.fields).toEqual({ index: 1 })
-    expect(logger.entries().some((entry) => entry.event === 'host.lifecycle.failed')).toBe(false)
+    expect(
+      logger.entries().some((entry) => entry.event === 'host.lifecycle.failed'),
+    ).toBe(false)
   })
 })
 

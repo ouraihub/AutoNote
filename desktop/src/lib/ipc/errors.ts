@@ -9,7 +9,12 @@ export function cancelled(): BackendError {
 }
 export function ipcError(error: unknown): BackendError {
   if (error instanceof BackendError) return error
-  if (!error || typeof error !== 'object' || !('code' in error) || !isErrorCode(error.code))
+  if (
+    !error ||
+    typeof error !== 'object' ||
+    !('code' in error) ||
+    !isErrorCode(error.code)
+  )
     return new BackendError('internal', 500, 'Desktop operation failed')
   const statuses: Partial<Record<typeof error.code, number>> = {
     bad_request: 400,
@@ -26,6 +31,14 @@ export function ipcError(error: unknown): BackendError {
     invalid_response: 502,
   }
   const status = statuses[error.code] ?? 500
-  const safe = backendErrorFromPayload({ error }, { code: 'internal', status, message: 'Desktop operation failed' })
-  return new BackendError(safe.code, status, `Desktop operation failed (${safe.code})`, safe.details)
+  const safe = backendErrorFromPayload(
+    { error },
+    { code: 'internal', status, message: 'Desktop operation failed' },
+  )
+  return new BackendError(
+    safe.code,
+    status,
+    `Desktop operation failed (${safe.code})`,
+    safe.details,
+  )
 }

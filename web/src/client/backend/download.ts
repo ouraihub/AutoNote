@@ -5,8 +5,13 @@ type SavePicker = (options: { suggestedName: string }) => Promise<SaveHandle>
 const saveFilePicker =
   typeof window === 'undefined'
     ? undefined
-    : (window as Window & { showSaveFilePicker?: SavePicker }).showSaveFilePicker
-export async function saveDownload(response: Response, fallbackName: string, signal?: AbortSignal): Promise<boolean> {
+    : (window as Window & { showSaveFilePicker?: SavePicker })
+        .showSaveFilePicker
+export async function saveDownload(
+  response: Response,
+  fallbackName: string,
+  signal?: AbortSignal,
+): Promise<boolean> {
   if (signal?.aborted) return false
   const disposition = response.headers.get('Content-Disposition')
   const match = disposition?.match(/filename="?([^";]+)"?/i)
@@ -19,7 +24,11 @@ export async function saveDownload(response: Response, fallbackName: string, sig
       await response.body.pipeTo(writable, { ...(signal ? { signal } : {}) })
       return !signal?.aborted
     } catch (error) {
-      if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) return false
+      if (
+        signal?.aborted ||
+        (error instanceof DOMException && error.name === 'AbortError')
+      )
+        return false
       throw error
     }
   }

@@ -1,4 +1,9 @@
-export { relayError, type RelayKey, type RelayModel, type RelayRepo } from './relay/shared'
+export {
+  relayError,
+  type RelayKey,
+  type RelayModel,
+  type RelayRepo,
+} from './relay/shared'
 export {
   addRelayRepo,
   createRelayKey,

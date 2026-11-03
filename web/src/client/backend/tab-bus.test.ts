@@ -1,5 +1,9 @@
 import { expect, test } from 'vitest'
-import { BroadcastTabBus, createMemoryTabBusChannel, MemoryTabBus } from './tab-bus'
+import {
+  BroadcastTabBus,
+  createMemoryTabBusChannel,
+  MemoryTabBus,
+} from './tab-bus'
 test('BroadcastTabBus 可注入 channel 并过滤伪造消息', () => {
   let handler: ((event: MessageEvent<unknown>) => void) | null = null
   let posted: unknown
@@ -21,15 +25,32 @@ test('BroadcastTabBus 可注入 channel 并过滤伪造消息', () => {
   const received: unknown[] = []
   bus.subscribe((message) => received.push(message))
   bus.post({ type: 'profile-changed', clientId: 'client-a' })
-  expect(posted).toEqual({ type: 'profile-changed', clientId: 'client-a', userId: 'user-a' })
+  expect(posted).toEqual({
+    type: 'profile-changed',
+    clientId: 'client-a',
+    userId: 'user-a',
+  })
   const dispatch = handler as ((event: MessageEvent<unknown>) => void) | null
-  dispatch?.({ data: { type: 'profile-changed', clientId: 'other', userId: 'user-b' } } as MessageEvent<unknown>)
   dispatch?.({
-    data: { type: 'claim-leader', clientId: 'fake', at: 'invalid', userId: 'user-a' },
+    data: { type: 'profile-changed', clientId: 'other', userId: 'user-b' },
   } as MessageEvent<unknown>)
-  dispatch?.({ data: { type: 'unknown', clientId: 'fake', userId: 'user-a' } } as MessageEvent<unknown>)
-  dispatch?.({ data: { type: 'profile-changed', clientId: 'same', userId: 'user-a' } } as MessageEvent<unknown>)
-  expect(received).toEqual([{ type: 'profile-changed', clientId: 'same', userId: 'user-a' }])
+  dispatch?.({
+    data: {
+      type: 'claim-leader',
+      clientId: 'fake',
+      at: 'invalid',
+      userId: 'user-a',
+    },
+  } as MessageEvent<unknown>)
+  dispatch?.({
+    data: { type: 'unknown', clientId: 'fake', userId: 'user-a' },
+  } as MessageEvent<unknown>)
+  dispatch?.({
+    data: { type: 'profile-changed', clientId: 'same', userId: 'user-a' },
+  } as MessageEvent<unknown>)
+  expect(received).toEqual([
+    { type: 'profile-changed', clientId: 'same', userId: 'user-a' },
+  ])
   bus.close()
   expect(closed).toBe(true)
 })
@@ -43,7 +64,9 @@ test('MemoryTabBus 只投递同用户并支持取消订阅和关闭', () => {
   const unsubscribe = second.subscribe((message) => received.push(message))
   first.post({ type: 'settings-changed', clientId: 'first' })
   other.post({ type: 'settings-changed', clientId: 'other' })
-  expect(received).toEqual([{ type: 'settings-changed', clientId: 'first', userId: 'user-a' }])
+  expect(received).toEqual([
+    { type: 'settings-changed', clientId: 'first', userId: 'user-a' },
+  ])
   unsubscribe()
   first.post({ type: 'settings-changed', clientId: 'again' })
   expect(received).toHaveLength(1)

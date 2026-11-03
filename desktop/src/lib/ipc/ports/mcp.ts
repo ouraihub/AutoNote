@@ -14,13 +14,20 @@ export class IpcMcpPort implements LocalMcpPort {
     if (this.#disposed) release()
     else this.#release = release
   }
-  status: LocalMcpPort['status'] = (options) => this.transport.invoke('mcp_status', undefined, options)
-  start: LocalMcpPort['start'] = (options) => this.transport.invoke('mcp_start', undefined, options)
-  stop: LocalMcpPort['stop'] = (options) => this.transport.invoke('mcp_stop', undefined, options)
-  setPort: LocalMcpPort['setPort'] = (port, options) => this.transport.invoke('mcp_set_port', { port }, options)
-  listKeys: LocalMcpPort['listKeys'] = (options) => this.transport.invoke('mcp_list_keys', undefined, options)
-  createKey: LocalMcpPort['createKey'] = (name, options) => this.transport.invoke('mcp_create_key', { name }, options)
-  revokeKey: LocalMcpPort['revokeKey'] = (id, options) => this.transport.invoke('mcp_revoke_key', { id }, options)
+  status: LocalMcpPort['status'] = (options) =>
+    this.transport.invoke('mcp_status', undefined, options)
+  start: LocalMcpPort['start'] = (options) =>
+    this.transport.invoke('mcp_start', undefined, options)
+  stop: LocalMcpPort['stop'] = (options) =>
+    this.transport.invoke('mcp_stop', undefined, options)
+  setPort: LocalMcpPort['setPort'] = (port, options) =>
+    this.transport.invoke('mcp_set_port', { port }, options)
+  listKeys: LocalMcpPort['listKeys'] = (options) =>
+    this.transport.invoke('mcp_list_keys', undefined, options)
+  createKey: LocalMcpPort['createKey'] = (name, options) =>
+    this.transport.invoke('mcp_create_key', { name }, options)
+  revokeKey: LocalMcpPort['revokeKey'] = (id, options) =>
+    this.transport.invoke('mcp_revoke_key', { id }, options)
   getPreferences: LocalMcpPort['getPreferences'] = (options) =>
     this.transport.invoke('mcp_get_preferences', undefined, options)
   savePreferences: LocalMcpPort['savePreferences'] = (patch, options) =>

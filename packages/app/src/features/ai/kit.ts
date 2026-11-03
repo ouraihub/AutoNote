@@ -6,8 +6,16 @@ import type { Logger } from '../../log/logger'
 import type { Notifier } from '../../platform/notifier'
 import type { MessageKey } from '@shared/locales/en-US'
 
-export function provideKitContext(aiHost: AiHostPort, app: I18nState, notifier: Notifier, logger: Logger): void {
-  const translate = { 'en-US': createI18n('en-US').t, 'zh-CN': createI18n('zh-CN').t }
+export function provideKitContext(
+  aiHost: AiHostPort,
+  app: I18nState,
+  notifier: Notifier,
+  logger: Logger,
+): void {
+  const translate = {
+    'en-US': createI18n('en-US').t,
+    'zh-CN': createI18n('zh-CN').t,
+  }
   setKitContext({
     ports: aiHost.kit,
     i18n: {
@@ -17,7 +25,8 @@ export function provideKitContext(aiHost: AiHostPort, app: I18nState, notifier: 
       t: (key, params) => translate[app.locale](key, params),
     },
     notify: {
-      toast: (kind, text) => notifier.toast({ key: 'ai.kit_message', params: { text }, tone: kind }),
+      toast: (kind, text) =>
+        notifier.toast({ key: 'ai.kit_message', params: { text }, tone: kind }),
       confirm: ({ title, body, danger }) =>
         notifier.confirm({
           titleKey: 'ai.kit_confirm_title',

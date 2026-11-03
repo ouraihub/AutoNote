@@ -23,9 +23,11 @@ fn fixture(source: &str) -> (tempfile::TempDir, PathBuf, Arguments) {
 
 #[tokio::test]
 async fn actual_script_arguments_output_cap_and_filtered_environment() {
-    let (_dir, cwd, mut args) = fixture(
-        "console.log(JSON.stringify({arg:process.argv[2],cwd:process.cwd(),secret:process.env.OPENAI_API_KEY??null,hook:process.env.NODE_OPTIONS??null}));process.stderr.write('x'.repeat(100000));process.stdout.write('y'.repeat(100000));",
-    );
+    let (_dir, cwd, mut args) = fixture(concat!(
+        "console.log(JSON.stringify({arg:process.argv[2],cwd:process.cwd(),",
+        "secret:process.env.OPENAI_API_KEY??null,hook:process.env.NODE_OPTIONS??null}));",
+        "process.stderr.write('x'.repeat(100000));process.stdout.write('y'.repeat(100000));"
+    ));
     args.args = vec!["literal ; $HOME && no shell".into()];
     let result = run_script(&cwd, &args, &CancellationToken::new())
         .await
@@ -57,9 +59,17 @@ async fn actual_script_arguments_output_cap_and_filtered_environment() {
 }
 
 fn descendant_source(exit_root: bool) -> String {
-    let grandchild = "const c=require('node:child_process').spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore',windowsHide:true});process.send(c.pid);setInterval(()=>{},1000)";
+    let grandchild = concat!(
+        "const c=require('node:child_process').spawn(process.execPath,",
+        "['-e','setInterval(()=>{},1000)'],{stdio:'ignore',windowsHide:true});",
+        "process.send(c.pid);setInterval(()=>{},1000)"
+    );
     format!(
-        "const c=require('node:child_process').spawn(process.execPath,['-e',{}],{{stdio:['ignore','ignore','ignore','ipc'],windowsHide:true}});c.on('message',pid=>{{require('node:fs').writeFileSync('pid',String(pid));{}}});",
+        concat!(
+            "const c=require('node:child_process').spawn(process.execPath,['-e',{}],",
+            "{{stdio:['ignore','ignore','ignore','ipc'],windowsHide:true}});c.on('message',",
+            "pid=>{{require('node:fs').writeFileSync('pid',String(pid));{}}});"
+        ),
         serde_json::to_string(grandchild).unwrap(),
         if exit_root {
             "process.exit(0)"
@@ -199,9 +209,10 @@ async fn prelaunch_cancel_and_escape_do_not_execute() {
 
 #[tokio::test]
 async fn invalid_utf8_output_remains_within_byte_cap() {
-    let (_dir, cwd, args) = fixture(
-        "process.stdout.write(Buffer.alloc(100000,255));process.stderr.write(Buffer.alloc(100000,255));",
-    );
+    let (_dir, cwd, args) = fixture(concat!(
+        "process.stdout.write(Buffer.alloc(100000,255));",
+        "process.stderr.write(Buffer.alloc(100000,255));"
+    ));
     let result = run_script(&cwd, &args, &CancellationToken::new())
         .await
         .unwrap();

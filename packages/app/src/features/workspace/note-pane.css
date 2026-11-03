@@ -1,0 +1,42 @@
+.note-pane {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg-editor);
+}
+.note-pane.active {
+  box-shadow: inset 0 2px var(--accent);
+}
+.note-pane > .pane-content {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.note-pane .editor-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  flex-shrink: 0;
+}
+.note-pane .editor-side > .ink-editor {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+.note-pane .preview-side {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.note-pane .editor-side[hidden],
+.note-pane .preview-side[hidden] {
+  display: none;
+}

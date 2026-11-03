@@ -15,7 +15,12 @@
 
 <div class="download-page">
   <header>
-    <a class="brand" href="/" rel="external" aria-label={language.t('download.back_home')}>
+    <a
+      class="brand"
+      href="/"
+      rel="external"
+      aria-label={language.t('download.back_home')}
+    >
       <Logo size={24} /><span>{language.t('common.product_name')}</span>
     </a>
     <a href={releasesUrl} target="_blank" rel="noopener noreferrer">
@@ -33,36 +38,66 @@
       <div class="option">
         <h2>{language.t('download.setup_title')}</h2>
         <p>{language.t('download.setup_description')}</p>
-        <a class="download primary" href={`${releasesUrl}/download/AutoNote-windows-setup.exe`} rel="external">
-          <Download size={16} aria-hidden="true" />{language.t('download.setup_title')}
+        <a
+          class="download primary"
+          href={`${releasesUrl}/download/AutoNote-windows-setup.exe`}
+          rel="external"
+        >
+          <Download size={16} aria-hidden="true" />{language.t(
+            'download.setup_title',
+          )}
         </a>
       </div>
       <div class="option">
         <h2>{language.t('download.portable_title')}</h2>
         <p>{language.t('download.portable_description')}</p>
-        <a class="download" href={`${releasesUrl}/download/AutoNote-windows-portable.zip`} rel="external">
-          <Download size={16} aria-hidden="true" />{language.t('download.portable_title')}
+        <a
+          class="download"
+          href={`${releasesUrl}/download/AutoNote-windows-portable.zip`}
+          rel="external"
+        >
+          <Download size={16} aria-hidden="true" />{language.t(
+            'download.portable_title',
+          )}
         </a>
       </div>
       <div class="option">
         <h2>{language.t('download.macos_title')}</h2>
         <p>{language.t('download.macos_description')}</p>
-        <a class="download" href={`${releasesUrl}/download/AutoNote-macos-arm64.dmg`} rel="external">
-          <Download size={16} aria-hidden="true" />{language.t('download.macos_title')}
+        <a
+          class="download"
+          href={`${releasesUrl}/download/AutoNote-macos-arm64.dmg`}
+          rel="external"
+        >
+          <Download size={16} aria-hidden="true" />{language.t(
+            'download.macos_title',
+          )}
         </a>
       </div>
       <div class="option">
         <h2>{language.t('download.appimage_title')}</h2>
         <p>{language.t('download.appimage_description')}</p>
-        <a class="download" href={`${releasesUrl}/download/AutoNote-linux-x64.AppImage`} rel="external">
-          <Download size={16} aria-hidden="true" />{language.t('download.appimage_title')}
+        <a
+          class="download"
+          href={`${releasesUrl}/download/AutoNote-linux-x64.AppImage`}
+          rel="external"
+        >
+          <Download size={16} aria-hidden="true" />{language.t(
+            'download.appimage_title',
+          )}
         </a>
       </div>
       <div class="option">
         <h2>{language.t('download.deb_title')}</h2>
         <p>{language.t('download.deb_description')}</p>
-        <a class="download" href={`${releasesUrl}/download/AutoNote-linux-x64.deb`} rel="external">
-          <Download size={16} aria-hidden="true" />{language.t('download.deb_title')}
+        <a
+          class="download"
+          href={`${releasesUrl}/download/AutoNote-linux-x64.deb`}
+          rel="external"
+        >
+          <Download size={16} aria-hidden="true" />{language.t(
+            'download.deb_title',
+          )}
         </a>
       </div>
       <div class="notes">

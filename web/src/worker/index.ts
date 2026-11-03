@@ -20,56 +20,84 @@ export { CredentialVault } from './durable/credential-vault'
 // login fails even though the parameter is on the wire. Serve the metadata
 // without that flag to keep codex compatible; the standard RFC 9207 `iss`
 // parameter is still appended to callbacks for conforming clients.
-const OAUTH_AUTHORIZATION_SERVER_METADATA = '/.well-known/oauth-authorization-server'
+const OAUTH_AUTHORIZATION_SERVER_METADATA =
+  '/.well-known/oauth-authorization-server'
 
 export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(
+    request: Request,
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<Response> {
     const oauthRequest = await normalizeRepeatedOAuthResource(request)
     const provider = createOAuthProvider(oauthRequest, env)
-    if (new URL(oauthRequest.url).pathname === OAUTH_AUTHORIZATION_SERVER_METADATA) {
+    if (
+      new URL(oauthRequest.url).pathname === OAUTH_AUTHORIZATION_SERVER_METADATA
+    ) {
       return oauthMetadataWithoutIssParameter(provider, oauthRequest, env, ctx)
     }
     return provider.fetch(oauthRequest, env, ctx)
   },
 
-  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil((async () => {
-      await initializeDatabase(env)
-      await Promise.all([
-        runScheduledBackups(env),
-        runAttachmentCleanup(env),
-        purgeExpiredMcpOperations(env.DB),
-        purgeExpiredOperationalData(env.DB),
-        purgeRevokedMcpApiKeys(env.DB),
-        providerForScheduled(env).purgeExpiredData(env, { batchSize: 100 }),
-        drainAiIndexQueue(env, 300),
-        drainAllFtsQueues(env.DB),
-        purgeExpiredChatImages(env),
-        purgeRelayKeys(env.DB),
-      ])
-    })())
+  async scheduled(
+    _event: ScheduledController,
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<void> {
+    ctx.waitUntil(
+      (async () => {
+        await initializeDatabase(env)
+        await Promise.all([
+          runScheduledBackups(env),
+          runAttachmentCleanup(env),
+          purgeExpiredMcpOperations(env.DB),
+          purgeExpiredOperationalData(env.DB),
+          purgeRevokedMcpApiKeys(env.DB),
+          providerForScheduled(env).purgeExpiredData(env, { batchSize: 100 }),
+          drainAiIndexQueue(env, 300),
+          drainAllFtsQueues(env.DB),
+          purgeExpiredChatImages(env),
+          purgeRelayKeys(env.DB),
+        ])
+      })(),
+    )
   },
 } satisfies ExportedHandler<Env>
 
-async function normalizeRepeatedOAuthResource(request: Request): Promise<Request> {
+async function normalizeRepeatedOAuthResource(
+  request: Request,
+): Promise<Request> {
   const url = new URL(request.url)
   if (url.pathname === '/authorize') {
     const resources = url.searchParams.getAll('resource')
-    if (resources.length > 1 && resources.every((resource) => resource === resources[0])) {
+    if (
+      resources.length > 1 &&
+      resources.every((resource) => resource === resources[0])
+    ) {
       url.searchParams.delete('resource')
       url.searchParams.set('resource', resources[0]!)
       return new Request(url, request)
     }
     return request
   }
-  if (url.pathname !== '/oauth/token' || request.method !== 'POST' ||
-      !request.headers.get('Content-Type')?.toLowerCase().startsWith('application/x-www-form-urlencoded')) {
+  if (
+    url.pathname !== '/oauth/token' ||
+    request.method !== 'POST' ||
+    !request.headers
+      .get('Content-Type')
+      ?.toLowerCase()
+      .startsWith('application/x-www-form-urlencoded')
+  ) {
     return request
   }
   const body = await request.clone().text()
   const form = new URLSearchParams(body)
   const resources = form.getAll('resource')
-  if (resources.length < 2 || !resources.every((resource) => resource === resources[0])) return request
+  if (
+    resources.length < 2 ||
+    !resources.every((resource) => resource === resources[0])
+  )
+    return request
   form.delete('resource')
   form.set('resource', resources[0]!)
   const headers = new Headers(request.headers)

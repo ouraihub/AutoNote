@@ -20,7 +20,8 @@ export interface HotkeysOptions {
 }
 
 export const IS_MAC =
-  typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent)
+  typeof navigator !== 'undefined' &&
+  /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent)
 
 export function createHotkeys({ target }: HotkeysOptions): Hotkeys {
   const registry = new Map<string, Hotkey>()
@@ -32,7 +33,11 @@ export function createHotkeys({ target }: HotkeysOptions): Hotkeys {
     if (event.isComposing || event.repeat) return
     const inInput = isEditableTarget(event.target)
     for (const hotkey of registry.values()) {
-      if (!matchesHotkey(event, hotkey.combo) || (inInput && !hotkey.allowInInput)) continue
+      if (
+        !matchesHotkey(event, hotkey.combo) ||
+        (inInput && !hotkey.allowInInput)
+      )
+        continue
       event.preventDefault()
       event.stopPropagation()
       hotkey.handler(event)
@@ -100,14 +105,16 @@ export function matchesHotkey(event: KeyboardEvent, combo: string): boolean {
   const wantCtrl = parts.includes('ctrl')
   const expectedCtrl = wantCtrl || (!IS_MAC && wantMod)
   const expectedMeta = IS_MAC && wantMod
-  if (event.ctrlKey !== expectedCtrl || event.metaKey !== expectedMeta) return false
+  if (event.ctrlKey !== expectedCtrl || event.metaKey !== expectedMeta)
+    return false
   const symbolKey = key.length === 1 && !/[a-z0-9]/.test(key)
   if (!symbolKey && wantShift !== event.shiftKey) return false
   if (wantAlt !== event.altKey) return false
   const pressed = event.key.toLowerCase()
   if (pressed === key) return true
   if (key.length === 1 && event.code.toLowerCase() === `key${key}`) return true
-  if (key.length === 1 && event.code.toLowerCase() === `digit${key}`) return true
+  if (key.length === 1 && event.code.toLowerCase() === `digit${key}`)
+    return true
   return key === 'esc' && pressed === 'escape'
 }
 

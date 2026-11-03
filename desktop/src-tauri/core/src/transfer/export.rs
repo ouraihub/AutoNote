@@ -1,14 +1,16 @@
+mod helpers;
 use super::format::{self, AttachmentEntry, NoteEntry};
 use super::stage::Stage;
 use super::{
     AuthorizedOutput, CancellationToken, ExportFormat, ExportSummary, ProgressSink, TransferService,
 };
 use crate::{Error, ProgressPhase};
+use helpers::{LimitedWriter, copy, folder_path, write_records, write_rows, zip_error};
+pub(super) use helpers::{attachment_ids, hash_file, safe_segment, url_path};
 use rusqlite::{Connection, params};
 use serde_json::json;
-use sha2::{Digest, Sha256};
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::Write;
 
 pub(super) fn run(
     service: &TransferService,
@@ -26,7 +28,8 @@ pub(super) fn run(
     let reader = service.library.files.transfer_guard(|| {
         let reader = service.library.read(|conn| {
             if let Some(path) = conn.path().filter(|path| !path.is_empty()) {
-                let reader = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+                let reader =
+                    Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
                 reader.execute_batch("BEGIN; SELECT count(*) FROM notes;")?;
                 Ok(reader)
             } else {
@@ -38,28 +41,84 @@ pub(super) fn run(
                 Ok(reader)
             }
         })?;
-            let mut stmt=reader.prepare("SELECT DISTINCT a.id,a.filename,a.mime,a.size,a.sha256,a.created_at FROM attachments a JOIN notes n ON instr(n.content,'/api/files/'||a.id)>0 ORDER BY a.sha256,a.id")?;
-            for raw in stmt.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,u64::try_from(r.get::<_,i64>(3)?).map_err(|error| rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Integer, Box::new(error)))?,r.get::<_,String>(4)?,r.get::<_,i64>(5)?)))? {
-                cancel.check()?; let (id,filename,mime,size,hash,created_at)=raw?;
-                let path=format!("attachments/{hash}--{}",safe_segment(&filename));
-                let exists: bool=stage.db.query_row("SELECT EXISTS(SELECT 1 FROM attachments WHERE hash=?1)",[&hash],|r|r.get(0))?;
-                let entry=AttachmentEntry { path:path.clone(),filename,mime,size,sha256:hash.clone(),created_at }; entry.validate()?;
-                if !exists && matches!(format,ExportFormat::Zip) {
-                    let source = service.library.files.transfer_root().join(&id);
-                    if !std::fs::symlink_metadata(&source)?.file_type().is_file() { return Err(format::invalid()) }
-                    let object: String = stage.db.query_row("SELECT lower(hex(randomblob(16)))", [], |r| r.get(0))?;
-                    std::fs::hard_link(source, stage.object(&object))?;
-                    stage.db.execute("INSERT INTO entries VALUES(?1,?2,?3,?4)", params![path,object,Stage::sql_size(size)?,hash])?;
-                    stage.db.execute("INSERT INTO attachments VALUES(?1,?2)",params![hash,serde_json::to_string(&entry).map_err(|_|format::invalid())?])?;
+        let mut stmt = reader.prepare(
+            "SELECT DISTINCT a.id,a.filename,a.mime,a.size,a.sha256,a.created_at \
+                 FROM attachments a JOIN notes n ON instr(n.content,'/api/files/'||a.id)>0 \
+                 ORDER BY a.sha256,a.id",
+        )?;
+        for raw in stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                u64::try_from(r.get::<_, i64>(3)?).map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        3,
+                        rusqlite::types::Type::Integer,
+                        Box::new(error),
+                    )
+                })?,
+                r.get::<_, String>(4)?,
+                r.get::<_, i64>(5)?,
+            ))
+        })? {
+            cancel.check()?;
+            let (id, filename, mime, size, hash, created_at) = raw?;
+            let path = format!("attachments/{hash}--{}", safe_segment(&filename));
+            let exists: bool = stage.db.query_row(
+                "SELECT EXISTS(SELECT 1 FROM attachments WHERE hash=?1)",
+                [&hash],
+                |r| r.get(0),
+            )?;
+            let entry = AttachmentEntry {
+                path: path.clone(),
+                filename,
+                mime,
+                size,
+                sha256: hash.clone(),
+                created_at,
+            };
+            entry.validate()?;
+            if !exists && matches!(format, ExportFormat::Zip) {
+                let source = service.library.files.transfer_root().join(&id);
+                if !std::fs::symlink_metadata(&source)?.file_type().is_file() {
+                    return Err(format::invalid());
                 }
-                let canonical: String = if matches!(format, ExportFormat::Zip) {
-                    let raw: String = stage.db.query_row("SELECT data FROM attachments WHERE hash=?1", [&hash], |r| r.get(0))?;
-                    serde_json::from_str::<AttachmentEntry>(&raw).map_err(|_| format::invalid())?.path
-                } else { path };
-                stage.db.execute("INSERT INTO mappings VALUES(?1,?2)",params![id,canonical])?;
+                let object: String =
+                    stage
+                        .db
+                        .query_row("SELECT lower(hex(randomblob(16)))", [], |r| r.get(0))?;
+                std::fs::hard_link(source, stage.object(&object))?;
+                stage.db.execute(
+                    "INSERT INTO entries VALUES(?1,?2,?3,?4)",
+                    params![path, object, Stage::sql_size(size)?, hash],
+                )?;
+                stage.db.execute(
+                    "INSERT INTO attachments VALUES(?1,?2)",
+                    params![
+                        hash,
+                        serde_json::to_string(&entry).map_err(|_| format::invalid())?
+                    ],
+                )?;
             }
-            drop(stmt);
-            Ok(reader)
+            let canonical: String = if matches!(format, ExportFormat::Zip) {
+                let raw: String = stage.db.query_row(
+                    "SELECT data FROM attachments WHERE hash=?1",
+                    [&hash],
+                    |r| r.get(0),
+                )?;
+                serde_json::from_str::<AttachmentEntry>(&raw)
+                    .map_err(|_| format::invalid())?
+                    .path
+            } else {
+                path
+            };
+            stage
+                .db
+                .execute("INSERT INTO mappings VALUES(?1,?2)", params![id, canonical])?;
+        }
+        drop(stmt);
+        Ok(reader)
     })?;
     let mut snapshot = Connection::open(&snapshot_path)?;
     let backup = rusqlite::backup::Backup::new(&reader, &mut snapshot)?;
@@ -114,7 +173,12 @@ pub(super) fn run(
                 };
                 write!(
                     writer,
-                    "{{\"format\":\"autonote-export\",\"version\":1,\"exportedAt\":{now},\"user\":{{\"login\":\"local\",\"name\":\"\"}},\"folders\":["
+                    concat!(
+                        "{{\"format\":\"autonote-export\",\"version\":1,",
+                        "\"exportedAt\":{now},\"user\":{{\"login\":\"local\",",
+                        "\"name\":\"\"}},\"folders\":[",
+                    ),
+                    now = now
                 )?;
                 write_rows(
                     &snapshot,
@@ -128,7 +192,12 @@ pub(super) fn run(
                 writer.write_all(b"],\"tags\":[")?;
                 write_rows(
                     &snapshot,
-                    "SELECT t.id,t.name,t.color,t.created_at,(SELECT COUNT(*) FROM note_tags nt JOIN notes n ON n.id=nt.note_id WHERE nt.tag_id=t.id AND n.deleted_at IS NULL) FROM tags t ORDER BY t.id",
+                    concat!(
+                        "SELECT t.id,t.name,t.color,t.created_at,",
+                        "(SELECT COUNT(*) FROM note_tags nt JOIN notes n ON n.id=nt.note_id ",
+                        "WHERE nt.tag_id=t.id AND n.deleted_at IS NULL) ",
+                        "FROM tags t ORDER BY t.id",
+                    ),
                     crate::db::rows::tag,
                     &mut writer,
                 )?;
@@ -235,7 +304,14 @@ pub(super) fn run(
                 // records grow a whole-library Vec.
                 let manifest_path = stage.directory.path().join("manifest-output.json");
                 let mut manifest = File::create(&manifest_path)?;
-                let header = json!({"format":format::BACKUP_FORMAT,"version":3,"appVersion":env!("CARGO_PKG_VERSION"),"createdAt":date.format(&time::format_description::well_known::Rfc3339).map_err(|_|format::invalid())?,"snapshot":stamp});
+                let header = json!({
+                    "format": format::BACKUP_FORMAT,
+                    "version": 3,
+                    "appVersion": env!("CARGO_PKG_VERSION"),
+                    "createdAt": date.format(&time::format_description::well_known::Rfc3339)
+                        .map_err(|_| format::invalid())?,
+                    "snapshot": stamp,
+                });
                 let header = serde_json::to_string(&header).map_err(|_| format::invalid())?;
                 manifest.write_all(header.trim_end_matches('}').as_bytes())?;
                 manifest.write_all(b",\"notes\":[")?;
@@ -288,164 +364,4 @@ pub(super) fn run(
         output.remove(&partial)?;
     }
     result
-}
-fn write_rows<T: serde::Serialize>(
-    conn: &Connection,
-    sql: &str,
-    decode: fn(&rusqlite::Row<'_>) -> rusqlite::Result<T>,
-    out: &mut dyn Write,
-) -> Result<(), Error> {
-    let mut stmt = conn.prepare(sql)?;
-    let mut first = true;
-    for raw in stmt.query_map([], decode)? {
-        if !first {
-            out.write_all(b",")?;
-        }
-        first = false;
-        serde_json::to_writer(&mut *out, &raw?).map_err(|e| Error::Io(std::io::Error::other(e)))?;
-    }
-    Ok(())
-}
-fn write_records(
-    conn: &Connection,
-    table: &str,
-    out: &mut dyn Write,
-    cancel: &CancellationToken,
-) -> Result<(), Error> {
-    let mut stmt = conn.prepare(&format!("SELECT data FROM {table} ORDER BY rowid"))?;
-    let mut first = true;
-    for raw in stmt.query_map([], |r| r.get::<_, String>(0))? {
-        cancel.check()?;
-        if !first {
-            out.write_all(b",")?;
-        }
-        first = false;
-        out.write_all(raw?.as_bytes())?;
-    }
-    Ok(())
-}
-fn folder_path(conn: &Connection, id: Option<&str>) -> Result<Vec<String>, Error> {
-    let mut folder = Vec::new();
-    let mut current = id.map(str::to_owned);
-    while let Some(id) = current {
-        if folder.len() >= 12 {
-            return Err(format::invalid());
-        }
-        let (name, parent): (String, Option<String>) = conn.query_row(
-            "SELECT name,parent_id FROM folders WHERE id=?1",
-            [id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )?;
-        folder.push(name);
-        current = parent;
-    }
-    folder.reverse();
-    format::folder_valid(&folder)?;
-    Ok(folder)
-}
-pub(super) fn attachment_ids(content: &str) -> Vec<String> {
-    let mut ids = Vec::new();
-    for (start, _) in content.match_indices("/api/files/") {
-        if let Some(id) = content.get(start + 11..start + 37)
-            && crate::id::is_valid_id(id)
-            && !ids.iter().any(|v| v == id)
-        {
-            ids.push(id.to_owned())
-        }
-    }
-    ids
-}
-pub(super) fn copy(
-    input: &mut dyn Read,
-    out: &mut dyn Write,
-    cancel: &CancellationToken,
-) -> Result<u64, Error> {
-    let mut buf = [0u8; 65536];
-    let mut count = 0;
-    loop {
-        cancel.check()?;
-        let n = input.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
-        out.write_all(&buf[..n])?;
-        count += n as u64;
-    }
-    Ok(count)
-}
-pub(super) fn hash_file(mut input: File, cancel: &CancellationToken) -> Result<String, Error> {
-    let mut hash = Sha256::new();
-    let mut buf = [0u8; 65536];
-    loop {
-        cancel.check()?;
-        let n = input.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
-        hash.update(&buf[..n]);
-    }
-    Ok(format!("{:x}", hash.finalize()))
-}
-fn zip_error(_: zip::result::ZipError) -> Error {
-    Error::invalid("format", "ZIP operation failed")
-}
-pub(super) fn safe_segment(value: &str) -> String {
-    let s = crate::markdown::truncate_utf16(
-        &value
-            .chars()
-            .map(|c| {
-                if c.is_control() {
-                    ' '
-                } else if "\\/:*?\"<>|".contains(c) {
-                    '-'
-                } else {
-                    c
-                }
-            })
-            .collect::<String>(),
-        80,
-    )
-    .trim_matches([' ', '.'])
-    .to_owned();
-    if s.is_empty() {
-        "Untitled".to_owned()
-    } else if format::safe_path(&s).is_err() {
-        format!("_{s}")
-    } else {
-        s
-    }
-}
-pub(super) fn url_path(path: &str) -> String {
-    path.split('/')
-        .map(|part| {
-            let mut s = String::new();
-            for b in part.bytes() {
-                if b.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&b) {
-                    s.push(b as char)
-                } else {
-                    s.push_str(&format!("%{b:02X}"));
-                }
-            }
-            s
-        })
-        .collect::<Vec<_>>()
-        .join("/")
-}
-struct LimitedWriter<'a> {
-    file: &'a mut File,
-    bytes: u64,
-    max: u64,
-}
-impl Write for LimitedWriter<'_> {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        if self.bytes.saturating_add(buf.len() as u64) > self.max {
-            return Err(std::io::Error::other("JSON bundle exceeds restore limit"));
-        }
-        let n = self.file.write(buf)?;
-        self.bytes += n as u64;
-        Ok(n)
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        self.file.flush()
-    }
 }

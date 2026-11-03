@@ -65,7 +65,14 @@ fn duplicate(
     value: &str,
     exclude: Option<&str>,
 ) -> Result<Option<(String, String)>, Error> {
-    Ok(tx.query_row("SELECT id,name FROM tags WHERE name=?1 COLLATE NOCASE AND id<>COALESCE(?2,'') ORDER BY created_at,id LIMIT 1",params![value,exclude],|r|Ok((r.get(0)?,r.get(1)?))).optional()?)
+    Ok(tx
+        .query_row(
+            "SELECT id,name FROM tags WHERE name=?1 COLLATE NOCASE \
+             AND id<>COALESCE(?2,'') ORDER BY created_at,id LIMIT 1",
+            params![value, exclude],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?)
 }
 fn record(w: &mut super::WriteTx<'_>, id: &str, op: &str) -> Result<(), Error> {
     w.tx.execute(
@@ -205,7 +212,11 @@ pub(crate) fn rewrite(
     to: Option<&str>,
 ) -> Result<u64, Error> {
     let notes = {
-        let mut stmt=w.tx.prepare("SELECT n.id,n.title,n.content,n.rev,n.updated_at,n.deleted_at FROM notes n JOIN note_tags nt ON nt.note_id=n.id WHERE nt.tag_id=?1 AND n.deleted_at IS NULL ORDER BY n.id")?;
+        let mut stmt = w.tx.prepare(
+            "SELECT n.id,n.title,n.content,n.rev,n.updated_at,n.deleted_at \
+             FROM notes n JOIN note_tags nt ON nt.note_id=n.id \
+             WHERE nt.tag_id=?1 AND n.deleted_at IS NULL ORDER BY n.id",
+        )?;
         let rows = stmt.query_map([tag_id], |r| {
             Ok((
                 r.get::<_, String>(0)?,
@@ -242,7 +253,21 @@ pub(crate) fn rewrite(
             crate::types::Millis::new(now)?,
         )?;
         let (words, chars) = count_text(&next);
-        w.tx.execute("UPDATE notes SET content=?1,excerpt=?2,word_count=?3,char_count=?4,content_hash=?5,rev=?6,updated_at=?7 WHERE id=?8 AND rev=?9",params![next,derive_excerpt(&next,220),words as i64,chars as i64,sha256_hex(&next),Rev::new(rev+1)?.get(),now,id,rev])?;
+        w.tx.execute(
+            "UPDATE notes SET content=?1,excerpt=?2,word_count=?3,char_count=?4,\
+             content_hash=?5,rev=?6,updated_at=?7 WHERE id=?8 AND rev=?9",
+            params![
+                next,
+                derive_excerpt(&next, 220),
+                words as i64,
+                chars as i64,
+                sha256_hex(&next),
+                Rev::new(rev + 1)?.get(),
+                now,
+                id,
+                rev,
+            ],
+        )?;
         derived::derive(
             &w.tx,
             w.ids.as_ref(),
@@ -328,25 +353,53 @@ impl crate::db::Library {
         origin: WriteOrigin,
     ) -> Result<Written<TagPatchResult>, Error> {
         self.write(origin, |w| {
-            let old=load(&w.tx,id.as_str())?;
-            let next=match &input.name { Some(n) => name(n)?, None => old.name.as_str() };
-            let next_color=match &input.color { Some(c) => { color(c.as_deref())?; c.clone() } None => old.color.clone() };
-            let destination=duplicate(&w.tx,next,Some(id.as_str()))?;
-            let destination_name = destination.as_ref().map_or(next, |(_, value)| value.as_str());
-            let renamed=if next!=old.name { rewrite(w,id.as_str(),&old.name,Some(destination_name))? } else {0};
-            if let Some((other,_))=destination {
-                w.tx.execute("INSERT OR IGNORE INTO note_tags(note_id,tag_id) SELECT note_id,?1 FROM note_tags WHERE tag_id=?2",params![other,id.as_str()])?;
-                w.tx.execute("DELETE FROM note_tags WHERE tag_id=?1",[id.as_str()])?;
-                w.tx.execute("DELETE FROM tags WHERE id=?1",[id.as_str()])?;
-                record(w,id.as_str(),"delete")?;
-                record(w,&other,"upsert")?;
-                return Ok(TagPatchResult{tag:load(&w.tx,&other)?,renamed});
+            let old = load(&w.tx, id.as_str())?;
+            let next = match &input.name {
+                Some(n) => name(n)?,
+                None => old.name.as_str(),
+            };
+            let next_color = match &input.color {
+                Some(c) => {
+                    color(c.as_deref())?;
+                    c.clone()
+                }
+                None => old.color.clone(),
+            };
+            let destination = duplicate(&w.tx, next, Some(id.as_str()))?;
+            let destination_name = destination
+                .as_ref()
+                .map_or(next, |(_, value)| value.as_str());
+            let renamed = if next != old.name {
+                rewrite(w, id.as_str(), &old.name, Some(destination_name))?
+            } else {
+                0
+            };
+            if let Some((other, _)) = destination {
+                w.tx.execute(
+                    "INSERT OR IGNORE INTO note_tags(note_id,tag_id) \
+                     SELECT note_id,?1 FROM note_tags WHERE tag_id=?2",
+                    params![other, id.as_str()],
+                )?;
+                w.tx.execute("DELETE FROM note_tags WHERE tag_id=?1", [id.as_str()])?;
+                w.tx.execute("DELETE FROM tags WHERE id=?1", [id.as_str()])?;
+                record(w, id.as_str(), "delete")?;
+                record(w, &other, "upsert")?;
+                return Ok(TagPatchResult {
+                    tag: load(&w.tx, &other)?,
+                    renamed,
+                });
             }
-            if next!=old.name || next_color!=old.color {
-                w.tx.execute("UPDATE tags SET name=?1,color=?2,is_manual=1 WHERE id=?3",params![next,next_color,id.as_str()])?;
-                record(w,id.as_str(),"upsert")?;
+            if next != old.name || next_color != old.color {
+                w.tx.execute(
+                    "UPDATE tags SET name=?1,color=?2,is_manual=1 WHERE id=?3",
+                    params![next, next_color, id.as_str()],
+                )?;
+                record(w, id.as_str(), "upsert")?;
             }
-            Ok(TagPatchResult{tag:load(&w.tx,id.as_str())?,renamed})
+            Ok(TagPatchResult {
+                tag: load(&w.tx, id.as_str())?,
+                renamed,
+            })
         })
     }
     /// Removes the tag after safely editing every live note that references it.

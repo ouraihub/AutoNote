@@ -52,13 +52,19 @@ export async function persistAttachmentWithinQuota(
     env.DB,
     `attachment-quota:${input.userId}`,
     2 * 60 * 1000,
-    'Another attachment upload is being finalized. Try again shortly',
+    'Another attachment upload is being finalized. Try ' + 'again shortly',
   )
   try {
     const usage = await env.DB.prepare(
-      `SELECT COALESCE(SUM(size), 0) AS bytes FROM attachments WHERE user_id = ?1`,
-    ).bind(input.userId).first<{ bytes: number }>()
-    if ((usage?.bytes ?? 0) + input.bytes.byteLength > LIMITS.attachmentQuotaBytes) {
+      'SELECT COALESCE(SUM(size), 0) AS bytes FROM attach' +
+        'ments WHERE user_id = ?1',
+    )
+      .bind(input.userId)
+      .first<{ bytes: number }>()
+    if (
+      (usage?.bytes ?? 0) + input.bytes.byteLength >
+      LIMITS.attachmentQuotaBytes
+    ) {
       throw ApiError.tooLarge('The account attachment quota has been reached')
     }
     return await persistAttachment(env, input)
@@ -66,7 +72,6 @@ export async function persistAttachmentWithinQuota(
     await release()
   }
 }
-
 
 export async function persistAttachment(
   env: Env,
@@ -80,7 +85,8 @@ export async function persistAttachment(
     throw new ApiError(
       503,
       'storage_unavailable',
-      'Attachment storage is not configured. Bind R2 or Workers KV before uploading files.',
+      'Attachment storage is not configured. Bind R2 or W' +
+        'orkers KV before uploading files.',
     )
   }
 
@@ -114,8 +120,10 @@ export async function persistAttachment(
 
   try {
     await env.DB.prepare(
-      `INSERT INTO attachments (id, user_id, note_id, filename, mime, size, sha256, width, height, storage, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+      'INSERT INTO attachments (id, user_id, note_id, fil' +
+        'ename, mime, size, sha256, width, height, storage,' +
+        ' created_at)\n       VALUES (?1, ?2, ?3, ?4, ?5, ?' +
+        '6, ?7, ?8, ?9, ?10, ?11)',
     )
       .bind(
         input.id,
@@ -137,13 +145,22 @@ export async function persistAttachment(
         await deleteAttachmentObjects(env, storage, [objectKey])
       } catch (cleanupError) {
         await env.DB.prepare(
-          `INSERT OR IGNORE INTO attachment_cleanup (object_key, user_id, created_at)
-           VALUES (?1, ?2, ?3)`,
+          'INSERT OR IGNORE INTO attachment_cleanup (object_k' +
+            'ey, user_id, created_at)\n           VALUES (?1, ?' +
+            '2, ?3)',
         )
-          .bind(attachmentCleanupTarget(storage, objectKey), input.userId, Date.now())
+          .bind(
+            attachmentCleanupTarget(storage, objectKey),
+            input.userId,
+            Date.now(),
+          )
           .run()
           .catch(() => {})
-        console.warn('[autonote] Attachment cleanup after a write rollback will retry later:', cleanupError)
+        console.warn(
+          '[autonote] Attachment cleanup after a write rollba' +
+            'ck will retry later:',
+          cleanupError,
+        )
       }
     }
     throw error
@@ -172,7 +189,6 @@ export function sanitizeAttachmentFilename(name: string): string {
   return truncateText(cleaned || 'file', 180)
 }
 
-
 export async function rollbackPersistedAttachments(
   env: Env,
   attachments: readonly PersistedAttachment[],
@@ -195,8 +211,10 @@ export async function rollbackPersistedAttachments(
     })
     statements.push(
       env.DB.prepare(
-        `INSERT OR IGNORE INTO attachment_cleanup (object_key, user_id, created_at)
-         SELECT ?1, user_id, ?2 FROM attachments WHERE id = ?3 AND user_id = ?4`,
+        'INSERT OR IGNORE INTO attachment_cleanup (object_k' +
+          'ey, user_id, created_at)\n         SELECT ?1, user' +
+          '_id, ?2 FROM attachments WHERE id = ?3 AND user_id' +
+          ' = ?4',
       ).bind(
         attachmentCleanupTarget(attachment.storage, objectKey),
         Date.now(),
@@ -206,19 +224,23 @@ export async function rollbackPersistedAttachments(
     )
     statements.push(
       env.DB.prepare(
-        `DELETE FROM import_mappings
-          WHERE user_id = ?1 AND entity = 'attachment' AND target_id = ?2`,
+        'DELETE FROM import_mappings\n          WHERE user_' +
+          "id = ?1 AND entity = 'attachment' AND target_id = " +
+          '?2',
       ).bind(attachment.userId, attachment.id),
     )
     statements.push(
-      env.DB.prepare(`DELETE FROM attachments WHERE id = ?1 AND user_id = ?2`).bind(
-        attachment.id,
-        attachment.userId,
-      ),
+      env.DB.prepare(
+        `DELETE FROM attachments WHERE id = ?1 AND user_id = ?2`,
+      ).bind(attachment.id, attachment.userId),
     )
   }
   await flush()
   await drainAttachmentCleanup(env).catch((error) => {
-    console.warn('[autonote] Attachment cleanup after an import rollback will retry later:', error)
+    console.warn(
+      '[autonote] Attachment cleanup after an import roll' +
+        'back will retry later:',
+      error,
+    )
   })
 }

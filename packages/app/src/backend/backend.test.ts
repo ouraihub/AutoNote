@@ -34,7 +34,8 @@ describe('ChangeFeedEmitter', () => {
 })
 
 describe('backendErrorFromPayload', () => {
-  test('keeps cancellation distinct from offline and removes unknown details', () => {
+  test('keeps cancellation distinct from o\
+ffline and removes unknown details', () => {
     const cancelled = backendErrorFromPayload(
       {
         error: {

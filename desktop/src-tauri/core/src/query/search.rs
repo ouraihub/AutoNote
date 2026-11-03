@@ -199,42 +199,118 @@ impl Library {
         }
         let parsed = parse(input.q.trim());
         self.read(|conn| {
-            let mut where_sql=String::from(if parsed.trash {"n.deleted_at IS NOT NULL"} else {"n.deleted_at IS NULL"});
-            let mut filters=Vec::<Value>::new();
-            if let Some(flag)=parsed.filters.starred { where_sql.push_str(" AND n.is_starred=?");filters.push(i64::from(flag).into()); }
-            if let Some(flag)=parsed.filters.archived { where_sql.push_str(" AND n.is_archived=?");filters.push(i64::from(flag).into()); }
-            for tag in &parsed.filters.tags {where_sql.push_str(" AND EXISTS (SELECT 1 FROM note_tags nt JOIN tags t ON t.id=nt.tag_id WHERE nt.note_id=n.id AND t.name=? COLLATE NOCASE)"); filters.push(tag.clone().into());}
-            if let Some(folder)=&parsed.filters.folder {where_sql.push_str(" AND EXISTS (SELECT 1 FROM folders f WHERE f.id=n.folder_id AND f.name=? COLLATE NOCASE)");filters.push(folder.clone().into());}
-            let fts_query=parsed.terms.iter().map(|term| {let seg=segment_cjk(term).replace('"',""); let seg=seg.trim().to_owned(); if seg.contains(' ') {format!("\"{seg}\"")} else {format!("\"{seg}\"*")} }).collect::<Vec<_>>().join(" AND ");
-            let mut args=filters;
+            let mut where_sql = String::from(if parsed.trash {
+                "n.deleted_at IS NOT NULL"
+            } else {
+                "n.deleted_at IS NULL"
+            });
+            let mut filters = Vec::<Value>::new();
+            if let Some(flag) = parsed.filters.starred {
+                where_sql.push_str(" AND n.is_starred=?");
+                filters.push(i64::from(flag).into());
+            }
+            if let Some(flag) = parsed.filters.archived {
+                where_sql.push_str(" AND n.is_archived=?");
+                filters.push(i64::from(flag).into());
+            }
+            for tag in &parsed.filters.tags {
+                where_sql.push_str(
+                    " AND EXISTS (SELECT 1 FROM note_tags nt JOIN tags t ON t.id=nt.tag_id \
+                     WHERE nt.note_id=n.id AND t.name=? COLLATE NOCASE)",
+                );
+                filters.push(tag.clone().into());
+            }
+            if let Some(folder) = &parsed.filters.folder {
+                where_sql.push_str(
+                    " AND EXISTS (SELECT 1 FROM folders f WHERE f.id=n.folder_id \
+                     AND f.name=? COLLATE NOCASE)",
+                );
+                filters.push(folder.clone().into());
+            }
+            let fts_query = parsed
+                .terms
+                .iter()
+                .map(|term| {
+                    let seg = segment_cjk(term).replace('"', "");
+                    let seg = seg.trim().to_owned();
+                    if seg.contains(' ') {
+                        format!("\"{seg}\"")
+                    } else {
+                        format!("\"{seg}\"*")
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" AND ");
+            let mut args = filters;
             for term in &parsed.terms {
-                where_sql.push_str(" AND (n.title LIKE ? ESCAPE '\\' OR n.content LIKE ? ESCAPE '\\')");
-                let pattern=Value::Text(format!("%{}%",escape_like(term)));
-                args.push(pattern.clone());args.push(pattern);
+                where_sql
+                    .push_str(" AND (n.title LIKE ? ESCAPE '\\' OR n.content LIKE ? ESCAPE '\\')");
+                let pattern = Value::Text(format!("%{}%", escape_like(term)));
+                args.push(pattern.clone());
+                args.push(pattern);
             }
             args.push(limit.into());
-            let sql=format!("SELECT {},n.content FROM notes n WHERE {where_sql} ORDER BY n.updated_at DESC,n.id ASC LIMIT ?",rows::NOTE_COLUMNS);
-            let mut stmt=conn.prepare(&sql)?;
-            let mut results=stmt.query_map(params_from_iter(args), |r| Ok((rows::note_summary(r)?,r.get::<_,String>(15)?)))?
-                .map(|row| row.map(|(note,body)| {let score=parsed.terms.iter().map(|t| if note.title.to_lowercase().contains(&t.to_lowercase()) {10.0} else {0.0}).sum();SearchHit{note,snippet:snippet(&body,&parsed.terms),score}}))
+            let sql = format!(
+                "SELECT {},n.content FROM notes n WHERE {where_sql} \
+                 ORDER BY n.updated_at DESC,n.id ASC LIMIT ?",
+                rows::NOTE_COLUMNS,
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let mut results = stmt
+                .query_map(params_from_iter(args), |r| {
+                    Ok((rows::note_summary(r)?, r.get::<_, String>(15)?))
+                })?
+                .map(|row| {
+                    row.map(|(note, body)| {
+                        let score = parsed
+                            .terms
+                            .iter()
+                            .map(|t| {
+                                if note.title.to_lowercase().contains(&t.to_lowercase()) {
+                                    10.0
+                                } else {
+                                    0.0
+                                }
+                            })
+                            .sum();
+                        SearchHit {
+                            note,
+                            snippet: snippet(&body, &parsed.terms),
+                            score,
+                        }
+                    })
+                })
                 .collect::<rusqlite::Result<Vec<_>>>()?;
-            let mut mode=SearchMode::Like;
+            let mut mode = SearchMode::Like;
             if !fts_query.is_empty() && !parsed.trash {
-                let sql="SELECT note_id, bm25(notes_fts,0.0,10.0,1.0) FROM notes_fts WHERE notes_fts MATCH ?1 LIMIT 600";
-                match conn.prepare(sql).and_then(|mut stmt| stmt.query_map([format!("{{title body}} : ({fts_query})")],|r|Ok((r.get::<_,String>(0)?,r.get::<_,f64>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()) {
-                    Ok(scores)=>{
-                        mode=SearchMode::Fts;
-                        let scores:std::collections::HashMap<_,_>=scores.into_iter().collect();
+                let sql = "SELECT note_id, bm25(notes_fts,0.0,10.0,1.0) FROM notes_fts \
+                    WHERE notes_fts MATCH ?1 LIMIT 600";
+                match conn.prepare(sql).and_then(|mut stmt| {
+                    stmt.query_map([format!("{{title body}} : ({fts_query})")], |r| {
+                        Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                }) {
+                    Ok(scores) => {
+                        mode = SearchMode::Fts;
+                        let scores: std::collections::HashMap<_, _> = scores.into_iter().collect();
                         for hit in &mut results {
                             if let Some(score) = scores.get(hit.note.id.as_str()) {
                                 hit.score = -*score;
                             }
                         }
                     }
-                    Err(error)=>tracing::warn!(code=?error.sqlite_error_code(),"search.fts.fallback"),
+                    Err(error) => tracing::warn!(
+                        code=?error.sqlite_error_code(), "search.fts.fallback"
+                    ),
                 }
             }
-            Ok(SearchResponse{results,mode,took:start.elapsed().as_millis(),query:parsed.filters})
+            Ok(SearchResponse {
+                results,
+                mode,
+                took: start.elapsed().as_millis(),
+                query: parsed.filters,
+            })
         })
     }
 

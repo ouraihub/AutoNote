@@ -109,7 +109,16 @@ async fn aether_mcp_real_http_scope_revoke_origin_and_idempotency() {
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     let client = Client::builder().no_proxy().build().expect("HTTP client");
 
-    let (status, body) = rpc(&client, port, Some(&read.token), None, "initialize", json!({"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"acceptance","version":"1"}})).await;
+    let (status, body) = rpc(
+        &client,
+        port,
+        Some(&read.token),
+        None,
+        "initialize",
+        json!({"protocolVersion":"2025-03-26","capabilities":{},
+            "clientInfo":{"name":"acceptance","version":"1"}}),
+    )
+    .await;
     assert_eq!(status, 200);
     assert!(body["result"]["capabilities"]["tools"].is_object());
 

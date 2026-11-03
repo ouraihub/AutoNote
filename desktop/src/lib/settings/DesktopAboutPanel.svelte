@@ -26,10 +26,14 @@
 <section>
   {#if info}
     <SettingRow title={i18n.t('settings.current_version')}
-      ><span class="text-[12.5px] text-[var(--text-secondary)] tabular">{info.version}</span></SettingRow
+      ><span class="text-[12.5px] text-[var(--text-secondary)] tabular"
+        >{info.version}</span
+      ></SettingRow
     >
     <SettingRow title={i18n.t('desktop.schemaVersion')}
-      ><span class="text-[12.5px] text-[var(--text-secondary)] tabular">{info.schemaVersion}</span></SettingRow
+      ><span class="text-[12.5px] text-[var(--text-secondary)] tabular"
+        >{info.schemaVersion}</span
+      ></SettingRow
     >
     <SettingRow title={i18n.t('settings.data')} description={info.dataDir}>
       <Button
@@ -41,5 +45,7 @@
       >
     </SettingRow>
   {/if}
-  {#if error}<p role="alert" class="mt-2 text-[11.5px] text-[var(--danger)]">{i18n.t('common.action_failed')}</p>{/if}
+  {#if error}<p role="alert" class="mt-2 text-[11.5px] text-[var(--danger)]">
+      {i18n.t('common.action_failed')}
+    </p>{/if}
 </section>

@@ -22,7 +22,15 @@ pub(crate) fn derive(
     )?;
     tx.execute("DELETE FROM note_tags WHERE note_id=?1", [id])?;
     for name in extract_tags(content) {
-        let tag_id: Option<String> = tx.query_row("SELECT id FROM tags WHERE name = ?1 COLLATE NOCASE ORDER BY CASE WHEN name=?1 COLLATE BINARY THEN 0 ELSE 1 END, created_at, id LIMIT 1", [name.as_str()], |r| r.get(0)).optional()?;
+        let tag_id: Option<String> = tx
+            .query_row(
+                "SELECT id FROM tags WHERE name = ?1 COLLATE NOCASE \
+                 ORDER BY CASE WHEN name=?1 COLLATE BINARY THEN 0 ELSE 1 END, \
+                 created_at, id LIMIT 1",
+                [name.as_str()],
+                |r| r.get(0),
+            )
+            .optional()?;
         let tag_id = match tag_id {
             Some(v) => v,
             None => {
@@ -42,13 +50,29 @@ pub(crate) fn derive(
     tx.execute("DELETE FROM links WHERE source_note_id=?1", [id])?;
     if !deleted {
         for link in extract_wiki_links(content) {
-            let target: Option<String> = tx.query_row("SELECT id FROM notes WHERE title_key=?1 AND deleted_at IS NULL ORDER BY created_at,id LIMIT 1",[link.key.as_str()],|r|r.get(0)).optional()?;
-            tx.execute("INSERT INTO links(source_note_id,target_key,target_title,target_note_id) VALUES(?1,?2,?3,?4)",params![id,link.key,link.target,target])?;
+            let target: Option<String> = tx
+                .query_row(
+                    "SELECT id FROM notes WHERE title_key=?1 AND deleted_at IS NULL \
+                     ORDER BY created_at,id LIMIT 1",
+                    [link.key.as_str()],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            tx.execute(
+                "INSERT INTO links(source_note_id,target_key,target_title,target_note_id) \
+                 VALUES(?1,?2,?3,?4)",
+                params![id, link.key, link.target, target],
+            )?;
         }
     }
     if let Some(old_key) = old_key {
         for key in [old_key, &title_key] {
-            tx.execute("UPDATE links SET target_note_id=(SELECT id FROM notes WHERE title_key=?1 AND deleted_at IS NULL ORDER BY created_at,id LIMIT 1) WHERE target_key=?1",[key])?;
+            tx.execute(
+                "UPDATE links SET target_note_id=(SELECT id FROM notes \
+                 WHERE title_key=?1 AND deleted_at IS NULL \
+                 ORDER BY created_at,id LIMIT 1) WHERE target_key=?1",
+                [key],
+            )?;
         }
     }
     tx.execute("DELETE FROM notes_fts WHERE note_id=?1", [id])?;

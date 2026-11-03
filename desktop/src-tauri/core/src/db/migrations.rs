@@ -106,7 +106,8 @@ CREATE TABLE mcp_preferences (
   id INTEGER PRIMARY KEY CHECK(id=1), write_enabled INTEGER NOT NULL DEFAULT 0,
   trash_enabled INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL
 );
-INSERT INTO mcp_preferences(id,write_enabled,trash_enabled,updated_at) VALUES(1,0,0,unixepoch('subsec') * 1000);
+INSERT INTO mcp_preferences(id,write_enabled,trash_enabled,updated_at)
+VALUES(1,0,0,unixepoch('subsec') * 1000);
 CREATE TABLE mcp_operations (
   operation_id TEXT PRIMARY KEY, tool TEXT NOT NULL,
   request_hash TEXT NOT NULL, response_json TEXT NOT NULL,
@@ -126,7 +127,9 @@ CREATE TABLE ai_providers (
 CREATE TABLE ai_endpoints (
   id TEXT PRIMARY KEY, provider_id TEXT NOT NULL REFERENCES ai_providers(id) ON DELETE CASCADE,
   slug TEXT NOT NULL, base_url TEXT NOT NULL,
-  protocol TEXT NOT NULL CHECK (protocol IN ('anthropic-messages','openai-chat','openai-responses')),
+  protocol TEXT NOT NULL CHECK (
+    protocol IN ('anthropic-messages','openai-chat','openai-responses')
+  ),
   key_ciphertext BLOB, position INTEGER NOT NULL,
   UNIQUE (provider_id, slug)
 );
@@ -146,11 +149,19 @@ CREATE TABLE ai_roles (
     Migration {
         version: 6,
         sql: r"
-CREATE TABLE ai_conversations(id TEXT PRIMARY KEY, title TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
-CREATE TABLE ai_messages(id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES ai_conversations(id) ON DELETE CASCADE,
-  seq INTEGER NOT NULL, role TEXT NOT NULL CHECK(role IN('user','assistant')), content TEXT NOT NULL,
-  status TEXT NOT NULL CHECK(status IN('done','failed','interrupted')), model_id TEXT, created_at INTEGER NOT NULL,
-  UNIQUE(conversation_id, seq));
+CREATE TABLE ai_conversations(
+  id TEXT PRIMARY KEY, title TEXT NOT NULL,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);
+CREATE TABLE ai_messages(
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL REFERENCES ai_conversations(id) ON DELETE CASCADE,
+  seq INTEGER NOT NULL, role TEXT NOT NULL CHECK(role IN('user','assistant')),
+  content TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN('done','failed','interrupted')),
+  model_id TEXT, created_at INTEGER NOT NULL,
+  UNIQUE(conversation_id, seq)
+);
 CREATE INDEX idx_ai_conversations_updated ON ai_conversations(updated_at DESC);
 ",
     },

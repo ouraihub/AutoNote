@@ -3,7 +3,10 @@ import type { KvStore } from '../local/kv-store'
 import type { LocalDb } from '../local'
 
 export interface ReplayLock {
-  run(owner: string, task: (valid: () => Promise<boolean>) => Promise<void>): Promise<boolean>
+  run(
+    owner: string,
+    task: (valid: () => Promise<boolean>) => Promise<void>,
+  ): Promise<boolean>
 }
 
 export class NavigatorReplayLock implements ReplayLock {
@@ -12,14 +15,21 @@ export class NavigatorReplayLock implements ReplayLock {
     private readonly userId: () => string | null,
   ) {}
 
-  async run(owner: string, task: (valid: () => Promise<boolean>) => Promise<void>): Promise<boolean> {
-    if (!globalThis.navigator?.locks?.request) return this.fallback.run(owner, task)
+  async run(
+    owner: string,
+    task: (valid: () => Promise<boolean>) => Promise<void>,
+  ): Promise<boolean> {
+    if (!globalThis.navigator?.locks?.request)
+      return this.fallback.run(owner, task)
     const userId = this.userId()
     if (!userId) throw new Error('No local user is bound')
-    return await globalThis.navigator.locks.request<Promise<boolean>>(`autonote-outbox-replay:${userId}`, async () => {
-      await task(async () => true)
-      return true
-    })
+    return await globalThis.navigator.locks.request<Promise<boolean>>(
+      `autonote-outbox-replay:${userId}`,
+      async () => {
+        await task(async () => true)
+        return true
+      },
+    )
   }
 }
 
@@ -30,7 +40,10 @@ export class LeaseReplayLock implements ReplayLock {
     private readonly clock: Clock,
   ) {}
 
-  async run(owner: string, task: (valid: () => Promise<boolean>) => Promise<void>): Promise<boolean> {
+  async run(
+    owner: string,
+    task: (valid: () => Promise<boolean>) => Promise<void>,
+  ): Promise<boolean> {
     const userId = this.localDb.activeUserId()
     if (!userId) throw new Error('No local user is bound')
     const key = `user:${userId}:outboxReplayLease`
@@ -39,16 +52,22 @@ export class LeaseReplayLock implements ReplayLock {
     let acquired = false
     do {
       const now = this.clock.now()
-      await this.kv.update<{ owner: string; expiresAt: number } | null>(key, (current) => {
-        if (!current || current.expiresAt <= now) {
-          acquired = true
-          return { owner: token, expiresAt: now + 90_000 }
-        }
-        return current
-      })
+      await this.kv.update<{ owner: string; expiresAt: number } | null>(
+        key,
+        (current) => {
+          if (!current || current.expiresAt <= now) {
+            acquired = true
+            return { owner: token, expiresAt: now + 90_000 }
+          }
+          return current
+        },
+      )
       if (acquired) break
       await new Promise<void>((resolve) =>
-        globalThis.setTimeout(resolve, Math.min(50, Math.max(0, deadline - this.clock.now()))),
+        globalThis.setTimeout(
+          resolve,
+          Math.min(50, Math.max(0, deadline - this.clock.now())),
+        ),
       )
     } while (this.clock.now() < deadline)
     if (!acquired) return false
@@ -58,8 +77,12 @@ export class LeaseReplayLock implements ReplayLock {
     const valid = async (): Promise<boolean> => {
       if (lost) return false
       try {
-        const current = await this.kv.get<{ owner: string; expiresAt: number } | null>(key)
-        if (current?.owner === token && current.expiresAt > this.clock.now()) return true
+        const current = await this.kv.get<{
+          owner: string
+          expiresAt: number
+        } | null>(key)
+        if (current?.owner === token && current.expiresAt > this.clock.now())
+          return true
       } catch {
         lost = true
         return false
@@ -73,13 +96,16 @@ export class LeaseReplayLock implements ReplayLock {
           if (lost) return
           const now = this.clock.now()
           let renewed = false
-          await this.kv.update<{ owner: string; expiresAt: number } | null>(key, (current) => {
-            if (current?.owner === token && current.expiresAt > now) {
-              renewed = true
-              return { owner: token, expiresAt: now + 90_000 }
-            }
-            return current ?? null
-          })
+          await this.kv.update<{ owner: string; expiresAt: number } | null>(
+            key,
+            (current) => {
+              if (current?.owner === token && current.expiresAt > now) {
+                renewed = true
+                return { owner: token, expiresAt: now + 90_000 }
+              }
+              return current ?? null
+            },
+          )
           if (!renewed) lost = true
         })
         .catch(() => {

@@ -9,7 +9,8 @@ export interface SyncTotpReply {
   loginId: string
   result: TotpLoginResult
 }
-/** Remote snapshot compared with local notes by id; binding keeps both sides of a difference. */
+/** Remote snapshot compared with local notes by id; binding keeps both sides
+ * of a difference. */
 export interface BindPreview {
   previewId: string
   localOnly: number
@@ -31,8 +32,16 @@ export interface SyncStatus {
 }
 
 export interface SyncPort {
-  login(origin: string, username: string, password: string): Promise<SyncLoginReply>
-  completeTotp(loginId: string, challengeToken: string, code: string): Promise<SyncTotpReply>
+  login(
+    origin: string,
+    username: string,
+    password: string,
+  ): Promise<SyncLoginReply>
+  completeTotp(
+    loginId: string,
+    challengeToken: string,
+    code: string,
+  ): Promise<SyncTotpReply>
   status(): Promise<SyncStatus>
   preview(loginId: string): Promise<BindPreview>
   confirm(previewId: string): Promise<SyncStatus>
@@ -43,8 +52,10 @@ export interface SyncPort {
 }
 
 export const syncPort: SyncPort = {
-  login: (origin, username, password) => call('sync_login', { origin, username, password }),
-  completeTotp: (loginId, challengeToken, code) => call('sync_complete_totp', { loginId, challengeToken, code }),
+  login: (origin, username, password) =>
+    call('sync_login', { origin, username, password }),
+  completeTotp: (loginId, challengeToken, code) =>
+    call('sync_complete_totp', { loginId, challengeToken, code }),
   status: () => call('sync_status', undefined),
   preview: (loginId) => call('sync_bind_preview', { loginId }),
   confirm: (previewId) => call('sync_bind_confirm', { previewId }),

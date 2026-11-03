@@ -9,7 +9,8 @@
   const i18n = getI18n()
   const logs = new LogsState({
     readLogs: (limit) => call('app_logs_tail', { limit }),
-    readAvailability: async () => (await call('desktop_prefs_get', undefined)).logAvailable,
+    readAvailability: async () =>
+      (await call('desktop_prefs_get', undefined)).logAvailable,
   })
   onMount(() => {
     logs.start()
@@ -21,29 +22,61 @@
   <header>
     <div>
       <h2 id="log-heading">{i18n.t('desktop.logsTitle')}</h2>
-      <p aria-live="polite">{i18n.t('desktop.logsRecent', { count: logs.entries.length })}</p>
+      <p aria-live="polite">
+        {i18n.t('desktop.logsRecent', { count: logs.entries.length })}
+      </p>
     </div>
     <div class="actions">
       <div class="flex items-center gap-2">
-        <Switch id="only-log-problems" checked={logs.onlyProblems} onChange={(next) => (logs.onlyProblems = next)} />
-        <label for="only-log-problems">{i18n.t('desktop.logsOnlyProblems')}</label>
+        <Switch
+          id="only-log-problems"
+          checked={logs.onlyProblems}
+          onChange={(next) => (logs.onlyProblems = next)}
+        />
+        <label for="only-log-problems"
+          >{i18n.t('desktop.logsOnlyProblems')}</label
+        >
       </div>
-      <Button size="sm" loading={logs.loading} onclick={() => void logs.refresh()}>
+      <Button
+        size="sm"
+        loading={logs.loading}
+        onclick={() => void logs.refresh()}
+      >
         {i18n.t(logs.loading ? 'common.loading' : 'desktop.logsRefresh')}
       </Button>
     </div>
   </header>
-  {#if logs.error}<p class="error" role="alert">{i18n.t('desktop.logsReadFailed')}</p>{/if}
-  {#if !logs.available}<p class="error" role="status">{i18n.t('desktop.logUnavailable')}</p>{/if}
+  {#if logs.error}<p class="error" role="alert">
+      {i18n.t('desktop.logsReadFailed')}
+    </p>{/if}
+  {#if !logs.available}<p class="error" role="status">
+      {i18n.t('desktop.logUnavailable')}
+    </p>{/if}
   {#if !logs.loading && logs.visible.length === 0}
-    <p class="empty">{i18n.t(logs.onlyProblems ? 'desktop.logsNoProblems' : 'desktop.logsEmpty')}</p>
+    <p class="empty">
+      {i18n.t(
+        logs.onlyProblems ? 'desktop.logsNoProblems' : 'desktop.logsEmpty',
+      )}
+    </p>
   {:else}
-    <div class="log-rows" role="region" aria-label={i18n.t('desktop.logsRecords')}>
+    <div
+      class="log-rows"
+      role="region"
+      aria-label={i18n.t('desktop.logsRecords')}
+    >
       {#each logs.visible as entry (entry.seq)}
-        <div class="log-row" class:problem={entry.level === 'ERROR'} class:warning={entry.level === 'WARN'}>
-          <time datetime={entry.time || undefined}>{entry.time.slice(11, 19) || '—'}</time>
+        <div
+          class="log-row"
+          class:problem={entry.level === 'ERROR'}
+          class:warning={entry.level === 'WARN'}
+        >
+          <time datetime={entry.time || undefined}
+            >{entry.time.slice(11, 19) || '—'}</time
+          >
           <strong>{entry.level}</strong>
-          <span class="target" title={entry.target}>{entry.target.split('::').at(-1)}</span>
+          <span class="target" title={entry.target}
+            >{entry.target.split('::').at(-1)}</span
+          >
           <span class="message">{entry.message}</span>
         </div>
       {/each}

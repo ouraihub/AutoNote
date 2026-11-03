@@ -207,8 +207,16 @@ pub(super) async fn run_script(
     let mut err = tokio::spawn(drain(stderr));
     let result = tokio::select! {
         biased;
-        _ = cancel.cancelled() => Err(failure("cancelled", "script cancelled; filesystem or network effects may already have happened", true)),
-        _ = tokio::time::sleep(Duration::from_secs(args.timeout_seconds)) => Err(failure("timeout", "script timed out; filesystem or network effects may already have happened", true)),
+        _ = cancel.cancelled() => Err(failure(
+            "cancelled",
+            "script cancelled; filesystem or network effects may already have happened",
+            true,
+        )),
+        _ = tokio::time::sleep(Duration::from_secs(args.timeout_seconds)) => Err(failure(
+            "timeout",
+            "script timed out; filesystem or network effects may already have happened",
+            true,
+        )),
         status = child.wait() => status.map_err(|error| failure("process_failed", error, true)),
     };
     // Kill descendants even if the root already exited, before awaiting inherited pipes.

@@ -73,10 +73,17 @@ pub(super) fn tools(runner: &SkillRunner, req: &RunRequest, run_id: &str) -> Vec
             used: std::collections::HashSet::new(),
         },
     );
-    vec![HostTool { spec: ToolSpec {
-        name: "skill_run".into(),
-        description: "Run only a packaged script from this run's selected immutable skill revision. NOT a sandbox: executes as the current user with filesystem and network access. Approval binds the displayed revision, script, arguments and timeout. Omit timeoutSeconds to use 120 seconds.".into(),
-        parameters: json!({"type":"object", "additionalProperties":false,
+    vec![HostTool {
+        spec: ToolSpec {
+            name: "skill_run".into(),
+            description: concat!(
+                "Run only a packaged script from this run's selected immutable skill revision. ",
+                "NOT a sandbox: executes as the current user with filesystem and network access. ",
+                "Approval binds the displayed revision, script, arguments and timeout. Omit ",
+                "timeoutSeconds to use 120 seconds."
+            )
+            .into(),
+            parameters: json!({"type":"object", "additionalProperties":false,
             "required":["_executionNotice","snapshot","skillId","revision","path","args"],
             "oneOf": choices,
             "properties": {
@@ -87,6 +94,9 @@ pub(super) fn tools(runner: &SkillRunner, req: &RunRequest, run_id: &str) -> Vec
                 "args":{"type":"array","items":{"type":"string"},"maxItems":128},
                 "timeoutSeconds":{"type":"integer","minimum":1,"maximum":MAX_TIMEOUT,"default":120}
             }}),
-        approval: Approval::Ask, source: ToolSource::Host, effect: ToolEffect::Exec,
-    }}]
+            approval: Approval::Ask,
+            source: ToolSource::Host,
+            effect: ToolEffect::Exec,
+        },
+    }]
 }

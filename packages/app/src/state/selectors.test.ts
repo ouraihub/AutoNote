@@ -32,7 +32,16 @@ function note(id: string, overrides: Partial<NoteSummary> = {}): NoteSummary {
 }
 
 function folder(id: string, parentId: string | null, position = 0): Folder {
-  return { id, parentId, name: id, icon: null, color: null, position, createdAt: 1, updatedAt: 1 }
+  return {
+    id,
+    parentId,
+    name: id,
+    icon: null,
+    color: null,
+    position,
+    createdAt: 1,
+    updatedAt: 1,
+  }
 }
 
 function byId(notes: NoteSummary[]): Record<string, NoteSummary> {
@@ -50,7 +59,12 @@ const QUERY: NoteListQuery = {
 
 describe('selectVisibleNotes', () => {
   const notes = byId([
-    note('live', { updatedAt: 5, folderId: 'child', tags: ['work'], isStarred: true }),
+    note('live', {
+      updatedAt: 5,
+      folderId: 'child',
+      tags: ['work'],
+      isStarred: true,
+    }),
     note('pinned', { updatedAt: 1, isPinned: true }),
     note('archived', { isArchived: true, isStarred: true }),
     note('trashed-old', { deletedAt: 10, folderId: 'root' }),
@@ -59,24 +73,39 @@ describe('selectVisibleNotes', () => {
   const folders = [folder('root', null), folder('child', 'root')]
 
   test('keeps trash and archive out of normal views', () => {
-    expect(selectVisibleNotes(notes, folders, QUERY).map((item) => item.id)).toEqual(['pinned', 'live'])
-    expect(selectVisibleNotes(notes, folders, { ...QUERY, view: 'starred' }).map((item) => item.id)).toEqual(['live'])
-    expect(selectVisibleNotes(notes, folders, { ...QUERY, view: 'archived' }).map((item) => item.id)).toEqual([
-      'archived',
-    ])
+    expect(
+      selectVisibleNotes(notes, folders, QUERY).map((item) => item.id),
+    ).toEqual(['pinned', 'live'])
+    expect(
+      selectVisibleNotes(notes, folders, { ...QUERY, view: 'starred' }).map(
+        (item) => item.id,
+      ),
+    ).toEqual(['live'])
+    expect(
+      selectVisibleNotes(notes, folders, { ...QUERY, view: 'archived' }).map(
+        (item) => item.id,
+      ),
+    ).toEqual(['archived'])
   })
 
   test('orders trash by deletion time, newest first', () => {
-    expect(selectVisibleNotes(notes, folders, { ...QUERY, view: 'trash' }).map((item) => item.id)).toEqual([
-      'trashed-new',
-      'trashed-old',
-    ])
+    expect(
+      selectVisibleNotes(notes, folders, { ...QUERY, view: 'trash' }).map(
+        (item) => item.id,
+      ),
+    ).toEqual(['trashed-new', 'trashed-old'])
   })
 
   test('includes descendant folders and matches tags exactly', () => {
-    const inRoot = selectVisibleNotes(notes, folders, { ...QUERY, view: 'folder', folderId: 'root' })
+    const inRoot = selectVisibleNotes(notes, folders, {
+      ...QUERY,
+      view: 'folder',
+      folderId: 'root',
+    })
     expect(inRoot.map((item) => item.id)).toEqual(['live'])
-    expect(selectVisibleNotes(notes, folders, { ...QUERY, view: 'tag', tag: 'wor' })).toEqual([])
+    expect(
+      selectVisibleNotes(notes, folders, { ...QUERY, view: 'tag', tag: 'wor' }),
+    ).toEqual([])
   })
 
   test('sorts titles numerically with id as a stable tie-breaker', () => {
@@ -85,14 +114,20 @@ describe('selectVisibleNotes', () => {
       note('a', { title: 'note 2' }),
       note('c', { title: 'Note 2' }),
     ])
-    const sorted = selectVisibleNotes(titled, [], { ...QUERY, sort: 'title', order: 'asc' })
+    const sorted = selectVisibleNotes(titled, [], {
+      ...QUERY,
+      sort: 'title',
+      order: 'asc',
+    })
 
     expect(sorted.map((item) => item.id)).toEqual(['a', 'c', 'b'])
   })
 
   test('limits the recent view', () => {
     const many = byId(
-      Array.from({ length: RECENT_NOTES_LIMIT + 5 }, (_, index) => note(`n${index}`, { updatedAt: index })),
+      Array.from({ length: RECENT_NOTES_LIMIT + 5 }, (_, index) =>
+        note(`n${index}`, { updatedAt: index }),
+      ),
     )
     const recent = selectVisibleNotes(many, [], { ...QUERY, view: 'recent' })
 
@@ -112,18 +147,33 @@ describe('selectNavigation', () => {
       ]),
     )
 
-    expect(projection.counts).toEqual({ all: 2, starred: 1, unfiled: 1, archived: 1, trash: 1 })
+    expect(projection.counts).toEqual({
+      all: 2,
+      starred: 1,
+      unfiled: 1,
+      archived: 1,
+      trash: 1,
+    })
     expect([...projection.folderCounts]).toEqual([['f', 1]])
   })
 })
 
 describe('folder helpers', () => {
   test('cycles do not loop and orphans become roots', () => {
-    const folders = [folder('a', 'b'), folder('b', 'a'), folder('orphan', 'missing', 1), folder('root', null, 0)]
+    const folders = [
+      folder('a', 'b'),
+      folder('b', 'a'),
+      folder('orphan', 'missing', 1),
+      folder('root', null, 0),
+    ]
 
     expect([...folderDescendantIds(folders, 'a')].sort()).toEqual(['a', 'b'])
     expect(folderPath(folders, 'a').map((item) => item.id)).toEqual(['b', 'a'])
-    expect(buildFolderTree(folders, new Map()).map((node) => node.id)).toEqual(['a', 'root', 'orphan'])
+    expect(buildFolderTree(folders, new Map()).map((node) => node.id)).toEqual([
+      'a',
+      'root',
+      'orphan',
+    ])
   })
 
   test('aggregates note totals through descendants', () => {
@@ -135,7 +185,16 @@ describe('folder helpers', () => {
       ]),
     )
 
-    expect(tree[0]).toMatchObject({ id: 'root', directNotes: 1, totalNotes: 3, depth: 0 })
-    expect(tree[0]?.children[0]?.children[0]).toMatchObject({ id: 'leaf', depth: 2, parentId: 'child' })
+    expect(tree[0]).toMatchObject({
+      id: 'root',
+      directNotes: 1,
+      totalNotes: 3,
+      depth: 0,
+    })
+    expect(tree[0]?.children[0]?.children[0]).toMatchObject({
+      id: 'leaf',
+      depth: 2,
+      parentId: 'child',
+    })
   })
 })

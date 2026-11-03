@@ -1,5 +1,10 @@
 export { createIdbKvStore, IdbKvStore, MemoryKvStore } from './kv-store'
-export type { IdbKeyvalAdapter, IdbKvStoreOptions, KvEntry, KvStore } from './kv-store'
+export type {
+  IdbKeyvalAdapter,
+  IdbKvStoreOptions,
+  KvEntry,
+  KvStore,
+} from './kv-store'
 export { createLocalDb, LocalDbImpl } from './local-db'
 export type {
   CachedNoteContent,

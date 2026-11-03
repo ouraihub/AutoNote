@@ -392,13 +392,18 @@ mod tests {
     use super::*;
     #[test]
     fn parses_and_rejects_nonprogressing_pages() -> Result<(), serde_json::Error> {
-        let value = serde_json::json!({"cursor":4,"full":false,"hasMore":false,"nextKey":null,"facetsFull":false,"settingsChanged":false,"notes":[],"folders":[],"tags":[],"deletions":[],"serverTime":0});
+        let value = serde_json::json!({
+            "cursor":4,"full":false,"hasMore":false,"nextKey":null,
+            "facetsFull":false,"settingsChanged":false,"notes":[],"folders":[],
+            "tags":[],"deletions":[],"serverTime":0
+        });
         let mut page: SyncResponse = serde_json::from_value(value)?;
         assert!(validate(&page, 4, None, None).is_ok());
         page.has_more = true;
-        assert!(
-            matches!(validate(&page, 4, None, None), Err(error) if error.code == ErrorCode::InvalidResponse)
-        );
+        assert!(matches!(
+            validate(&page, 4, None, None),
+            Err(error) if error.code == ErrorCode::InvalidResponse
+        ));
         page.full = true;
         page.facets_full = true;
         page.next_key = Some("repeated".into());

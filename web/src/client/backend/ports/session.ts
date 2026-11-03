@@ -1,4 +1,9 @@
-import type { CallOptions, SessionAccountPort, SessionPort, TotpPort } from '@app/backend'
+import type {
+  CallOptions,
+  SessionAccountPort,
+  SessionPort,
+  TotpPort,
+} from '@app/backend'
 import type { BackendSession } from '@shared/backend-types'
 import type {
   PasswordLoginResult,
@@ -60,14 +65,20 @@ export class HttpSessionPort implements SessionPort {
     return this.#account
   }
 
-  updateProfile(body: { name?: string; avatarUrl?: string }, options?: CallOptions): Promise<PublicUser> {
+  updateProfile(
+    body: { name?: string; avatarUrl?: string },
+    options?: CallOptions,
+  ): Promise<PublicUser> {
     return this.#account.updateProfile(body, options)
   }
 
   async load(options?: CallOptions): Promise<BackendSession> {
     const epoch = ++this.#epoch
     try {
-      const result = await this.#transport.json<BackendSession>({ path: '/api/auth/session', signal: options?.signal })
+      const result = await this.#transport.json<BackendSession>({
+        path: '/api/auth/session',
+        signal: options?.signal,
+      })
       await this.#saveIfCurrent(epoch, options?.signal, result)
       return result
     } catch (error) {
@@ -81,15 +92,21 @@ export class HttpSessionPort implements SessionPort {
   }
 
   #assertCurrent(epoch: number, signal?: AbortSignal): void {
-    if (epoch !== this.#epoch || signal?.aborted) throw new BackendError('cancelled', 0, 'Session request superseded')
+    if (epoch !== this.#epoch || signal?.aborted)
+      throw new BackendError('cancelled', 0, 'Session request superseded')
   }
 
-  readonly #saveIfCurrent = (epoch: number, signal: AbortSignal | undefined, result: BackendSession): Promise<void> => {
+  readonly #saveIfCurrent = (
+    epoch: number,
+    signal: AbortSignal | undefined,
+    result: BackendSession,
+  ): Promise<void> => {
     const write = this.#cacheWrites
       .catch(() => undefined)
       .then(async () => {
         this.#assertCurrent(epoch, signal)
-        if (result.user && result.user.id !== this.#localDb.activeUserId()) await this.#waitForLocalCommit?.()
+        if (result.user && result.user.id !== this.#localDb.activeUserId())
+          await this.#waitForLocalCommit?.()
         this.#assertCurrent(epoch, signal)
         if (result.user) await this.#localDb.saveSession(result)
         else await this.#localDb.clearSession()
@@ -112,9 +129,15 @@ export class HttpSessionPort implements SessionPort {
     this.#assertCurrent(epoch, options?.signal)
     if (this.#flush) await this.#flush()
     this.#assertCurrent(epoch, options?.signal)
-    const pending = this.#pending ? await this.#pending() : await this.#readCurrentPending()
+    const pending = this.#pending
+      ? await this.#pending()
+      : await this.#readCurrentPending()
     this.#assertCurrent(epoch, options?.signal)
-    if (pending.pending !== 0 || pending.failed !== 0 || pending.settingsPending) {
+    if (
+      pending.pending !== 0 ||
+      pending.failed !== 0 ||
+      pending.settingsPending
+    ) {
       throw new BackendError('conflict', 409, 'Local changes are still pending')
     }
     const current = await this.#readCurrentPending()
@@ -122,14 +145,21 @@ export class HttpSessionPort implements SessionPort {
     if (current.pending !== 0 || current.failed !== 0) {
       throw new BackendError('conflict', 409, 'Local changes are still pending')
     }
-    await this.#transport.json<{ ok: true }>({ method: 'POST', path: '/api/auth/logout', signal: options?.signal })
+    await this.#transport.json<{ ok: true }>({
+      method: 'POST',
+      path: '/api/auth/logout',
+      signal: options?.signal,
+    })
     this.#assertCurrent(epoch, options?.signal)
     await this.#localDb.clearSession()
   }
 
   async #readCurrentPending(): Promise<LogoutPending> {
     const items = await this.#localDb.getOutbox()
-    return { pending: items.length, failed: items.filter((item) => item.attempts > 0).length }
+    return {
+      pending: items.length,
+      failed: items.filter((item) => item.attempts > 0).length,
+    }
   }
 }
 
@@ -138,7 +168,11 @@ class HttpSessionAccountPort implements SessionAccountPort {
   readonly #bus: TabBus
   readonly #beginEpoch: () => number
   readonly #currentEpoch: () => number
-  readonly #saveIfCurrent: (epoch: number, signal: AbortSignal | undefined, result: BackendSession) => Promise<void>
+  readonly #saveIfCurrent: (
+    epoch: number,
+    signal: AbortSignal | undefined,
+    result: BackendSession,
+  ) => Promise<void>
   readonly #clientId: string
   readonly #totp: HttpTotpPort
 
@@ -147,7 +181,11 @@ class HttpSessionAccountPort implements SessionAccountPort {
     bus: TabBus,
     beginEpoch: () => number,
     currentEpoch: () => number,
-    saveIfCurrent: (epoch: number, signal: AbortSignal | undefined, result: BackendSession) => Promise<void>,
+    saveIfCurrent: (
+      epoch: number,
+      signal: AbortSignal | undefined,
+      result: BackendSession,
+    ) => Promise<void>,
     clientId: string,
   ) {
     this.#transport = transport
@@ -180,7 +218,11 @@ class HttpSessionAccountPort implements SessionAccountPort {
     return result
   }
 
-  async login(username: string, password: string, options?: CallOptions): Promise<PasswordLoginResult> {
+  async login(
+    username: string,
+    password: string,
+    options?: CallOptions,
+  ): Promise<PasswordLoginResult> {
     const epoch = this.#beginEpoch()
     const result = await this.#transport.json<PasswordLoginResult>({
       method: 'POST',
@@ -188,13 +230,22 @@ class HttpSessionAccountPort implements SessionAccountPort {
       body: { username, password },
       signal: options?.signal,
     })
-    if ('user' in result && result.user) await this.#saveIfCurrent(epoch, options?.signal, result as BackendSession)
+    if ('user' in result && result.user)
+      await this.#saveIfCurrent(
+        epoch,
+        options?.signal,
+        result as BackendSession,
+      )
     else if (epoch !== this.#currentEpoch() || options?.signal?.aborted)
       throw new BackendError('cancelled', 0, 'Session request superseded')
     return result
   }
 
-  async completeTotpLogin(challengeToken: string, code: string, options?: CallOptions): Promise<TotpLoginResult> {
+  async completeTotpLogin(
+    challengeToken: string,
+    code: string,
+    options?: CallOptions,
+  ): Promise<TotpLoginResult> {
     const epoch = this.#beginEpoch()
     const result = await this.#transport.json<TotpLoginResult>({
       method: 'POST',
@@ -206,11 +257,22 @@ class HttpSessionAccountPort implements SessionAccountPort {
     return result
   }
 
-  setPassword(body: { currentPassword: string; newPassword: string }, options?: CallOptions): Promise<{ ok: true }> {
-    return this.#transport.json({ method: 'POST', path: '/api/auth/password', body, signal: options?.signal })
+  setPassword(
+    body: { currentPassword: string; newPassword: string },
+    options?: CallOptions,
+  ): Promise<{ ok: true }> {
+    return this.#transport.json({
+      method: 'POST',
+      path: '/api/auth/password',
+      body,
+      signal: options?.signal,
+    })
   }
 
-  async updateProfile(body: { name?: string; avatarUrl?: string }, options?: CallOptions): Promise<PublicUser> {
+  async updateProfile(
+    body: { name?: string; avatarUrl?: string },
+    options?: CallOptions,
+  ): Promise<PublicUser> {
     const epoch = this.#currentEpoch()
     const user = await this.#transport.json<PublicUser>({
       method: 'PUT',
@@ -230,7 +292,10 @@ class HttpSessionAccountPort implements SessionAccountPort {
     options?: CallOptions,
   ): Promise<{ ok: true; registrationOpen: boolean }> {
     const epoch = this.#currentEpoch()
-    const result = await this.#transport.json<{ ok: true; registrationOpen: boolean }>({
+    const result = await this.#transport.json<{
+      ok: true
+      registrationOpen: boolean
+    }>({
       method: 'PUT',
       path: '/api/settings/registration',
       body: { enabled, password },
@@ -248,9 +313,15 @@ class HttpTotpPort implements TotpPort {
     this.#transport = transport
   }
   status(options?: CallOptions): Promise<TotpStatus> {
-    return this.#transport.json({ path: '/api/auth/totp/status', signal: options?.signal })
+    return this.#transport.json({
+      path: '/api/auth/totp/status',
+      signal: options?.signal,
+    })
   }
-  startSetup(currentPassword: string, options?: CallOptions): Promise<TotpSetupInfo> {
+  startSetup(
+    currentPassword: string,
+    options?: CallOptions,
+  ): Promise<TotpSetupInfo> {
     return this.#transport.json({
       method: 'POST',
       path: '/api/auth/totp/setup',
@@ -270,7 +341,10 @@ class HttpTotpPort implements TotpPort {
       signal: options?.signal,
     })
   }
-  cancelSetup(setupToken: string, options?: CallOptions): Promise<{ ok: true }> {
+  cancelSetup(
+    setupToken: string,
+    options?: CallOptions,
+  ): Promise<{ ok: true }> {
     return this.#transport.json({
       method: 'DELETE',
       path: '/api/auth/totp/setup',
@@ -290,7 +364,11 @@ class HttpTotpPort implements TotpPort {
       signal: options?.signal,
     })
   }
-  disable(currentPassword: string, code: string, options?: CallOptions): Promise<{ ok: true }> {
+  disable(
+    currentPassword: string,
+    code: string,
+    options?: CallOptions,
+  ): Promise<{ ok: true }> {
     return this.#transport.json({
       method: 'DELETE',
       path: '/api/auth/totp',

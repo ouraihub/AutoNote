@@ -1,16 +1,14 @@
-
-
-
-export function readImageSize(bytes: Uint8Array, mime: string): { width: number; height: number } | null {
+export function readImageSize(
+  bytes: Uint8Array,
+  mime: string,
+): { width: number; height: number } | null {
   try {
     if (!hasExpectedImageSignature(bytes, mime)) return null
     if (mime === 'image/png') return pngSize(bytes)
     if (mime === 'image/jpeg') return jpegSize(bytes)
     if (mime === 'image/gif') return gifSize(bytes)
     if (mime === 'image/webp') return webpSize(bytes)
-  } catch {
-
-  }
+  } catch {}
   return null
 }
 
@@ -41,8 +39,17 @@ function jpegSize(b: Uint8Array) {
     }
     const marker = b[offset + 1]!
 
-    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
-      return { height: dv.getUint16(offset + 5), width: dv.getUint16(offset + 7) }
+    if (
+      marker >= 0xc0 &&
+      marker <= 0xcf &&
+      marker !== 0xc4 &&
+      marker !== 0xc8 &&
+      marker !== 0xcc
+    ) {
+      return {
+        height: dv.getUint16(offset + 5),
+        width: dv.getUint16(offset + 7),
+      }
     }
     offset += 2 + dv.getUint16(offset + 2)
   }
@@ -54,7 +61,10 @@ function webpSize(b: Uint8Array) {
   const dv = view(b)
   const format = String.fromCharCode(b[12]!, b[13]!, b[14]!, b[15]!)
   if (format === 'VP8 ') {
-    return { width: dv.getUint16(26, true) & 0x3fff, height: dv.getUint16(28, true) & 0x3fff }
+    return {
+      width: dv.getUint16(26, true) & 0x3fff,
+      height: dv.getUint16(28, true) & 0x3fff,
+    }
   }
   if (format === 'VP8L') {
     const bits = dv.getUint32(21, true)
@@ -72,26 +82,39 @@ function ascii(bytes: Uint8Array, start: number, end: number): string {
   return String.fromCharCode(...bytes.subarray(start, end))
 }
 
-
-export function hasExpectedImageSignature(bytes: Uint8Array, mime: string): boolean {
+export function hasExpectedImageSignature(
+  bytes: Uint8Array,
+  mime: string,
+): boolean {
   if (mime === 'image/png') {
-    return bytes.length >= 24 &&
+    return (
+      bytes.length >= 24 &&
       bytes[0] === 0x89 &&
       ascii(bytes, 1, 4) === 'PNG' &&
       bytes[4] === 0x0d &&
       bytes[5] === 0x0a &&
       bytes[6] === 0x1a &&
       bytes[7] === 0x0a
+    )
   }
   if (mime === 'image/jpeg') {
-    return bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+    return (
+      bytes.length >= 4 &&
+      bytes[0] === 0xff &&
+      bytes[1] === 0xd8 &&
+      bytes[2] === 0xff
+    )
   }
   if (mime === 'image/gif') {
     const header = ascii(bytes, 0, 6)
     return header === 'GIF87a' || header === 'GIF89a'
   }
   if (mime === 'image/webp') {
-    return bytes.length >= 16 && ascii(bytes, 0, 4) === 'RIFF' && ascii(bytes, 8, 12) === 'WEBP'
+    return (
+      bytes.length >= 16 &&
+      ascii(bytes, 0, 4) === 'RIFF' &&
+      ascii(bytes, 8, 12) === 'WEBP'
+    )
   }
   if (mime === 'image/avif') {
     if (bytes.length < 16 || ascii(bytes, 4, 8) !== 'ftyp') return false
@@ -111,13 +134,15 @@ export function hasReasonableImageDimensions(
 ): boolean {
   if (!dimensions) return true
   const { width, height } = dimensions
-  return Number.isInteger(width) &&
+  return (
+    Number.isInteger(width) &&
     Number.isInteger(height) &&
     width > 0 &&
     height > 0 &&
     width <= 65_535 &&
     height <= 65_535 &&
     width * height <= 100_000_000
+  )
 }
 
 const EXT_BY_MIME: Record<string, string> = {
@@ -139,7 +164,6 @@ export function extensionFor(mime: string, filename: string): string {
   return (fromName || EXT_BY_MIME[mime] || 'bin').toLowerCase()
 }
 
-
 export const ALLOWED_MIME = new Set([
   'image/png',
   'image/jpeg',
@@ -155,11 +179,18 @@ export const ALLOWED_MIME = new Set([
   'application/octet-stream',
 ])
 
-
-export function safeAttachmentMime(bytes: Uint8Array, reportedMime: string): string {
-  const normalized = reportedMime.trim().toLowerCase().split(';', 1)[0] || 'application/octet-stream'
+export function safeAttachmentMime(
+  bytes: Uint8Array,
+  reportedMime: string,
+): string {
+  const normalized =
+    reportedMime.trim().toLowerCase().split(';', 1)[0] ||
+    'application/octet-stream'
   if (!ALLOWED_MIME.has(normalized)) return 'application/octet-stream'
-  if (isInlineSafe(normalized) && !hasExpectedImageSignature(bytes, normalized)) {
+  if (
+    isInlineSafe(normalized) &&
+    !hasExpectedImageSignature(bytes, normalized)
+  ) {
     return 'application/octet-stream'
   }
   return normalized

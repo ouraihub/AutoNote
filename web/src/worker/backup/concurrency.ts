@@ -1,4 +1,3 @@
-
 export async function forEachConcurrent<T>(
   items: readonly T[],
   concurrency: number,
@@ -23,10 +22,12 @@ export async function forEachConcurrent<T>(
 
   const count = Math.min(items.length, Math.max(1, Math.floor(concurrency)))
 
-
-  const outcomes = await Promise.allSettled(Array.from({ length: count }, worker))
+  const outcomes = await Promise.allSettled(
+    Array.from({ length: count }, worker),
+  )
   const failed = outcomes.find(
-    (outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected',
+    (outcome): outcome is PromiseRejectedResult =>
+      outcome.status === 'rejected',
   )
   if (failed) throw failed.reason
 }

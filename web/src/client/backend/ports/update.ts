@@ -11,6 +11,10 @@ export class HttpUpdatePort implements UpdatePort {
     this.#transport = deps.transport
   }
   check(options?: CallOptions): Promise<UpdateCheckResponse> {
-    return this.#transport.json({ path: '/api/update', signal: options?.signal, timeoutMs: 10_000 })
+    return this.#transport.json({
+      path: '/api/update',
+      signal: options?.signal,
+      timeoutMs: 10_000,
+    })
   }
 }

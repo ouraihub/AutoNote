@@ -36,8 +36,13 @@ const LOADERS: Readonly<Record<string, () => Promise<unknown>>> = {
 
 const loading = new Map<string, Promise<void>>()
 
-export async function highlightWithPrism(source: string, requestedLanguage: string): Promise<PrismHighlight | null> {
-  const language = LANGUAGE_ALIASES[requestedLanguage.toLowerCase()] ?? requestedLanguage.toLowerCase()
+export async function highlightWithPrism(
+  source: string,
+  requestedLanguage: string,
+): Promise<PrismHighlight | null> {
+  const language =
+    LANGUAGE_ALIASES[requestedLanguage.toLowerCase()] ??
+    requestedLanguage.toLowerCase()
   const loader = LOADERS[language]
   if (!loader) return null
   await loadLanguage(language, loader)
@@ -46,7 +51,10 @@ export async function highlightWithPrism(source: string, requestedLanguage: stri
   return { html: Prism.highlight(source, grammar, language), language }
 }
 
-function loadLanguage(language: string, loader: () => Promise<unknown>): Promise<void> {
+function loadLanguage(
+  language: string,
+  loader: () => Promise<unknown>,
+): Promise<void> {
   const current = loading.get(language)
   if (current) return current
   const pending = (async () => {
@@ -66,7 +74,8 @@ function dependencies(language: string): readonly string[] {
   if (language === 'typescript') return ['javascript']
   if (language === 'json') return ['javascript']
   if (language === 'markdown') return ['markup', 'yaml']
-  if (language === 'rust' || language === 'sql' || language === 'python') return ['clike']
+  if (language === 'rust' || language === 'sql' || language === 'python')
+    return ['clike']
   if (language === 'yaml') return ['markup']
   return []
 }

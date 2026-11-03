@@ -17,7 +17,8 @@ test('keeps editor panes and undo histories independent', async () => {
   expect(screen.getByTestId('second-editor').textContent).toContain('second B')
 })
 
-test('reports exactly one local write and ignores its external value echo', async () => {
+test('reports exactly one local write a\
+nd ignores its external value echo', async () => {
   render(EditorHarness)
 
   await fireEvent.click(screen.getByRole('button', { name: 'Edit first' }))
@@ -26,9 +27,12 @@ test('reports exactly one local write and ignores its external value echo', asyn
   expect(screen.getByTestId('second-changes').textContent).toBe('0')
 })
 
-test('keeps the focused live-preview line editable when settings re-run with identical values', async () => {
+test('keeps the focused live-preview line editabl\
+e when settings re-run with identical values', async () => {
   let view: EditorView | null = null
-  const { container } = render(LiveEditorHarness, { onView: (next: EditorView | null) => (view = next) })
+  const { container } = render(LiveEditorHarness, {
+    onView: (next: EditorView | null) => (view = next),
+  })
   await tick()
   view!.contentDOM.dispatchEvent(new FocusEvent('focus'))
   view!.dispatch({ selection: { anchor: 5 } })

@@ -4,7 +4,15 @@ const inFlight = new Map<string, number>()
 
 export function acquire(keyId: string, maxConcurrent: number): Response | null {
   const running = inFlight.get(keyId) ?? 0
-  if (running >= maxConcurrent) return relayError(429, 'rate_limit_error', `at most ${maxConcurrent} concurrent requests per access key; retry shortly`, { 'retry-after': BUSY_RETRY_SECONDS })
+  if (running >= maxConcurrent)
+    return relayError(
+      429,
+      'rate_limit_error',
+      'at most ' +
+        `${maxConcurrent}` +
+        ' concurrent requests per access key; retry shortly',
+      { 'retry-after': BUSY_RETRY_SECONDS },
+    )
   inFlight.set(keyId, running + 1)
   return null
 }

@@ -38,7 +38,9 @@ export function findObsidianAsset(
   const direct = index.byPath.get(normalized.toLowerCase())
   if (direct) return direct
   if (dir) {
-    const relative = index.byPath.get(normalizeObsidianPath(`${dir}/${normalized}`).toLowerCase())
+    const relative = index.byPath.get(
+      normalizeObsidianPath(`${dir}/${normalized}`).toLowerCase(),
+    )
     if (relative) return relative
   }
   return index.byName.get(pathBasename(normalized).toLowerCase()) ?? null
@@ -77,13 +79,22 @@ export function rewriteObsidianReferences(
   next = next.replace(WIKI_ASSET_RE, (full, target, alias) => {
     if (!ASSET_EXT_RE.test(target)) return full
     const url = resolve(normalizeObsidianPath(target))
-    return url ? `![${alias?.trim() || assetDisplayName(target)}](${url})` : full
+    return url
+      ? '![' +
+          `${alias?.trim() || assetDisplayName(target)}` +
+          '](' +
+          `${url}` +
+          ')'
+      : full
   })
   return next
 }
 
 export function stripObsidianComments(content: string): string {
-  return content.replace(/%%([\s\S]*?)%%/g, (_full, inner: string) => `<!--${inner.replace(/--/g, '—')}-->`)
+  return content.replace(
+    /%%([\s\S]*?)%%/g,
+    (_full, inner: string) => `<!--${inner.replace(/--/g, '—')}-->`,
+  )
 }
 
 export function normalizeObsidianPath(value: string): string {
@@ -110,7 +121,11 @@ export function mimeForAttachmentName(name: string): string {
 
 function isManagedReference(href: string): boolean {
   const clean = href.trim()
-  return /^(?:https?:|data:|file:|\/api\/)/i.test(clean) || clean.startsWith('#') || clean.startsWith('^')
+  return (
+    /^(?:https?:|data:|file:|\/api\/)/i.test(clean) ||
+    clean.startsWith('#') ||
+    clean.startsWith('^')
+  )
 }
 
 function pathBasename(path: string): string {

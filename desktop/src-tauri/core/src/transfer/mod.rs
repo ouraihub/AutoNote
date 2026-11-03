@@ -208,24 +208,49 @@ pub fn recover_staging(library: &Library) -> Result<(), Error> {
                             r.get(0)
                         })?;
                     library.read(|conn| {
-                        let committed: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM app_meta WHERE key=?1 AND value='committed')", [format!("import:{job}")], |r| r.get(0))?;
+                        let committed: bool = conn.query_row(
+                            "SELECT EXISTS(SELECT 1 FROM app_meta WHERE key=?1 \
+                             AND value='committed')",
+                            [format!("import:{job}")],
+                            |r| r.get(0),
+                        )?;
                         let mut objects = db.prepare("SELECT id,hash FROM published")?;
-                        for raw in objects.query_map([], |r| Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))? {
+                        for raw in objects.query_map([], |r| {
+                            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                        })? {
                             let (id, hash) = raw?;
-                            if !crate::id::is_valid_id(&id) || !format::hash_valid(&hash) { return Err(format::invalid()) }
-                            let referenced: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM attachments WHERE id=?1) OR EXISTS(SELECT 1 FROM notes WHERE instr(content,?2)>0) OR EXISTS(SELECT 1 FROM note_versions WHERE instr(content,?2)>0)", rusqlite::params![id,format!("/api/files/{id}")], |r| r.get(0))?;
+                            if !crate::id::is_valid_id(&id) || !format::hash_valid(&hash) {
+                                return Err(format::invalid());
+                            }
+                            let referenced: bool = conn.query_row(
+                                "SELECT EXISTS(SELECT 1 FROM attachments WHERE id=?1) \
+                                 OR EXISTS(SELECT 1 FROM notes WHERE instr(content,?2)>0) \
+                                 OR EXISTS(SELECT 1 FROM note_versions WHERE instr(content,?2)>0)",
+                                rusqlite::params![id, format!("/api/files/{id}")],
+                                |r| r.get(0),
+                            )?;
                             let path = library.files.transfer_root().join(&id);
                             if referenced {
-                                if committed && export::hash_file(std::fs::File::open(path)?, &CancellationToken::default())? != hash { return Err(format::invalid()) }
+                                if committed
+                                    && export::hash_file(
+                                        std::fs::File::open(path)?,
+                                        &CancellationToken::default(),
+                                    )? != hash
+                                {
+                                    return Err(format::invalid());
+                                }
                             } else {
                                 match std::fs::remove_file(path) {
                                     Ok(()) => (),
-                                    Err(error) if error.kind()==std::io::ErrorKind::NotFound => (),
+                                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                                     Err(error) => return Err(error.into()),
                                 }
                             }
                         }
-                        conn.execute("DELETE FROM app_meta WHERE key=?1", [format!("import:{job}")])?;
+                        conn.execute(
+                            "DELETE FROM app_meta WHERE key=?1",
+                            [format!("import:{job}")],
+                        )?;
                         Ok(())
                     })?;
                 }

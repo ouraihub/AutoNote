@@ -38,7 +38,12 @@
 
   export interface AuthI18n {
     readonly locale: AppLocale
-    t(key: MessageKey, params?: Readonly<Record<string, boolean | number | string | null | undefined>>): string
+    t(
+      key: MessageKey,
+      params?: Readonly<
+        Record<string, boolean | number | string | null | undefined>
+      >,
+    ): string
   }
 
   interface Props {
@@ -60,9 +65,14 @@
 
   const firstRun = $derived(Boolean(session.site && !session.site.initialized))
   const registerMode = $derived(firstRun || mode === 'register')
-  const showModeSwitch = $derived(!firstRun && Boolean(session.site?.registrationOpen))
+  const showModeSwitch = $derived(
+    !firstRun && Boolean(session.site?.registrationOpen),
+  )
   const challenge = $derived(session.challenge)
-  const errorKey = $derived(localError ?? (session.authError ? messageKeyForError(session.authError) : null))
+  const errorKey = $derived(
+    localError ??
+      (session.authError ? messageKeyForError(session.authError) : null),
+  )
   const errorMessage = $derived(errorKey ? i18n.t(errorKey) : null)
 
   function clearError(): void {
@@ -104,13 +114,17 @@
 
     if (challenge) {
       if (!verificationCode.trim()) {
-        localError = recoveryMode ? 'auth.enter_recovery_code' : 'auth.enter_authenticator_code'
+        localError = recoveryMode
+          ? 'auth.enter_recovery_code'
+          : 'auth.enter_authenticator_code'
         return
       }
       const controller = new AbortController()
       submitController = controller
       try {
-        await session.completeTotp(verificationCode.trim(), { signal: controller.signal })
+        await session.completeTotp(verificationCode.trim(), {
+          signal: controller.signal,
+        })
       } finally {
         if (submitController === controller) submitController = null
       }
@@ -130,9 +144,13 @@
     submitController = controller
     try {
       if (registerMode) {
-        await session.register(username.trim(), password, i18n.locale, { signal: controller.signal })
+        await session.register(username.trim(), password, i18n.locale, {
+          signal: controller.signal,
+        })
       } else {
-        const outcome = await session.login(username.trim(), password, { signal: controller.signal })
+        const outcome = await session.login(username.trim(), password, {
+          signal: controller.signal,
+        })
         if (outcome === 'challenge') {
           password = ''
           confirmation = ''
@@ -152,7 +170,12 @@
   })
 </script>
 
-{#snippet field(label: string, value: string, set: (value: string) => void, attrs: Record<string, unknown>)}
+{#snippet field(
+  label: string,
+  value: string,
+  set: (value: string) => void,
+  attrs: Record<string, unknown>,
+)}
   <TextInput
     {...attrs}
     aria-label={label}
@@ -165,37 +188,55 @@
 
 {#if session.canSignIn}
   <main
-    class="relative flex min-h-full flex-col items-center justify-center overflow-y-auto px-4 pt-[calc(32px+env(safe-area-inset-top))] pb-[calc(24px+env(safe-area-inset-bottom))] md:px-6 md:py-10"
+    class={'relative flex min-h-full flex-col items-center justify-center ' +
+      'overflow-y-auto px-4 pt-[calc(32px+env(safe-area-inset-top))] ' +
+      'pb-[calc(24px+env(safe-area-inset-bottom))] md:px-6 md:py-10'}
   >
-    <div aria-hidden="true" class="pointer-events-none absolute inset-0 overflow-hidden">
+    <div
+      aria-hidden="true"
+      class="pointer-events-none absolute inset-0 overflow-hidden"
+    >
       <div
-        class="absolute left-1/2 top-[-22%] size-[720px] -translate-x-1/2 rounded-full opacity-[0.13] blur-[120px]"
+        class={'absolute left-1/2 top-[-22%] size-[720px] ' +
+          '-translate-x-1/2 rounded-full opacity-[0.13] blur-[120px]'}
         style:background="var(--accent)"
       ></div>
       <div
         class="absolute inset-0 opacity-[0.5]"
-        style="background-image: linear-gradient(var(--border-subtle) 1px, transparent 1px), linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px); background-size: 52px 52px; mask-image: radial-gradient(ellipse 80% 55% at 50% 40%, #000 20%, transparent 78%)"
+        style={'background-image: linear-gradient(var(--border-subtle) ' +
+          '1px, transparent 1px), linear-gradient(90deg, ' +
+          'var(--border-subtle) 1px, transparent 1px); ' +
+          'background-size: 52px 52px; mask-image: radial-gradient(' +
+          'ellipse 80% 55% at 50% 40%, #000 20%, transparent 78%)'}
       ></div>
     </div>
 
     <div class="anim-rise relative w-full max-w-[380px]">
       <div class="mb-6 flex flex-col items-center text-center md:mb-8">
         <div
-          class="mb-5 flex size-14 items-center justify-center rounded-[18px] border border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--accent)] shadow-[var(--shadow-pop)]"
+          class={'mb-5 flex size-14 items-center justify-center ' +
+            'rounded-[18px] border border-[var(--border-default)] ' +
+            'bg-[var(--bg-surface)] text-[var(--accent)] ' +
+            'shadow-[var(--shadow-pop)]'}
         >
           <Logo size={27} />
         </div>
         <h1
-          class="text-[30px] font-semibold tracking-[0.01em] text-[var(--text-primary)]"
+          class={'text-[30px] font-semibold tracking-[0.01em] ' +
+            'text-[var(--text-primary)]'}
           style:font-family="var(--font-serif)"
         >
           {i18n.t('common.product_name')}
         </h1>
-        <p class="mt-2.5 text-[13px] leading-relaxed text-[var(--text-tertiary)]">
+        <p
+          class="mt-2.5 text-[13px] leading-relaxed text-[var(--text-tertiary)]"
+        >
           {#if challenge}
             {i18n.t('auth.two_step_verification_description')}
           {:else if firstRun}
-            {i18n.t('auth.create_the_owner_account_this_step_appears_only_once')}
+            {i18n.t(
+              'auth.create_the_owner_account_this_step_appears_only_once',
+            )}
           {:else}
             {i18n.t('auth.tagline')}
           {/if}
@@ -211,13 +252,17 @@
       >
         {#if challenge}
           <div
-            class="mb-3 flex items-center gap-2 rounded-[var(--r-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3 py-2.5 text-[12px] text-[var(--text-secondary)]"
+            class={'mb-3 flex items-center gap-2 rounded-[var(--r-md)] ' +
+              'border border-[var(--border-subtle)] bg-[var(--bg-surface)] ' +
+              'px-3 py-2.5 text-[12px] text-[var(--text-secondary)]'}
           >
             <KeyRound size={14} class="shrink-0 text-[var(--accent)]" />
             <span class="min-w-0 truncate">@{username.trim()}</span>
           </div>
           <TextInput
-            aria-label={i18n.t(recoveryMode ? 'auth.recovery_code' : 'auth.authenticator_code')}
+            aria-label={i18n.t(
+              recoveryMode ? 'auth.recovery_code' : 'auth.authenticator_code',
+            )}
             value={verificationCode}
             maxlength={recoveryMode ? 24 : 6}
             placeholder={recoveryMode ? 'XXXX-XXXX-XXXX-XXXX' : '000000'}
@@ -228,7 +273,8 @@
             disabled={session.busy}
             invalid={Boolean(errorMessage)}
             autofocus
-            oninput={(event) => normalizeVerificationCode(event.currentTarget.value)}
+            oninput={(event) =>
+              normalizeVerificationCode(event.currentTarget.value)}
           />
         {:else}
           {@render field(
@@ -238,7 +284,11 @@
               username = value
               clearError()
             },
-            { autocomplete: 'username', autocapitalize: 'none', spellcheck: false },
+            {
+              autocomplete: 'username',
+              autocapitalize: 'none',
+              spellcheck: false,
+            },
           )}
           {@render field(
             i18n.t('common.password'),
@@ -251,7 +301,9 @@
               type: 'password',
               maxlength: LIMITS.passwordMaxLength,
               autocomplete: registerMode ? 'new-password' : 'current-password',
-              placeholder: registerMode ? i18n.t('auth.password_minimum_8_characters') : undefined,
+              placeholder: registerMode
+                ? i18n.t('auth.password_minimum_8_characters')
+                : undefined,
             },
           )}
           {#if registerMode}
@@ -266,7 +318,8 @@
                 type: 'password',
                 maxlength: LIMITS.passwordMaxLength,
                 autocomplete: 'new-password',
-                'aria-invalid': localError === 'common.the_passwords_do_not_match',
+                'aria-invalid':
+                  localError === 'common.the_passwords_do_not_match',
               },
             )}
           {/if}
@@ -275,7 +328,13 @@
         <button
           type="submit"
           disabled={session.busy || submitController !== null}
-          class="flex h-11 w-full items-center justify-center gap-2.5 rounded-[var(--r-lg)] bg-[var(--accent)] text-[13.5px] font-medium text-[var(--accent-contrast)] transition-[transform,opacity,background-color] duration-[var(--dur-fast)] ease-[var(--ease-out)] hover:bg-[var(--accent-hover)] active:translate-y-px disabled:opacity-50"
+          class={'flex h-11 w-full items-center justify-center gap-2.5 ' +
+            'rounded-[var(--r-lg)] bg-[var(--accent)] text-[13.5px] ' +
+            'font-medium text-[var(--accent-contrast)] ' +
+            'transition-[transform,opacity,background-color] ' +
+            'duration-[var(--dur-fast)] ease-[var(--ease-out)] ' +
+            'hover:bg-[var(--accent-hover)] active:translate-y-px ' +
+            'disabled:opacity-50'}
         >
           {#if session.busy}<LoaderCircle
               size={16}
@@ -297,7 +356,9 @@
               type="button"
               disabled={session.busy}
               onclick={resetChallenge}
-              class="inline-flex items-center gap-1 text-[12px] text-[var(--text-tertiary)] transition-colors hover:text-[var(--accent)]"
+              class={'inline-flex items-center gap-1 text-[12px] ' +
+                'text-[var(--text-tertiary)] transition-colors ' +
+                'hover:text-[var(--accent)]'}
             >
               <ArrowLeft size={12} aria-hidden="true" />
               {i18n.t('auth.back_to_password')}
@@ -306,9 +367,14 @@
               type="button"
               disabled={session.busy}
               onclick={toggleRecoveryMode}
-              class="text-[12px] text-[var(--text-tertiary)] transition-colors hover:text-[var(--accent)]"
+              class={'text-[12px] text-[var(--text-tertiary)] ' +
+                'transition-colors hover:text-[var(--accent)]'}
             >
-              {i18n.t(recoveryMode ? 'auth.use_authenticator_code' : 'auth.use_recovery_code')}
+              {i18n.t(
+                recoveryMode
+                  ? 'auth.use_authenticator_code'
+                  : 'auth.use_recovery_code',
+              )}
             </button>
           </div>
         {:else if showModeSwitch}
@@ -316,9 +382,14 @@
             type="button"
             disabled={session.busy}
             onclick={switchMode}
-            class="mx-auto block text-[12px] text-[var(--text-tertiary)] transition-colors hover:text-[var(--accent)]"
+            class={'mx-auto block text-[12px] text-[var(--text-tertiary)] ' +
+              'transition-colors hover:text-[var(--accent)]'}
           >
-            {i18n.t(registerMode ? 'auth.already_have_an_account_sign_in' : 'auth.no_account_create_one')}
+            {i18n.t(
+              registerMode
+                ? 'auth.already_have_an_account_sign_in'
+                : 'auth.no_account_create_one',
+            )}
           </button>
         {/if}
       </form>
@@ -326,27 +397,46 @@
       {#if errorMessage}
         <div
           role="alert"
-          class="anim-rise mt-4 flex items-start gap-2 rounded-[var(--r-md)] border border-[color-mix(in_oklab,var(--danger)_35%,transparent)] bg-[color-mix(in_oklab,var(--danger)_9%,transparent)] px-3 py-2.5"
+          class={'anim-rise mt-4 flex items-start gap-2 ' +
+            'rounded-[var(--r-md)] border ' +
+            'border-[color-mix(in_oklab,var(--danger)_35%,transparent)] ' +
+            'bg-[color-mix(in_oklab,var(--danger)_9%,transparent)] ' +
+            'px-3 py-2.5'}
         >
-          <TriangleAlert size={14} class="mt-[1px] shrink-0 text-[var(--danger)]" aria-hidden="true" />
-          <span class="text-[12px] leading-relaxed text-[var(--text-secondary)]">{errorMessage}</span>
+          <TriangleAlert
+            size={14}
+            class="mt-[1px] shrink-0 text-[var(--danger)]"
+            aria-hidden="true"
+          />
+          <span class="text-[12px] leading-relaxed text-[var(--text-secondary)]"
+            >{errorMessage}</span
+          >
         </div>
       {/if}
 
       <div class="mt-6 space-y-2 text-center md:mt-8">
         {#if session.site?.initialized && !session.site.registrationOpen}
-          <p class="text-[11.5px] leading-relaxed text-[var(--text-quaternary)]">
-            {i18n.t('auth.this_is_a_private_instance_registration_is_closed_so_only_existing_accou')}
+          <p
+            class="text-[11.5px] leading-relaxed text-[var(--text-quaternary)]"
+          >
+            {i18n.t(
+              'auth.this_is_a_private_instance_registration_is_closed_so_\
+only_existing_accou',
+            )}
           </p>
         {/if}
         <p class="text-[11px] tracking-[0.04em] text-[var(--text-quaternary)]">
-          {i18n.t('auth.live_split_view_markdown_preview_realtime_multi_device_sync_multiple_web')}
+          {i18n.t(
+            'auth.live_split_view_markdown_preview_realtime_multi_device_\
+sync_multiple_web',
+          )}
         </p>
       </div>
     </div>
 
     <footer
-      class="pointer-events-none mt-6 text-center text-[11px] tracking-[0.05em] text-[var(--text-quaternary)] md:mt-8"
+      class={'pointer-events-none mt-6 text-center text-[11px] ' +
+        'tracking-[0.05em] text-[var(--text-quaternary)] md:mt-8'}
     >
       {i18n.t('auth.self_hosted_on_cloudflare_workers_your_data_is_yours')}
     </footer>

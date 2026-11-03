@@ -342,7 +342,12 @@ mod tests {
     use super::*;
     #[test]
     fn replay_is_recognised_by_body_not_trash_state() -> Result<(), serde_json::Error> {
-        let value = json!({"id":"00000000000000000000000001","title":"t","content":"body","excerpt":"","folderId":null,"tags":[],"isPinned":false,"isStarred":false,"isArchived":false,"wordCount":1,"charCount":4,"rev":3,"position":0,"createdAt":1,"updatedAt":1,"deletedAt":null});
+        let value = json!({
+            "id":"00000000000000000000000001","title":"t","content":"body",
+            "excerpt":"","folderId":null,"tags":[],"isPinned":false,
+            "isStarred":false,"isArchived":false,"wordCount":1,"charCount":4,
+            "rev":3,"position":0,"createdAt":1,"updatedAt":1,"deletedAt":null
+        });
         let sent: Note = serde_json::from_value(value)?;
         let mut server = sent.clone();
         server.summary.deleted_at =

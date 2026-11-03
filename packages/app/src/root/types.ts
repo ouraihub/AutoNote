@@ -79,8 +79,11 @@ export interface HostExtensions {
   readonly writingToolbar?: WritingToolbarExtension
   onNoteOpened?(id: string): void
   subscribeIntents?(listener: (intent: 'new-note') => void): () => void
-  /** Replaces "log out" in the account menu for a host without accounts; null hides it. */
-  subscribeAccountAction?(listener: (action: HostAccountAction | null) => void): () => void
+  /** Replaces "log out" in the account menu for a host without accounts; null
+   * hides it. */
+  subscribeAccountAction?(
+    listener: (action: HostAccountAction | null) => void,
+  ): () => void
 }
 
 export interface HostAccountAction {

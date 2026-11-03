@@ -2,7 +2,6 @@ import { sha256Hex, toBase64Url } from './encoding'
 import { isValidSlug } from './id'
 import { isPasswordHash } from './password'
 
-
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/
 
 export async function createShareAssetSession(
@@ -11,7 +10,11 @@ export async function createShareAssetSession(
   passwordHash: string,
   expiresAt: number,
 ): Promise<string> {
-  if (!isValidSlug(slug) || !isPasswordHash(passwordHash) || !Number.isSafeInteger(expiresAt)) {
+  if (
+    !isValidSlug(slug) ||
+    !isPasswordHash(passwordHash) ||
+    !Number.isSafeInteger(expiresAt)
+  ) {
     throw new Error('invalid_share_asset_session')
   }
   const token = createOpaqueToken()
@@ -19,9 +22,9 @@ export async function createShareAssetSession(
   if (expiresAt <= now) throw new Error('expired_share_asset_session')
   await db
     .prepare(
-      `INSERT INTO share_asset_sessions
-         (id, slug, password_hash, expires_at, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5)`,
+      'INSERT INTO share_asset_sessions\n         (id, sl' +
+        'ug, password_hash, expires_at, created_at)\n      ' +
+        ' VALUES (?1, ?2, ?3, ?4, ?5)',
     )
     .bind(await tokenId(token), slug, passwordHash, expiresAt, now)
     .run()
@@ -34,20 +37,32 @@ export async function verifyShareAssetSession(
   slug: string,
   passwordHash: string,
 ): Promise<boolean> {
-  if (!isOpaqueToken(token) || !isValidSlug(slug) || !isPasswordHash(passwordHash)) return false
+  if (
+    !isOpaqueToken(token) ||
+    !isValidSlug(slug) ||
+    !isPasswordHash(passwordHash)
+  )
+    return false
   const row = await db
     .prepare(
-      `SELECT 1 AS present FROM share_asset_sessions
-        WHERE id = ?1 AND slug = ?2 AND password_hash = ?3 AND expires_at > ?4`,
+      'SELECT 1 AS present FROM share_asset_sessions\n   ' +
+        '     WHERE id = ?1 AND slug = ?2 AND password_hash' +
+        ' = ?3 AND expires_at > ?4',
     )
     .bind(await tokenId(token), slug, passwordHash, Date.now())
     .first<{ present: number }>()
   return row?.present === 1
 }
 
-export async function revokeShareAssetSessions(db: D1Database, slug: string): Promise<void> {
+export async function revokeShareAssetSessions(
+  db: D1Database,
+  slug: string,
+): Promise<void> {
   if (!isValidSlug(slug)) return
-  await db.prepare(`DELETE FROM share_asset_sessions WHERE slug = ?1`).bind(slug).run()
+  await db
+    .prepare(`DELETE FROM share_asset_sessions WHERE slug = ?1`)
+    .bind(slug)
+    .run()
 }
 
 export function shareAssetCookieName(slug: string): string {

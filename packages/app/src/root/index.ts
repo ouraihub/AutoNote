@@ -10,7 +10,14 @@ import { UiState } from '../state/ui.svelte'
 import AppRoot from './AppRoot.svelte'
 import type { AppDeps, AppHandle } from './types'
 
-export type { AppDeps, AppHandle, HostAccountAction, HostExtensions, HostPanel, HostSettingsSection } from './types'
+export type {
+  AppDeps,
+  AppHandle,
+  HostAccountAction,
+  HostExtensions,
+  HostPanel,
+  HostSettingsSection,
+} from './types'
 export {
   getBackend,
   getClock,
@@ -32,14 +39,16 @@ function validateCapabilities({ backend }: AppDeps): void {
   const { capabilities } = backend
   if (capabilities.accounts !== (backend.session.account !== undefined))
     throw new Error('Account capability does not match session port')
-  if (capabilities.totp && !capabilities.accounts) throw new Error('TOTP capability requires accounts')
+  if (capabilities.totp && !capabilities.accounts)
+    throw new Error('TOTP capability requires accounts')
   if (capabilities.share !== (backend.share !== undefined))
     throw new Error('Share capability does not match share port')
   if (capabilities.remoteBackup !== (backend.backup !== undefined))
     throw new Error('Remote backup capability does not match backup port')
   if (
     (capabilities.mcp === null) !== (backend.mcp === undefined) ||
-    (capabilities.mcp === 'local' && (!backend.mcp || !('status' in backend.mcp))) ||
+    (capabilities.mcp === 'local' &&
+      (!backend.mcp || !('status' in backend.mcp))) ||
     (capabilities.mcp === 'remote' && (!backend.mcp || !('get' in backend.mcp)))
   )
     throw new Error('MCP capability does not match MCP port')
@@ -60,9 +69,15 @@ export function mountApp(target: HTMLElement, deps: AppDeps): AppHandle {
   const overlay =
     deps.notifier instanceof OverlayNotifier
       ? deps.notifier
-      : new OverlayNotifier((key, params) => i18n.t(key as Parameters<I18nState['t']>[0], params))
+      : new OverlayNotifier((key, params) =>
+          i18n.t(key as Parameters<I18nState['t']>[0], params),
+        )
   const notes = new NotesState({ backend: deps.backend, logger: deps.logger })
-  const settings = new SettingsState({ port: deps.backend.settings, logger: deps.logger, notifier: deps.notifier })
+  const settings = new SettingsState({
+    port: deps.backend.settings,
+    logger: deps.logger,
+    notifier: deps.notifier,
+  })
   const session = new SessionState({
     port: deps.backend.session,
     settings,
@@ -71,10 +86,17 @@ export function mountApp(target: HTMLElement, deps: AppDeps): AppHandle {
     clock: deps.clock,
     flushNotes: () => notes.flush(),
   })
-  const ui = new UiState({ prefs: deps.prefs, logger: deps.logger, notifier: deps.notifier })
+  const ui = new UiState({
+    prefs: deps.prefs,
+    logger: deps.logger,
+    notifier: deps.notifier,
+  })
   const organize = new OrganizeActions({
     backend: deps.backend,
-    state: { read: () => notes.readOrganizeSnapshot(), write: (patch) => notes.writeOrganizePatch(patch) },
+    state: {
+      read: () => notes.readOrganizeSnapshot(),
+      write: (patch) => notes.writeOrganizePatch(patch),
+    },
     notifier: deps.notifier,
     now: () => deps.clock.now(),
   })
@@ -108,11 +130,18 @@ export function mountApp(target: HTMLElement, deps: AppDeps): AppHandle {
   async function flush(): Promise<FlushResult> {
     if (destroyed) throw new Error('App is destroyed')
     await Promise.all([...flushers].map((save) => save()))
-    const [result, saved] = await Promise.all([notes.flush(), settings.flush(), ui.flush()])
+    const [result, saved] = await Promise.all([
+      notes.flush(),
+      settings.flush(),
+      ui.flush(),
+    ])
     if (!saved) return { pending: result.pending, failed: result.failed + 1 }
     return result
   }
-  async function openNote(id: string | null, pane: 'primary' | 'secondary' = 'primary'): Promise<void> {
+  async function openNote(
+    id: string | null,
+    pane: 'primary' | 'secondary' = 'primary',
+  ): Promise<void> {
     if (destroyed) throw new Error('App is destroyed')
     const request = ++navigation
     await readySignal.promise
@@ -132,7 +161,10 @@ export function mountApp(target: HTMLElement, deps: AppDeps): AppHandle {
       if (destroyed) return Promise.resolve()
       destroying ??= (async () => {
         const result = await flush()
-        if (result.failed || (deps.backend.kind === 'desktop' && result.pending))
+        if (
+          result.failed ||
+          (deps.backend.kind === 'desktop' && result.pending)
+        )
           throw new Error('Local changes are not safely persisted')
         await deps.backend.dispose()
         session.dispose()

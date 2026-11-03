@@ -54,12 +54,22 @@ impl Library {
     /// Returns storage errors.
     pub fn mcp_tokens(&self) -> Result<Vec<McpToken>, Error> {
         self.read(|conn| {
-            let mut statement = conn.prepare("SELECT id,name,token_hash,scopes,created_at,last_used_at,revoked_at FROM mcp_tokens ORDER BY created_at,id")?;
+            let mut statement = conn.prepare(
+                "SELECT id,name,token_hash,scopes,created_at,last_used_at,revoked_at \
+                 FROM mcp_tokens ORDER BY created_at,id",
+            )?;
             Ok(statement
-                .query_map([], |row| Ok(McpToken {
-                    id: row.get(0)?, name: row.get(1)?, token_hash: row.get(2)?, scopes: row.get(3)?,
-                    created_at: row.get(4)?, last_used_at: row.get(5)?, revoked_at: row.get(6)?,
-                }))?
+                .query_map([], |row| {
+                    Ok(McpToken {
+                        id: row.get(0)?,
+                        name: row.get(1)?,
+                        token_hash: row.get(2)?,
+                        scopes: row.get(3)?,
+                        created_at: row.get(4)?,
+                        last_used_at: row.get(5)?,
+                        revoked_at: row.get(6)?,
+                    })
+                })?
                 .collect::<rusqlite::Result<Vec<_>>>()?)
         })
     }
@@ -76,7 +86,20 @@ impl Library {
             return Err(Error::invalid("token", "invalid token metadata"));
         }
         self.write(crate::write::WriteOrigin::Mcp, |tx| {
-            tx.tx.execute("INSERT INTO mcp_tokens(id,name,token_hash,scopes,created_at,last_used_at,revoked_at) VALUES(?1,?2,?3,?4,?5,?6,?7)", params![token.id, token.name, token.token_hash, token.scopes, token.created_at, token.last_used_at, token.revoked_at])?;
+            tx.tx.execute(
+                "INSERT INTO mcp_tokens(\
+                 id,name,token_hash,scopes,created_at,last_used_at,revoked_at) \
+                 VALUES(?1,?2,?3,?4,?5,?6,?7)",
+                params![
+                    token.id,
+                    token.name,
+                    token.token_hash,
+                    token.scopes,
+                    token.created_at,
+                    token.last_used_at,
+                    token.revoked_at,
+                ],
+            )?;
             Ok(())
         })?;
         Ok(())
@@ -139,6 +162,7 @@ impl Library {
         })
         .map(|written| written.value)
     }
+
     /// # Errors
     /// Returns storage errors.
     pub fn mcp_preferences(&self) -> Result<McpPreferences, Error> {
@@ -164,7 +188,17 @@ impl Library {
     /// Returns storage errors.
     pub fn set_mcp_preferences(&self, preferences: McpPreferences, now: i64) -> Result<(), Error> {
         self.write(crate::write::WriteOrigin::Mcp, |tx| {
-            tx.tx.execute("INSERT INTO mcp_preferences(id,write_enabled,trash_enabled,updated_at) VALUES(1,?1,?2,?3) ON CONFLICT(id) DO UPDATE SET write_enabled=excluded.write_enabled,trash_enabled=excluded.trash_enabled,updated_at=excluded.updated_at", params![i64::from(preferences.write_enabled), i64::from(preferences.trash_enabled), now])?;
+            tx.tx.execute(
+                "INSERT INTO mcp_preferences(\
+                 id,write_enabled,trash_enabled,updated_at) VALUES(1,?1,?2,?3) \
+                 ON CONFLICT(id) DO UPDATE SET write_enabled=excluded.write_enabled,\
+                 trash_enabled=excluded.trash_enabled,updated_at=excluded.updated_at",
+                params![
+                    i64::from(preferences.write_enabled),
+                    i64::from(preferences.trash_enabled),
+                    now,
+                ],
+            )?;
             Ok(())
         })?;
         Ok(())
@@ -181,20 +215,54 @@ impl Library {
         now: i64,
     ) -> Result<McpOperationLookup, Error> {
         self.read(|conn| {
-            let existing: Option<(String, String, String, String, i64)> = conn.query_row("SELECT tool,request_hash,response_json,status,created_at FROM mcp_operations WHERE operation_id=?1", [operation_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))).optional()?;
-            let Some((saved_tool, saved_hash, result, status, created)) = existing else { return Ok(McpOperationLookup::New); };
-            if saved_tool != tool || saved_hash != request_hash { return Ok(McpOperationLookup::Conflict); }
-            if status == "expired" || now.saturating_sub(created) > 7 * 24 * 60 * 60 * 1000 { return Ok(McpOperationLookup::Expired); }
+            let existing: Option<(String, String, String, String, i64)> = conn
+                .query_row(
+                    "SELECT tool,request_hash,response_json,status,created_at \
+                     FROM mcp_operations WHERE operation_id=?1",
+                    [operation_id],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                        ))
+                    },
+                )
+                .optional()?;
+            let Some((saved_tool, saved_hash, result, status, created)) = existing else {
+                return Ok(McpOperationLookup::New);
+            };
+            if saved_tool != tool || saved_hash != request_hash {
+                return Ok(McpOperationLookup::Conflict);
+            }
+            if status == "expired" || now.saturating_sub(created) > 7 * 24 * 60 * 60 * 1000 {
+                return Ok(McpOperationLookup::Expired);
+            }
             Ok(McpOperationLookup::Replay(result))
         })
     }
 
-    /// Stores an operation result. The caller must invoke this in the same domain transaction when atomicity is required.
+    /// Stores an operation result. The caller must invoke this in the same domain
+    /// transaction when atomicity is required.
     /// # Errors
     /// Returns storage errors.
     pub fn mcp_store_operation(&self, operation: &McpOperation) -> Result<(), Error> {
         self.write(crate::write::WriteOrigin::Mcp, |tx| {
-            tx.tx.execute("INSERT INTO mcp_operations(operation_id,tool,request_hash,response_json,status,created_at) VALUES(?1,?2,?3,?4,?5,?6)", params![operation.operation_id, operation.tool, operation.request_hash, operation.response_json, operation.status, operation.created_at])?;
+            tx.tx.execute(
+                "INSERT INTO mcp_operations(\
+                 operation_id,tool,request_hash,response_json,status,created_at) \
+                 VALUES(?1,?2,?3,?4,?5,?6)",
+                params![
+                    operation.operation_id,
+                    operation.tool,
+                    operation.request_hash,
+                    operation.response_json,
+                    operation.status,
+                    operation.created_at,
+                ],
+            )?;
             Ok(())
         })?;
         Ok(())

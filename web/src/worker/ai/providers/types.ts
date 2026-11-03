@@ -1,4 +1,11 @@
-import type { ModelPricing, ModelType, Protocol, Provider, ReasoningConfig, KeyStrategy } from '@ouraihub/aether-ui/ports'
+import type {
+  ModelPricing,
+  ModelType,
+  Protocol,
+  Provider,
+  ReasoningConfig,
+  KeyStrategy,
+} from '@ouraihub/aether-ui/ports'
 import type { KitFailure } from '../kit'
 
 export interface Connection {
@@ -8,7 +15,8 @@ export interface Connection {
   protocol: Protocol
   headers: Record<string, string>
   apiKeys: string[]
-  setAside: ((key: string, until: number, reason: string) => Promise<void>) | null
+  setAside:
+    ((key: string, until: number, reason: string) => Promise<void>) | null
   exhaustion?: { failure: KitFailure | null }
   modelId: string
   endpointId: string
@@ -59,4 +67,7 @@ export interface ModelRow {
   pricing: string | null
 }
 
-export type ListedProvider = Pick<Provider, 'id' | 'name' | 'enabled' | 'notes' | 'presetId'>
+export type ListedProvider = Pick<
+  Provider,
+  'id' | 'name' | 'enabled' | 'notes' | 'presetId'
+>

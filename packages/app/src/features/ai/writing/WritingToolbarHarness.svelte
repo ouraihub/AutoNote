@@ -18,7 +18,10 @@
   onMount(() => {
     const editor = new EditorView({
       parent,
-      state: EditorState.create({ doc: 'Selected text', selection: EditorSelection.single(0, 13) }),
+      state: EditorState.create({
+        doc: 'Selected text',
+        selection: EditorSelection.single(0, 13),
+      }),
     })
     view = editor
     return () => editor.destroy()
@@ -29,7 +32,13 @@
 {#if view}
   <WritingToolbar
     {view}
-    selection={{ from: 0, to: 13, docLength: 13, text: 'Selected text', doc: view.state.doc }}
+    selection={{
+      from: 0,
+      to: 13,
+      docLength: 13,
+      text: 'Selected text',
+      doc: view.state.doc,
+    }}
     noteId="note-one"
     noteTitle="A note"
     noteRev={1}
