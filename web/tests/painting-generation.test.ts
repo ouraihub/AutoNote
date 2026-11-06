@@ -41,6 +41,15 @@ describe('generate_image tool loop', () => {
             images: [
               { mime: 'image/png', url: `data:image/png;base64,${PNG}` },
             ],
+            revisedPrompt: null,
+            totalTokens: null,
+            usage: {
+              inputTokens: null,
+              outputTokens: null,
+              cacheReadTokens: null,
+              cacheWriteTokens: null,
+              reasoningTokens: null,
+            },
           },
         })
         expect(first.events.at(-1)).toEqual({
@@ -156,7 +165,8 @@ describe('generate_image tool loop', () => {
         generateImage: true,
       })
       const result = failed.events.find((e) => e.kind === 'tool_result')!
-      expect(result.outcome).toBe('error')
+      // A 5xx after dispatch may still have produced a billed image.
+      expect(result.outcome).toBe('unknown')
       expect(JSON.stringify(failed.events)).not.toContain(KEY)
       expect(failed.events.at(-1)).toEqual({ kind: 'end', status: 'completed' })
       fetchMock.mockReset()
@@ -184,8 +194,8 @@ describe('generate_image tool loop', () => {
   )
 
   it(
-    'fill-first paints with the next key when the fir' +
-      'st one breaks while reading the response',
+    'fill-first never repeats generation when an acce' +
+      'pted response breaks while reading',
     async () => {
       const { h, model } = await setup('openai-chat')
       const { body } = await h.json<
@@ -231,12 +241,62 @@ describe('generate_image tool loop', () => {
       expect(
         result.events.find((e) => e.kind === 'tool_result'),
         JSON.stringify(result.events),
-      ).toMatchObject({ outcome: 'ok' })
+      ).toMatchObject({ outcome: 'unknown' })
       expect(
-        calls('/images/generations').map(
-          ([, init]) => (init!.headers as Record<string, string>).authorization,
+        calls('/images/generations').map(([, init]) =>
+          new Headers(init!.headers).get('authorization'),
         ),
-      ).toEqual([`Bearer ${KEY}`, 'Bearer sk-second-0123456789'])
+      ).toEqual([`Bearer ${KEY}`])
+    },
+  )
+
+  it(
+    'rotates only explicitly rejected painting keys a' +
+      'nd retains supplier usage',
+    async () => {
+      const { h, model } = await setup('openai-chat')
+      await addKey(h, 'user-a', model.endpointId, 'sk-second-0123456789')
+      let paints = 0
+      upstream('openai-chat', 1, () =>
+        paints++ === 0
+          ? new Response('invalid key', { status: 401 })
+          : Response.json({
+              data: [{ b64_json: PNG, revised_prompt: 'Cat in a tree' }],
+              usage: { input_tokens: 12, output_tokens: 8 },
+            }),
+      )
+      const result = await run(h, { model, generateImage: true })
+      expect(result.events.find((e) => e.kind === 'tool_result')).toMatchObject(
+        {
+          outcome: 'ok',
+          payload: {
+            revisedPrompt: 'Cat in a tree',
+            usage: { inputTokens: 12, outputTokens: 8 },
+          },
+        },
+      )
+      const attempted = calls('/images/generations').map(([, init]) =>
+        new Headers(init!.headers).get('authorization'),
+      )
+      expect(attempted.toSorted()).toEqual(
+        [`Bearer ${KEY}`, 'Bearer sk-second-0123456789'].toSorted(),
+      )
+    },
+  )
+
+  it(
+    'never claims a generated image was saved when pr' + 'oduct storage fails',
+    async () => {
+      const { h, model } = await setup('openai-chat')
+      vi.spyOn(h.env.FILES!, 'put').mockRejectedValue(
+        new Error('storage failed'),
+      )
+      upstream('openai-chat', 1)
+      const result = await run(h, { model, generateImage: true })
+      expect(result.events.find((e) => e.kind === 'tool_result')).toMatchObject(
+        { outcome: 'error', payload: { generated: true, persisted: false } },
+      )
+      expect(calls('/images/generations')).toHaveLength(1)
     },
   )
 

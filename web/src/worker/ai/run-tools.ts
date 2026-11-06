@@ -1,4 +1,5 @@
 import type { ImagePart } from '@ouraihub/aether-contracts'
+import { ImageFailure } from '@ouraihub/aether-core/images'
 import type { ToolCall, ToolExecution } from '@ouraihub/aether-core/types'
 import type { Env } from '../env'
 import { badRequest, internal, KitFailure } from './kit'
@@ -30,18 +31,28 @@ export async function runTool(
       message: `At most ${MAX_PAINTINGS} images per reply.`,
     }
   try {
-    const image = await generateImage(
+    const result = await generateImage(
       env.DB,
       run.painting,
       call.args,
       signal,
       await pickImages(env, run, call.args.image_ids),
     )
-    if (run.turn)
-      await saveGenerated(env, userId, run.turn.turnId, image).catch(
-        (error: unknown) =>
-          console.warn('[autonote] generated image not stored', error),
-      )
+    const { image, usage, totalTokens } = result
+    if (run.turn) {
+      try {
+        await saveGenerated(env, userId, run.turn.turnId, image)
+      } catch {
+        return {
+          kind: 'error',
+          code: 'generated_save_failed',
+          message:
+            'Image generated but persistence could not be confirmed. ' +
+            'Do not automatically regenerate.',
+          payload: { generated: true, persisted: false, usage, totalTokens },
+        }
+      }
+    }
     return {
       kind: 'ok',
       text: 'Generated 1 image; it is already shown to the us' + 'er.',
@@ -49,10 +60,20 @@ export async function runTool(
         images: [
           { mime: image.mime, url: `data:${image.mime};base64,${image.data}` },
         ],
+        usage,
+        totalTokens,
+        revisedPrompt: result.revisedPrompt,
       },
     }
   } catch (error) {
     if (signal.aborted) return { kind: 'unknown', reason: 'cancelled' }
+    if (error instanceof ImageFailure && error.dispatch === 'unknown')
+      return {
+        kind: 'unknown',
+        reason:
+          'Image generation dispatched; result unknown. ' +
+          'Do not automatically retry.',
+      }
     const failure = error instanceof KitFailure ? error : internal(error)
     return { kind: 'error', code: failure.code, message: failure.message }
   }
