@@ -18,6 +18,19 @@
 
 * Aether 前后端统一固定 Git 提交 `53b80630bdd58f22ca94d119e93586f84fbceec7`，恢复 Git 子包解析与来源检查；原补丁已并入上游。桌面拆分运行／会话／MCP runtime，Web 复用 core 执行并保留产品存储与授权；验收见设计文档 24 §15。
 
+## [0.2.13](https://github.com/ouraihub/AutoNote/compare/desktop-v0.2.12...desktop-v0.2.13) (2026-11-06)
+
+
+### 新功能
+
+* **ai:** 接入 Aether 0.1.2 模型力度选择器并支持调整 AI 栏宽度 ([9f931a7](https://github.com/ouraihub/AutoNote/commit/9f931a7db4a23c70bdf88583fadbc46882c1626d))
+* **ai:** 接入 Aether 模型力度选择器并支持调整 AI 栏宽度 ([4b397e4](https://github.com/ouraihub/AutoNote/commit/4b397e410ea325302f389534b4f38a666d39cd31))
+
+
+### 问题修复
+
+* **ai:** 修复力度保存失败提示与注释白名单偏移 ([b6e0d7a](https://github.com/ouraihub/AutoNote/commit/b6e0d7ab9f588c051617051cb389d326ffae8e57))
+
 ## [0.2.12](https://github.com/ouraihub/AutoNote/compare/desktop-v0.2.11...desktop-v0.2.12) (2026-11-03)
 
 
