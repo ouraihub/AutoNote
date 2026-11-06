@@ -71,6 +71,7 @@ export class UiPreferences {
     if (
       next.navWidth === current.navWidth &&
       next.listWidth === current.listWidth &&
+      next.assistWidth === current.assistWidth &&
       next.splitRatio === current.splitRatio &&
       next.workspaceSplitRatio === current.workspaceSplitRatio
     )

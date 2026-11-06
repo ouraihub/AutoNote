@@ -1,35 +1,37 @@
 <script lang="ts">
+  import { getKitContext } from '@ouraihub/aether-ui'
   import { ChatPanel } from '@ouraihub/aether-ui/chat'
   import {
     providersRevision,
     REASONING_EFFORTS,
   } from '@ouraihub/aether-ui/providers'
-  import type {
-    ModelRef,
-    PermissionMode,
-    ReasoningEffort,
-  } from '@ouraihub/aether-ui/ports'
-  import { getBackend, getI18n, getPrefs } from '@app/root/context'
+  import type { ModelRef, ReasoningEffort } from '@ouraihub/aether-ui/ports'
+  import { getBackend, getPrefs } from '@app/root/context'
   import type { WorkspacePanelProps } from '@app/root/types'
 
   let { note, insert, saveNote, openSettings, onClose }: WorkspacePanelProps =
     $props()
   const backend = getBackend()
   const aiHost = backend.aiHost
-  const permissionModes: PermissionMode[] =
-    backend.kind === 'desktop'
-      ? ['default', 'plan', 'accept_edits', 'auto', 'full_access']
-      : ['default']
-  let permissionMode = $state<PermissionMode>('default')
   const prefs = getPrefs()
-  const i18n = getI18n()
+  const { notify, i18n: kitI18n } = getKitContext()
   const EFFORT_KEY = 'ai.chat.reasoningEffort'
-  const saveEffort = (effort: ReasoningEffort) =>
-    void (
-      effort === 'default'
-        ? prefs.remove(EFFORT_KEY)
-        : prefs.save(EFFORT_KEY, effort)
-    ).catch(() => {})
+  const saveEffort = (effort: ReasoningEffort): Promise<void> =>
+    effort === 'default'
+      ? prefs.remove(EFFORT_KEY)
+      : prefs.save(EFFORT_KEY, effort)
+  let savedDefault = $state<{
+    scope: string
+    model: ModelRef
+    effort: ReasoningEffort
+  } | null>(null)
+  async function saveDefault(ref: ModelRef, effort: ReasoningEffort) {
+    if (!aiHost) return
+    const savedScope = scope
+    await aiHost.setRole('chat', ref)
+    await saveEffort(effort)
+    savedDefault = { model: ref, effort, scope: savedScope }
+  }
   const scope = $derived(note ? `note:${note.id}` : 'autonote')
   const context = $derived(
     note ? { kind: 'autonote-note', id: note.id, label: note.title } : null,
@@ -86,14 +88,14 @@
     {#await ready then resolved}
       {@const { key, model, painting, toolbar } = resolved}
       {@const { reasoningEffort, conversationId } = resolved}
+      {@const currentDefault =
+        savedDefault?.scope === scope ? savedDefault : null}
       <div class="flex min-h-0 flex-1 flex-col p-3">
         <ChatPanel
           {model}
           {scope}
           {context}
           {conversationId}
-          {permissionModes}
-          bind:permissionMode
           onInsert={insert}
           onSaveNote={saveNote}
           {...aiHost.exportMarkdown
@@ -108,13 +110,16 @@
           onToolbarChange={(ids) =>
             void prefs.save('ai.chat.toolbar', ids).catch(() => {})}
           {...reasoningEffort ? { reasoningEffort } : {}}
-          onReasoningEffortChange={saveEffort}
+          onReasoningEffortChange={(effort) =>
+            void saveEffort(effort).catch(() =>
+              notify.toast('error', kitI18n.t('errors.internal')),
+            )}
+          defaultModel={currentDefault?.model ?? model}
+          defaultReasoningEffort={currentDefault?.effort ??
+            reasoningEffort ??
+            'default'}
+          onDefaultModelChange={saveDefault}
         />
-        {#if backend.kind === 'desktop' && aiHost.kit.skills}
-          <p class="mt-2 shrink-0 text-[12px] text-[var(--warning)]">
-            {i18n.t('ai.skills_runner_warning')}
-          </p>
-        {/if}
       </div>
     {/await}
   {/key}

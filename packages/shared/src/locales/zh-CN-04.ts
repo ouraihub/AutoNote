@@ -247,6 +247,7 @@ rs_can_see_only_the_latest_version_of_t':
   'shell.offline_value0_changes_pending': '离线，{value0} 处改动待同步',
   'shell.quick_open': '快速跳转笔记',
   'shell.resize_navigation_panel': '调整导航栏宽度',
+  'shell.resize_assist_panel': '调整 AI 面板宽度',
   'shell.resize_note_list': '调整笔记列表宽度',
   'shell.resize_note_panes': '调整两个笔记窗格的宽度',
   'shell.save_now': '立即保存',

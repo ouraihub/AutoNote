@@ -1,8 +1,7 @@
 diff --git a/src/chat/chat-attachments.svelte.ts b/src/chat/chat-attachments.svelte.ts
-index 953177eddeab1a2f4f94bf751522a55c34d2d1af..af400300ba464524b520c67e7f0c968954c7f34d 100644
 --- a/src/chat/chat-attachments.svelte.ts
 +++ b/src/chat/chat-attachments.svelte.ts
-@@ -22,11 +22,15 @@ export class ChatAttachments {
+@@ -22,11 +22,15 @@
    images = $state<AttachedImage[]>([])
    reading = $state(0)
  
@@ -23,17 +22,3979 @@ index 953177eddeab1a2f4f94bf751522a55c34d2d1af..af400300ba464524b520c67e7f0c9689
  
    remove = (index: number): void => {
      const [image] = this.images.splice(index, 1)
+diff --git a/src/chat/chat-panel-models.svelte.ts b/src/chat/chat-panel-models.svelte.ts
+--- /dev/null
++++ b/src/chat/chat-panel-models.svelte.ts
+@@ -0,0 +1,97 @@
++// Chat model catalog behind the composer picker (docs/31 §5.1). Provider metadata only enriches
++// rows; a failed `list()` never blocks model selection.
++import type { KitI18n } from '../i18n'
++import type { ModelOption, ModelRef, Provider, ProvidersPort, ReasoningEffort } from '../ports'
++import { nearestEffort, REASONING_EFFORTS } from '../providers/reasoning'
++import { modelKey, pickerModels, type PickerModel, type PickerValue } from './model-effort'
++
++export class ChatPanelModels {
++  options = $state<ModelOption[] | null>(null)
++  providers = $state<Provider[] | null>(null)
++  error = $state<string | null>(null)
++  refreshing = $state(false)
++  notice = $state('')
++  readonly #port: ProvidersPort | undefined
++  readonly #i18n: KitI18n
++  readonly #errorText: (error: unknown) => string
++  #generation = 0
++
++  constructor(
++    port: ProvidersPort | undefined,
++    i18n: KitI18n,
++    errorText: (error: unknown) => string,
++  ) {
++    this.#port = port
++    this.#i18n = i18n
++    this.#errorText = errorText
++  }
++
++  get picker(): PickerModel[] {
++    return pickerModels(this.options ?? [], this.providers, this.#i18n)
++  }
++
++  /** Rereads in place: nulling options would reset the chosen effort (docs/41 §3.5). */
++  async load(announce = false): Promise<void> {
++    const generation = ++this.#generation
++    this.error = null
++    if (!this.#port) {
++      this.options = []
++      return
++    }
++    this.refreshing = announce
++    const [options, providers] = await Promise.allSettled([
++      this.#port.modelOptions({ modelType: 'chat' }),
++      this.#port.list(),
++    ])
++    if (generation !== this.#generation) return
++    this.refreshing = false
++    if (options.status === 'rejected') {
++      this.error = this.#errorText(options.reason)
++      if (announce) this.notice = this.error
++      return
++    }
++    this.options = options.value
++    this.providers = providers.status === 'fulfilled' ? providers.value : null
++    if (announce)
++      this.notice = this.#i18n.t('chat.picker.reloaded', { count: options.value.length })
++  }
++
++  #find(key: string): ModelOption | undefined {
++    return this.options?.find((item) => modelKey(item.endpointId, item.modelId) === key)
++  }
++
++  /** Hands the host the model behind the key; a failed save is shown in the picker notice. */
++  async saveDefault(
++    value: PickerValue,
++    save: (model: ModelRef, effort: ReasoningEffort) => Promise<void> | void,
++  ): Promise<void> {
++    const option = this.#find(value.key)
++    if (!option) return
++    try {
++      await save({ endpointId: option.endpointId, modelId: option.modelId }, value.effort)
++    } catch (error) {
++      this.notice = this.#errorText(error)
++    }
++  }
++
++  /**
++   * A model switch keeps the saved effort policy (nearest allowed level); only a level the user
++   * picked on the same model, or typed as a search suffix, is written back.
++   */
++  select(
++    value: PickerValue,
++    picked: ModelRef | null,
++    chosen: ReasoningEffort,
++    pick: (ref: ModelRef) => void,
++    choose: (effort: ReasoningEffort) => void,
++  ): void {
++    const option = this.#find(value.key)
++    if (!option) return
++    const same = picked !== null && modelKey(picked.endpointId, picked.modelId) === value.key
++    if (!same) pick({ endpointId: option.endpointId, modelId: option.modelId })
++    const declared = option.reasoning
++    const allowed = REASONING_EFFORTS.filter((effort) => declared?.efforts.includes(effort))
++    const implied = nearestEffort(chosen, allowed)
++    if (value.effort !== implied && (same || value.effort !== 'default')) choose(value.effort)
++  }
++}
+diff --git a/src/chat/chat-panel-props.ts b/src/chat/chat-panel-props.ts
+--- a/src/chat/chat-panel-props.ts
++++ b/src/chat/chat-panel-props.ts
+@@ -26,6 +26,12 @@
+   /** Saved preference mapped to the selected model's nearest supported effort. */
+   reasoningEffort?: ReasoningEffort
+   onReasoningEffortChange?: (effort: ReasoningEffort) => void
++  /** Host default for new conversations; enables「设为默认」when `onDefaultModelChange` is set. */
++  defaultModel?: ModelRef | null
++  /** Saved default effort, independent of the current session choice. */
++  defaultReasoningEffort?: ReasoningEffort
++  /** The host persists the default model and effort; the picker never writes storage itself. */
++  onDefaultModelChange?: (model: ModelRef, effort: ReasoningEffort) => Promise<void> | void
+   permissionModes?: PermissionMode[]
+   /** Full access stays private and is consumed once, never saved as a preference. */
+   permissionMode?: PermissionMode
+diff --git a/src/chat/ChatComposer.svelte b/src/chat/ChatComposer.svelte
+--- a/src/chat/ChatComposer.svelte
++++ b/src/chat/ChatComposer.svelte
+@@ -195,6 +195,8 @@
+   /* Hallmark · component: integrated composer · theme: host semantic tokens */
+   .composer-shell {
+     min-width: 0;
++    container-type: inline-size;
++    container-name: composer;
+   }
+   .composer {
+     box-sizing: border-box;
+@@ -218,10 +220,12 @@
+     top: 0.25rem;
+     right: 0.25rem;
+   }
+-  .expand-control :global(button),
+-  .composer-tools :global(button) {
+-    min-width: 44px;
+-    min-height: 44px;
++  @media (pointer: coarse) {
++    .expand-control :global(button),
++    .composer-tools :global(button) {
++      min-width: 44px;
++      min-height: 44px;
++    }
+   }
+   .composer-top {
+     padding-right: 2.75rem;
+@@ -260,17 +264,55 @@
+   .tool-group {
+     display: flex;
+     align-items: center;
+-    flex-wrap: wrap;
++    flex-wrap: nowrap;
+     gap: 0.25rem;
+     min-width: 0;
+   }
+   .composer-tools {
+     justify-content: space-between;
+     gap: 0.5rem;
++    overflow: visible;
++  }
++  /* Tools then the model pill on the left; only the pill shrinks. Usage and send stay whole. */
++  .tool-group:first-child {
++    flex: 1 1 auto;
++  }
++  .tool-group > :global(:not([data-composer-model])) {
++    flex-shrink: 0;
+   }
+   .send-tools {
++    flex: 0 0 auto;
++    justify-content: flex-end;
+     margin-left: auto;
+   }
++  @container composer (max-width: 560px) {
++    .composer-tools :global([data-composer-mode-label]),
++    .composer-tools :global([data-composer-model-detail]),
++    .composer-tools :global([data-composer-capacity]) {
++      display: none;
++    }
++    .composer-tools :global([data-composer-model]) {
++      flex: 0 1 auto;
++      min-width: 4.5rem;
++      max-width: 9rem;
++      padding-inline: 2px;
++    }
++    .composer-tools {
++      gap: 2px;
++    }
++  }
++  @container composer (max-width: 400px) {
++    .composer-tools :global([data-composer-model]) {
++      max-width: 6rem;
++    }
++    .composer-tools :global([data-slot='select-trigger']) {
++      max-width: 5.5rem;
++      overflow: hidden;
++    }
++    .composer-tools :global([data-composer-model] [data-icon='inline-end']) {
++      display: none;
++    }
++  }
+   .composer-override {
+     min-width: 0;
+   }
+diff --git a/src/chat/ChatPanel.css b/src/chat/ChatPanel.css
+--- a/src/chat/ChatPanel.css
++++ b/src/chat/ChatPanel.css
+@@ -1,386 +1,386 @@
+-  .chat-panel {
+-    display: flex;
+-    flex: 1;
+-    flex-direction: column;
+-    gap: 0.75rem;
+-    min-width: 0;
+-    min-height: 0;
+-    height: 100%;
+-    container-type: size;
+-  }
+-  .chat-header {
+-    display: flex;
+-    flex-direction: column;
+-    gap: 0.5rem;
+-    flex: none;
+-    min-width: 0;
+-  }
+-  .title-row {
+-    display: flex;
+-    align-items: center;
+-    gap: 0.25rem;
+-    min-width: 0;
+-  }
+-  .title-row h2 {
+-    flex: 1;
+-    min-width: 0;
+-    margin: 0;
+-    font: inherit;
+-    font-weight: 600;
+-    overflow: hidden;
+-    text-overflow: ellipsis;
+-    white-space: nowrap;
+-  }
+-  .title-row :global(button) {
+-    flex-shrink: 0;
+-  }
+-  .model-row {
+-    min-width: 0;
+-  }
+-  .turns {
+-    display: flex;
+-    flex-direction: column;
+-    gap: 1rem;
+-    padding: 0;
+-    margin: 0;
+-    list-style: none;
+-  }
+-  .empty-message {
+-    color: var(--color-muted-foreground);
+-    text-align: center;
+-    padding: 1.5rem 0.5rem;
+-    margin: 0;
+-  }
+-  .context-chip {
+-    display: flex;
+-    align-items: center;
+-    align-self: flex-start;
+-    gap: 0.25rem;
+-    max-width: calc(100% - 2rem);
+-    padding-left: 0.5rem;
+-    background: var(--color-muted);
+-    border-radius: var(--kit-radius, var(--radius));
+-  }
+-  .context-chip span {
+-    min-width: 0;
+-    overflow: hidden;
+-    text-overflow: ellipsis;
+-    white-space: nowrap;
+-  }
+-  .context-chip :global(button) {
+-    flex-shrink: 0;
+-  }
+-  .image-tray {
+-    display: flex;
+-    flex-wrap: wrap;
+-    gap: 0.375rem;
+-    margin: 0;
+-    padding: 0;
+-    list-style: none;
+-  }
+-  .image-tray li {
+-    position: relative;
+-  }
+-  .image-tray img {
+-    width: 3.5rem;
+-    height: 3.5rem;
+-    object-fit: cover;
+-    border: 1px solid var(--color-border);
+-    border-radius: var(--kit-radius, var(--radius));
+-  }
+-  .image-tray :global(button) {
+-    position: absolute;
+-    top: -0.375rem;
+-    right: -0.375rem;
+-  }
+-  .approval-override {
+-    display: flex;
+-    flex-direction: column;
+-    gap: 0.5rem;
+-    min-width: 0;
+-  }
+-  .approval-override > :global(button) {
+-    align-self: flex-end;
+-  }
+-  .chat-panel :global(button.search-toggle) {
+-    color: var(--color-muted-foreground);
+-  }
+-  .chat-panel :global(button.search-toggle[aria-pressed='true']) {
+-    color: var(--color-primary-foreground);
+-    background: var(--color-primary);
+-    border-color: var(--color-primary);
+-  }
+-  .chat-panel :global(button.search-toggle[aria-pressed='true']:hover:not(:disabled)) {
+-    background: color-mix(in oklch, var(--color-primary) 85%, var(--color-foreground));
+-  }
+-  :global(.tools-menu) {
+-    z-index: 50;
+-    box-sizing: border-box;
+-    width: min(16rem, calc(100vw - 1rem));
+-    display: flex;
+-    flex-direction: column;
+-    padding: 0.25rem;
+-    border: 1px solid var(--color-border);
+-    border-radius: var(--kit-radius, var(--radius));
+-    background: var(--color-popover);
+-    color: var(--color-popover-foreground);
+-    box-shadow: 0 4px 12px color-mix(in oklch, var(--color-foreground) 12%, transparent);
+-    font-size: var(--kit-font-size-sm, 0.8125rem);
+-  }
+-  :global(.tools-item) {
+-    display: flex;
+-    align-items: center;
+-    gap: 0.5rem;
+-    min-height: 2.25rem;
+-    padding: 0.25rem 0.625rem;
+-    border: 0;
+-    border-radius: calc(var(--kit-radius, var(--radius)) - 2px);
+-    background: transparent;
+-    color: inherit;
+-    font: inherit;
+-    text-align: left;
+-    cursor: pointer;
+-  }
+-  :global(.tools-item:hover:not(:disabled)),
+-  :global(.tools-item:focus-visible) {
+-    background: var(--color-accent);
+-    color: var(--color-accent-foreground);
+-    outline: none;
+-  }
+-  :global(.tools-item:disabled) {
+-    cursor: not-allowed;
+-    opacity: 0.55;
+-  }
+-  :global(.tools-item svg) {
+-    width: 1rem;
+-    height: 1rem;
+-    flex-shrink: 0;
+-  }
+-  :global(.tools-item small) {
+-    margin-left: auto;
+-    color: var(--color-muted-foreground);
+-    font-size: 0.75rem;
+-  }
+-  :global(.tools-item > svg:last-child:not(:first-child)) {
+-    margin-left: auto;
+-  }
+-  :global(.tools-footer) {
+-    margin-top: 0.25rem;
+-    border-top: 1px solid var(--color-border);
+-    border-radius: 0 0 calc(var(--kit-radius, var(--radius)) - 2px)
+-      calc(var(--kit-radius, var(--radius)) - 2px);
+-    color: var(--color-muted-foreground);
+-  }
+-  :global(.tools-title) {
+-    margin: 0;
+-    padding: 0.375rem 0.5rem;
+-    font-size: 0.875rem;
+-    font-weight: 500;
+-  }
+-  :global(.tools-order) {
+-    display: flex;
+-    flex-direction: column;
+-    gap: 0.125rem;
+-    margin: 0;
+-    padding: 0;
+-    list-style: none;
+-  }
+-  :global(.tools-row) {
+-    display: flex;
+-    align-items: center;
+-    gap: 0.5rem;
+-    min-height: 2rem;
+-    padding: 0 0.375rem;
+-    border-radius: calc(var(--kit-radius, var(--radius)) - 2px);
+-    font-size: 0.875rem;
+-  }
+-  :global(.tools-row:hover) {
+-    background: var(--color-accent);
+-  }
+-  :global(.tools-row > svg) {
+-    width: 1rem;
+-    height: 1rem;
+-    flex-shrink: 0;
+-    color: var(--color-muted-foreground);
+-  }
+-  :global(.tools-row > span) {
+-    flex: 1;
+-    min-width: 0;
+-    overflow: hidden;
+-    text-overflow: ellipsis;
+-    white-space: nowrap;
+-  }
+-  :global(.tools-grip) {
+-    display: inline-flex;
+-    padding: 0.125rem;
+-    border: 0;
+-    border-radius: 0.25rem;
+-    background: none;
+-    color: var(--color-muted-foreground);
+-    cursor: grab;
+-    touch-action: none;
+-  }
+-  :global(.tools-grip:focus-visible) {
+-    outline: 2px solid var(--color-ring);
+-  }
+-  :global(.tools-grip svg) {
+-    width: 0.875rem;
+-    height: 0.875rem;
+-  }
+-  .plan-badge {
+-    padding: 0.125rem 0.5rem;
+-    border: 1px solid var(--color-border);
+-    border-radius: 999px;
+-    color: var(--color-muted-foreground);
+-    font-size: var(--kit-font-size-sm, 0.8125rem);
+-    white-space: nowrap;
+-  }
+-  :global(.mode-menu) {
+-    width: min(35rem, calc(100vw - 1rem));
+-    padding: 0.375rem;
+-    border-radius: 0.75rem;
+-  }
++.chat-panel {
++  display: flex;
++  flex: 1;
++  flex-direction: column;
++  gap: 0.75rem;
++  min-width: 0;
++  min-height: 0;
++  height: 100%;
++  container-type: size;
++}
++.chat-header {
++  display: flex;
++  flex-direction: column;
++  gap: 0.5rem;
++  flex: none;
++  min-width: 0;
++}
++.title-row {
++  display: flex;
++  align-items: center;
++  gap: 0.25rem;
++  min-width: 0;
++}
++.title-row h2 {
++  flex: 1;
++  min-width: 0;
++  margin: 0;
++  font: inherit;
++  font-weight: 600;
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++.title-row :global(button) {
++  flex-shrink: 0;
++}
++.model-row {
++  min-width: 0;
++}
++.turns {
++  display: flex;
++  flex-direction: column;
++  gap: 1rem;
++  padding: 0;
++  margin: 0;
++  list-style: none;
++}
++.empty-message {
++  color: var(--color-muted-foreground);
++  text-align: center;
++  padding: 1.5rem 0.5rem;
++  margin: 0;
++}
++.context-chip {
++  display: flex;
++  align-items: center;
++  align-self: flex-start;
++  gap: 0.25rem;
++  max-width: calc(100% - 2rem);
++  padding-left: 0.5rem;
++  background: var(--color-muted);
++  border-radius: var(--kit-radius, var(--radius));
++}
++.context-chip span {
++  min-width: 0;
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++.context-chip :global(button) {
++  flex-shrink: 0;
++}
++.image-tray {
++  display: flex;
++  flex-wrap: wrap;
++  gap: 0.375rem;
++  margin: 0;
++  padding: 0;
++  list-style: none;
++}
++.image-tray li {
++  position: relative;
++}
++.image-tray img {
++  width: 3.5rem;
++  height: 3.5rem;
++  object-fit: cover;
++  border: 1px solid var(--color-border);
++  border-radius: var(--kit-radius, var(--radius));
++}
++.image-tray :global(button) {
++  position: absolute;
++  top: -0.375rem;
++  right: -0.375rem;
++}
++.approval-override {
++  display: flex;
++  flex-direction: column;
++  gap: 0.5rem;
++  min-width: 0;
++}
++.approval-override > :global(button) {
++  align-self: flex-end;
++}
++.chat-panel :global(button.search-toggle) {
++  color: var(--color-muted-foreground);
++}
++.chat-panel :global(button.search-toggle[aria-pressed='true']) {
++  color: var(--color-primary-foreground);
++  background: var(--color-primary);
++  border-color: var(--color-primary);
++}
++.chat-panel :global(button.search-toggle[aria-pressed='true']:hover:not(:disabled)) {
++  background: color-mix(in oklch, var(--color-primary) 85%, var(--color-foreground));
++}
++:global(.tools-menu) {
++  z-index: 50;
++  box-sizing: border-box;
++  width: min(16rem, calc(100vw - 1rem));
++  display: flex;
++  flex-direction: column;
++  padding: 0.25rem;
++  border: 1px solid var(--color-border);
++  border-radius: var(--kit-radius, var(--radius));
++  background: var(--color-popover);
++  color: var(--color-popover-foreground);
++  box-shadow: 0 4px 12px color-mix(in oklch, var(--color-foreground) 12%, transparent);
++  font-size: var(--kit-font-size-sm, 0.8125rem);
++}
++:global(.tools-item) {
++  display: flex;
++  align-items: center;
++  gap: 0.5rem;
++  min-height: 2.25rem;
++  padding: 0.25rem 0.625rem;
++  border: 0;
++  border-radius: calc(var(--kit-radius, var(--radius)) - 2px);
++  background: transparent;
++  color: inherit;
++  font: inherit;
++  text-align: left;
++  cursor: pointer;
++}
++:global(.tools-item:hover:not(:disabled)),
++:global(.tools-item:focus-visible) {
++  background: var(--color-accent);
++  color: var(--color-accent-foreground);
++  outline: none;
++}
++:global(.tools-item:disabled) {
++  cursor: not-allowed;
++  opacity: 0.55;
++}
++:global(.tools-item svg) {
++  width: 1rem;
++  height: 1rem;
++  flex-shrink: 0;
++}
++:global(.tools-item small) {
++  margin-left: auto;
++  color: var(--color-muted-foreground);
++  font-size: 0.75rem;
++}
++:global(.tools-item > svg:last-child:not(:first-child)) {
++  margin-left: auto;
++}
++:global(.tools-footer) {
++  margin-top: 0.25rem;
++  border-top: 1px solid var(--color-border);
++  border-radius: 0 0 calc(var(--kit-radius, var(--radius)) - 2px)
++    calc(var(--kit-radius, var(--radius)) - 2px);
++  color: var(--color-muted-foreground);
++}
++:global(.tools-title) {
++  margin: 0;
++  padding: 0.375rem 0.5rem;
++  font-size: 0.875rem;
++  font-weight: 500;
++}
++:global(.tools-order) {
++  display: flex;
++  flex-direction: column;
++  gap: 0.125rem;
++  margin: 0;
++  padding: 0;
++  list-style: none;
++}
++:global(.tools-row) {
++  display: flex;
++  align-items: center;
++  gap: 0.5rem;
++  min-height: 2rem;
++  padding: 0 0.375rem;
++  border-radius: calc(var(--kit-radius, var(--radius)) - 2px);
++  font-size: 0.875rem;
++}
++:global(.tools-row:hover) {
++  background: var(--color-accent);
++}
++:global(.tools-row > svg) {
++  width: 1rem;
++  height: 1rem;
++  flex-shrink: 0;
++  color: var(--color-muted-foreground);
++}
++:global(.tools-row > span) {
++  flex: 1;
++  min-width: 0;
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++:global(.tools-grip) {
++  display: inline-flex;
++  padding: 0.125rem;
++  border: 0;
++  border-radius: 0.25rem;
++  background: none;
++  color: var(--color-muted-foreground);
++  cursor: grab;
++  touch-action: none;
++}
++:global(.tools-grip:focus-visible) {
++  outline: 2px solid var(--color-ring);
++}
++:global(.tools-grip svg) {
++  width: 0.875rem;
++  height: 0.875rem;
++}
++.plan-badge {
++  padding: 0.125rem 0.5rem;
++  border: 1px solid var(--color-border);
++  border-radius: 999px;
++  color: var(--color-muted-foreground);
++  font-size: var(--kit-font-size-sm, 0.8125rem);
++  white-space: nowrap;
++}
++:global(.mode-menu) {
++  width: min(35rem, calc(100vw - 1rem));
++  padding: 0.375rem;
++  border-radius: 0.75rem;
++}
++:global(.mode-option) {
++  display: grid;
++  grid-template-columns: 1rem 7.5rem minmax(0, 1fr) 1rem 0.875rem;
++  align-items: center;
++  column-gap: 0.5rem;
++  min-height: 2.125rem;
++  padding: 0.375rem 0.5rem;
++  border-radius: 0.5rem;
++  font-size: var(--kit-font-size-sm, 0.8125rem);
++}
++:global(.mode-option[aria-current='true']) {
++  background: var(--color-muted);
++}
++:global(.mode-option > svg) {
++  color: var(--color-muted-foreground);
++  width: 0.875rem;
++  height: 0.875rem;
++}
++.mode-name {
++  white-space: nowrap;
++}
++.mode-description {
++  color: var(--color-muted-foreground);
++  font-size: var(--kit-font-size-xs, 0.75rem);
++  text-align: right;
++  line-height: 1.5;
++}
++.mode-notice,
++.mode-check {
++  display: flex;
++  align-items: center;
++  justify-content: center;
++  color: var(--color-muted-foreground);
++}
++.mode-notice {
++  color: var(--color-warning, var(--color-muted-foreground));
++}
++.mode-notice :global(svg),
++.mode-check :global(svg) {
++  display: block;
++  width: 0.8125rem;
++  height: 0.8125rem;
++}
++:global(.mode-danger),
++:global(.mode-danger) :is(.mode-name, .mode-description, .mode-notice),
++:global(.mode-option.mode-danger > svg) {
++  color: var(--color-destructive);
++}
++.mode-footer {
++  display: flex;
++  justify-content: space-between;
++  align-items: center;
++  gap: 0.75rem;
++  padding: 0.625rem 0.375rem 0.125rem;
++  color: var(--color-muted-foreground);
++  font-size: var(--kit-font-size-xs, 0.75rem);
++}
++.mode-keys {
++  display: flex;
++  align-items: center;
++  gap: 0.25rem;
++}
++.mode-keys kbd {
++  padding: 0 0.25rem;
++  border-radius: 0.25rem;
++  background: var(--color-muted);
++  font: inherit;
++}
++.mode-keys kbd:not(:first-child) {
++  margin-left: 0.375rem;
++}
++@media (max-width: 480px) {
+   :global(.mode-option) {
+-    display: grid;
+-    grid-template-columns: 1rem 7.5rem minmax(0, 1fr) 1rem 0.875rem;
+-    align-items: center;
+-    column-gap: 0.5rem;
+-    min-height: 2.125rem;
+-    padding: 0.375rem 0.5rem;
+-    border-radius: 0.5rem;
+-    font-size: var(--kit-font-size-sm, 0.8125rem);
+-  }
+-  :global(.mode-option[aria-current='true']) {
+-    background: var(--color-muted);
+-  }
+-  :global(.mode-option > svg) {
+-    color: var(--color-muted-foreground);
+-    width: 0.875rem;
+-    height: 0.875rem;
+-  }
+-  .mode-name {
+-    white-space: nowrap;
++    grid-template-columns: 1rem minmax(0, 1fr) 1rem 0.875rem;
++    row-gap: 0.125rem;
+   }
+   .mode-description {
+-    color: var(--color-muted-foreground);
+-    font-size: var(--kit-font-size-xs, 0.75rem);
+-    text-align: right;
+-    line-height: 1.5;
+-  }
+-  .mode-notice,
+-  .mode-check {
+-    display: flex;
+-    align-items: center;
+-    justify-content: center;
+-    color: var(--color-muted-foreground);
++    grid-column: 2;
++    grid-row: 2;
++    text-align: left;
+   }
+   .mode-notice {
+-    color: var(--color-warning, var(--color-muted-foreground));
++    grid-column: 3;
++    grid-row: 1;
+   }
+-  .mode-notice :global(svg),
+-  .mode-check :global(svg) {
+-    display: block;
+-    width: 0.8125rem;
+-    height: 0.8125rem;
++  .mode-check {
++    grid-column: 4;
++    grid-row: 1;
+   }
+-  :global(.mode-danger),
+-  :global(.mode-danger) :is(.mode-name, .mode-description, .mode-notice),
+-  :global(.mode-option.mode-danger > svg) {
+-    color: var(--color-destructive);
+-  }
+-  .mode-footer {
+-    display: flex;
+-    justify-content: space-between;
+-    align-items: center;
+-    gap: 0.75rem;
+-    padding: 0.625rem 0.375rem 0.125rem;
+-    color: var(--color-muted-foreground);
+-    font-size: var(--kit-font-size-xs, 0.75rem);
+-  }
+-  .mode-keys {
+-    display: flex;
+-    align-items: center;
+-    gap: 0.25rem;
+-  }
+-  .mode-keys kbd {
+-    padding: 0 0.25rem;
+-    border-radius: 0.25rem;
+-    background: var(--color-muted);
+-    font: inherit;
+-  }
+-  .mode-keys kbd:not(:first-child) {
+-    margin-left: 0.375rem;
+-  }
+-  @media (max-width: 480px) {
+-    :global(.mode-option) {
+-      grid-template-columns: 1rem minmax(0, 1fr) 1rem 0.875rem;
+-      row-gap: 0.125rem;
+-    }
+-    .mode-description {
+-      grid-column: 2;
+-      grid-row: 2;
+-      text-align: left;
+-    }
+-    .mode-notice {
+-      grid-column: 3;
+-      grid-row: 1;
+-    }
+-    .mode-check {
+-      grid-column: 4;
+-      grid-row: 1;
+-    }
+-  }
+-  .skills-control {
+-    min-width: 0;
+-    max-width: 100%;
+-  }
+-  .skills-control :global(div:first-child) {
+-    flex-wrap: wrap;
+-    min-width: 0;
+-  }
+-  .skills-control :global([data-slot='select-trigger']) {
+-    width: auto;
+-    max-width: 100%;
+-  }
+-  .search-status,
+-  .draft-recovery {
+-    margin: 0;
+-    color: var(--color-muted-foreground);
+-    font-size: var(--kit-font-size-sm, 0.8125rem);
+-  }
+-  .draft-recovery {
+-    display: flex;
+-    flex-wrap: wrap;
+-    align-items: center;
+-    gap: 0.5rem;
+-  }
+-  .history-list {
+-    display: flex;
+-    flex-direction: column;
+-    gap: 0.25rem;
+-    max-height: 40vh;
+-    overflow-y: auto;
+-    min-width: 0;
+-  }
+-  .history-list :global(button) {
+-    justify-content: flex-start;
+-    min-width: 0;
+-  }
+-  .history-list span {
+-    min-width: 0;
+-    overflow: hidden;
+-    text-overflow: ellipsis;
+-    white-space: nowrap;
+-  }
+-  :global(.reply-dialog) {
+-    max-height: calc(100dvh - 2rem);
+-    overflow-y: auto;
+-  }
+-  :global(.reply-dialog form),
+-  :global(.reply-dialog [data-slot='field-group']) {
+-    min-width: 0;
+-  }
+-  :global(.reply-dialog textarea) {
+-    max-height: 45dvh;
+-    overflow-y: auto;
+-  }
++}
++.skills-control {
++  min-width: 0;
++  max-width: 100%;
++}
++.skills-control :global(div:first-child) {
++  flex-wrap: wrap;
++  min-width: 0;
++}
++.skills-control :global([data-slot='select-trigger']) {
++  width: auto;
++  max-width: 100%;
++}
++.search-status,
++.draft-recovery {
++  margin: 0;
++  color: var(--color-muted-foreground);
++  font-size: var(--kit-font-size-sm, 0.8125rem);
++}
++.draft-recovery {
++  display: flex;
++  flex-wrap: wrap;
++  align-items: center;
++  gap: 0.5rem;
++}
++.history-list {
++  display: flex;
++  flex-direction: column;
++  gap: 0.25rem;
++  max-height: 40vh;
++  overflow-y: auto;
++  min-width: 0;
++}
++.history-list :global(button) {
++  justify-content: flex-start;
++  min-width: 0;
++}
++.history-list span {
++  min-width: 0;
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++:global(.reply-dialog) {
++  max-height: calc(100dvh - 2rem);
++  overflow-y: auto;
++}
++:global(.reply-dialog form),
++:global(.reply-dialog [data-slot='field-group']) {
++  min-width: 0;
++}
++:global(.reply-dialog textarea) {
++  max-height: 45dvh;
++  overflow-y: auto;
++}
 diff --git a/src/chat/ChatPanel.svelte b/src/chat/ChatPanel.svelte
 --- a/src/chat/ChatPanel.svelte
 +++ b/src/chat/ChatPanel.svelte
-@@ -75,7 +75,9 @@
-   const MODES: PermissionMode[] = ['default', 'plan', 'accept_edits', 'auto', 'full_access']
-   const isAgent = $derived(purpose === 'agent')
-   const allowedModes: PermissionMode[] = $derived(
--    isAgent ? MODES.filter((mode) => permissionModes.includes(mode)) : ['default'],
-+    isAgent || purpose === 'chat'
-+      ? MODES.filter((mode) => permissionModes.includes(mode))
-+      : ['default'],
+@@ -5,7 +5,6 @@
+     isKitClientError,
+     type ModelRef,
+     type SkillRef,
+-    type ModelOption,
+     type ReasoningEffort,
+     type PermissionMode,
+   } from '../ports'
+@@ -21,6 +20,8 @@
+   import ChatPanelComposer from './ChatPanelComposer.svelte'
+   import ChatPanelDialogs from './ChatPanelDialogs.svelte'
+   import type { ChatPanelProps } from './chat-panel-props'
++  import { ChatPanelModels } from './chat-panel-models.svelte'
++  import { modelKey, type PickerValue } from './model-effort'
+ 
+   let {
+     purpose = 'chat',
+@@ -42,6 +43,9 @@
+     onToolbarChange,
+     reasoningEffort: reasoningEffortProp,
+     onReasoningEffortChange,
++    defaultModel = null,
++    defaultReasoningEffort = 'default',
++    onDefaultModelChange,
+     permissionModes = ['default', 'plan', 'accept_edits'],
+     permissionMode = $bindable('default'),
+   }: ChatPanelProps = $props()
+@@ -52,15 +56,18 @@
+   const session = ports.chat ? new RunSession(ports.chat, history) : null
+   // svelte-ignore state_referenced_locally
+   let picked = $state<ModelRef | null>(model)
+-  let modelOptions = $state<ModelOption[] | null>(null)
+-  let modelError = $state<string | null>(null)
+-  let modelReload = $state(0)
++  const errorText = (error: unknown) =>
++    t(`errors.${isKitClientError(error) ? error.code : 'internal'}`)
++  const models = new ChatPanelModels(ports.providers, i18n, errorText)
++  const modelOptions = $derived(models.options)
++  const modelError = $derived(models.error)
+   const capability = $derived(
+     modelOptions?.find(
+       (item) => item.endpointId === picked?.endpointId && item.modelId === picked?.modelId,
+     ) ?? null,
    )
-   let fullAccess = $state(false)
-   const mode: PermissionMode = $derived(
+-  // The saved choice survives model switches; each model sends its nearest allowed effort (docs/28 RT3).
++  // The saved choice survives model switches; each model sends its nearest allowed effort
++  // (docs/28 RT3).
+   // svelte-ignore state_referenced_locally
+   let chosenEffort = $state<ReasoningEffort>(reasoningEffortProp ?? 'default')
+   const allowedEfforts = $derived(
+@@ -111,29 +118,10 @@
+   }
+   let reasoningOpen = $state(false)
+   const noModels = $derived(modelOptions !== null && modelOptions.length === 0)
+-  const errorText = (error: unknown) =>
+-    t(`errors.${isKitClientError(error) ? error.code : 'internal'}`)
+   $effect(() => {
+-    void modelReload
++    // A provider save swaps options in place: nulling them would reset the chosen effort.
+     void providersRevision.value
+-    let alive = true
+-    // A provider save swaps options in place: nulling them would reset the chosen effort (docs/41 §3.5).
+-    modelError = null
+-    if (!ports.providers) {
+-      modelOptions = []
+-      return
+-    }
+-    void ports.providers.modelOptions({ modelType: 'chat' }).then(
+-      (list) => {
+-        if (alive) modelOptions = list
+-      },
+-      (error: unknown) => {
+-        if (alive) modelError = errorText(error)
+-      },
+-    )
+-    return () => {
+-      alive = false
+-    }
++    untrack(() => void models.load())
+   })
+   $effect(() => {
+     // A model that turns out not to take tools cannot keep a pending generate_image request.
+@@ -142,6 +130,20 @@
+   function pickModel(next: ModelRef) {
+     picked = next
+     session?.resetContext()
++  }
++  const pickerValue = $derived(
++    picked ? { key: modelKey(picked.endpointId, picked.modelId), effort: reasoningEffort } : null,
++  )
++  const pickerDefault = $derived(
++    defaultModel
++      ? {
++          key: modelKey(defaultModel.endpointId, defaultModel.modelId),
++          effort: defaultReasoningEffort,
++        }
++      : null,
++  )
++  function pickValue(value: PickerValue) {
++    if (!session?.running) models.select(value, picked, chosenEffort, pickModel, chooseEffort)
+   }
+ 
+   let draft = $state('')
+@@ -170,7 +172,8 @@
+     generateImage: purpose === 'chat' && generateImage && paintingModel,
+     context: activeContext ? { kind: activeContext.kind, id: activeContext.id } : null,
+   })
+-  // Consume before awaiting run acceptance, including retries and translations. Never persist full access.
++  // Consume before awaiting run acceptance, including retries and translations.
++  // Never persist full access.
+   function consumeBase() {
+     const request = { ...base }
+     fullAccess = false
+@@ -337,7 +340,11 @@
+ 
+ {#if session}
+   <!-- svelte-ignore a11y_no_noninteractive_element_interactions (Esc bubbles from controls) -->
+-  <section class="chat-panel" aria-label={t('chat.title')} {onkeydown}>
++  <section
++    class="flex min-h-0 min-w-0 flex-1 flex-col gap-3 h-full [container-type:size]"
++    aria-label={t('chat.title')}
++    {onkeydown}
++  >
+     <ChatSurface
+       label={t('chat.title')}
+       messagesLabel={t('chat.messages')}
+@@ -354,17 +361,12 @@
+           historyBusy={historyState.historyBusy}
+           historyOpen={historyState.historyOpen}
+           historyError={historyState.historyError}
+-          {modelOptions}
+-          {modelError}
+           onHistory={() => {
+             historyState.historyOpen = true
+             void historyState.refresh()
+           }}
+           {onClose}
+           onRetryHistory={() => void historyState.retryHistory()}
+-          {picked}
+-          onPickModel={pickModel}
+-          {onOpenSettings}
+         />
+       {/snippet}
+       <ChatPanelMessages
+@@ -379,7 +381,7 @@
+         {modelError}
+         {capability}
+         {noModels}
+-        onRetryModels={() => modelReload++}
++        onRetryModels={() => void models.load()}
+         {onOpenSettings}
+         {onInsert}
+         {onSaveNote}
+@@ -432,10 +434,18 @@
+           {mode}
+           {allowedModes}
+           {chooseMode}
+-          {reasoningEffort}
+-          {allowedEfforts}
+           bind:reasoningOpen
+-          {chooseEffort}
++          pickerModels={models.picker}
++          {pickerValue}
++          {pickerDefault}
++          pickerRefreshing={models.refreshing}
++          pickerNotice={models.notice}
++          pickerDisabled={modelError !== null}
++          onPick={pickValue}
++          onSetDefault={onDefaultModelChange
++            ? (value) => void models.saveDefault(value, onDefaultModelChange)
++            : undefined}
++          onRefresh={(force) => void models.load(force)}
+           {currentContext}
+           {picked}
+           {onOpenSettings}
+@@ -469,7 +479,7 @@
+       {noModels}
+       validReplyModel={historyState.validReplyModel}
+       submitReply={historyState.submitReply}
+-      reloadModels={() => modelReload++}
++      reloadModels={() => void models.load()}
+       bind:historyOpen={historyState.historyOpen}
+       bind:renaming={historyState.renaming}
+       bind:renameTitle={historyState.renameTitle}
+@@ -481,16 +491,3 @@
+     />
+   </section>
+ {/if}
+-
+-<style>
+-  .chat-panel {
+-    display: flex;
+-    flex: 1;
+-    flex-direction: column;
+-    gap: 0.75rem;
+-    min-width: 0;
+-    min-height: 0;
+-    height: 100%;
+-    container-type: size;
+-  }
+-</style>
+diff --git a/src/chat/ChatPanelComposer.svelte b/src/chat/ChatPanelComposer.svelte
+--- a/src/chat/ChatPanelComposer.svelte
++++ b/src/chat/ChatPanelComposer.svelte
+@@ -9,17 +9,17 @@
+     ModelOption,
+     ModelRef,
+     PermissionMode,
+-    ReasoningEffort,
+     SkillRef,
+     SkillsPort,
+   } from '../ports'
+-  import { settingsTarget } from '../providers/revision.svelte'
+   import ChatComposer from './ChatComposer.svelte'
+   import ChatPanelMode from './ChatPanelMode.svelte'
+   import ChatPanelToolbar from './ChatPanelToolbar.svelte'
+-  import ReasoningControl from './ReasoningControl.svelte'
++  import ModelEffortPicker from './ModelEffortPicker.svelte'
+   import SkillPicker from './SkillPicker.svelte'
+   import UsageDetails from './UsageDetails.svelte'
++  import type { PickerModel, PickerValue } from './model-effort'
++  import { settingsTarget } from '../providers/revision.svelte'
+   import type { RunSession } from './run-session.svelte'
+ 
+   type Attached = ImagePart & { preview: string }
+@@ -62,10 +62,16 @@
+     mode,
+     allowedModes,
+     chooseMode,
+-    reasoningEffort,
+-    allowedEfforts,
+     reasoningOpen = $bindable(false),
+-    chooseEffort,
++    pickerModels,
++    pickerValue,
++    pickerDefault,
++    pickerRefreshing,
++    pickerNotice,
++    pickerDisabled,
++    onPick,
++    onSetDefault,
++    onRefresh,
+     currentContext,
+     picked,
+     onOpenSettings,
+@@ -105,10 +111,16 @@
+     mode: PermissionMode
+     allowedModes: PermissionMode[]
+     chooseMode: (mode: PermissionMode) => Promise<void>
+-    reasoningEffort: ReasoningEffort
+-    allowedEfforts: ReasoningEffort[]
+     reasoningOpen?: boolean
+-    chooseEffort: (effort: ReasoningEffort) => void
++    pickerModels: PickerModel[]
++    pickerValue: PickerValue | null
++    pickerDefault: PickerValue | null
++    pickerRefreshing: boolean
++    pickerNotice: string
++    pickerDisabled: boolean
++    onPick: (value: PickerValue) => void
++    onSetDefault?: ((value: PickerValue) => void) | undefined
++    onRefresh: (force: boolean) => void
+     currentContext: ContextUsage | null
+     picked: ModelRef | null
+     onOpenSettings?: (() => void) | undefined
+@@ -217,28 +229,35 @@
+           onresolved={onSkillResolved}
+         />
+       </div>{/if}
++    <ModelEffortPicker
++      models={pickerModels}
++      value={pickerValue}
++      defaultValue={pickerDefault}
++      disabled={session.running || pickerDisabled}
++      refreshing={pickerRefreshing}
++      notice={pickerNotice}
++      {i18n}
++      bind:open={reasoningOpen}
++      onselect={onPick}
++      onsetdefault={onSetDefault}
++      onrefresh={onRefresh}
++      onopensettings={onOpenSettings && picked
++        ? () => {
++            settingsTarget.value = { endpointId: picked.endpointId, modelId: picked.modelId }
++            onOpenSettings()
++          }
++        : undefined}
++    />
+   {/snippet}
+   {#snippet actions()}
+-    <ChatPanelMode {i18n} {mode} {allowedModes} running={session.running} {chooseMode} />
+-    {#if picked}
+-      <ReasoningControl
+-        value={reasoningEffort}
+-        efforts={allowedEfforts}
+-        disabled={session.running}
+-        bind:open={reasoningOpen}
+-        {i18n}
+-        onchange={chooseEffort}
+-        onOpenSettings={onOpenSettings
+-          ? () => {
+-              settingsTarget.value = { endpointId: picked.endpointId, modelId: picked.modelId }
+-              onOpenSettings()
+-            }
+-          : undefined}
+-      />
++    {#if purpose !== 'chat'}
++      <ChatPanelMode {i18n} {mode} {allowedModes} running={session.running} {chooseMode} />
+     {/if}
+     <UsageDetails
+       context={currentContext}
++      contextWindow={pickerModels.find((model) => model.key === pickerValue?.key)?.contextWindow}
+       modelName={capability?.name ?? capability?.modelId ?? ''}
++      turns={session.turns}
+       usage={session.turns.at(-1)?.usage ?? null}
+       total={session.cumulativeUsage}
+       cost={session.turns.at(-1)?.cost ?? null}
+diff --git a/src/chat/ChatPanelHeader.svelte b/src/chat/ChatPanelHeader.svelte
+--- a/src/chat/ChatPanelHeader.svelte
++++ b/src/chat/ChatPanelHeader.svelte
+@@ -4,8 +4,7 @@
+   import { Button } from '#lib/components/ui/button/index.js'
+   import * as Alert from '#lib/components/ui/alert/index.js'
+   import type { KitI18n } from '../i18n'
+-  import type { ConversationClient, ModelOption, ModelRef } from '../ports'
+-  import ModelSelect from '../providers/ModelSelect.svelte'
++  import type { ConversationClient } from '../ports'
+   import type { RunSession } from './run-session.svelte'
+ 
+   let {
+@@ -16,14 +15,9 @@
+     historyBusy,
+     historyOpen,
+     historyError,
+-    modelOptions,
+-    modelError,
+     onHistory,
+     onClose,
+     onRetryHistory,
+-    picked,
+-    onPickModel,
+-    onOpenSettings,
+   }: {
+     i18n: KitI18n
+     title: string
+@@ -32,14 +26,9 @@
+     historyBusy: boolean
+     historyOpen: boolean
+     historyError: string | null
+-    modelOptions: ModelOption[] | null
+-    modelError: string | null
+     onHistory: () => void
+     onClose?: (() => void) | undefined
+     onRetryHistory: () => void
+-    picked: ModelRef | null
+-    onPickModel: (model: ModelRef) => void
+-    onOpenSettings?: (() => void) | undefined
+   } = $props()
+   const t = $derived(i18n.t)
+ </script>
+@@ -62,16 +51,6 @@
+         title={t('chat.close')}
+         onclick={onClose}><XIcon /></Button
+       >{/if}
+-  </div>
+-  <div class="model-row">
+-    <ModelSelect
+-      value={picked}
+-      options={modelOptions}
+-      filter={{ modelType: 'chat' }}
+-      disabled={session.running || modelError !== null}
+-      onchange={onPickModel}
+-      {...onOpenSettings ? { onOpenSettings } : {}}
+-    />
+   </div>
+ </header>
+ {#if historyError && !historyOpen}
+@@ -126,7 +105,4 @@
+   .title-row :global(button) {
+     flex-shrink: 0;
+   }
+-  .model-row {
+-    min-width: 0;
+-  }
+ </style>
+diff --git a/src/chat/ChatPanelMode.svelte b/src/chat/ChatPanelMode.svelte
+--- a/src/chat/ChatPanelMode.svelte
++++ b/src/chat/ChatPanelMode.svelte
+@@ -38,9 +38,9 @@
+           size="sm"
+           class={mode === 'full_access' ? 'mode-danger' : undefined}
+           aria-label={`${t('chat.mode.label')}: ${t(`chat.mode.${mode}`)}`}
+-          ><ShieldIcon data-icon="inline-start" />{t(`chat.mode.${mode}`)}<ChevronDownIcon
+-            data-icon="inline-end"
+-          /></Button
++          ><ShieldIcon data-icon="inline-start" /><span data-composer-mode-label>
++            {t(`chat.mode.${mode}`)}</span
++          ><ChevronDownIcon data-composer-mode-label data-icon="inline-end" /></Button
+         >{/snippet}
+     </DropdownMenu.Trigger>
+     <DropdownMenu.Content side="top" align="end" class="mode-menu">
+diff --git a/src/chat/ChatPanelToolbar.svelte b/src/chat/ChatPanelToolbar.svelte
+--- a/src/chat/ChatPanelToolbar.svelte
++++ b/src/chat/ChatPanelToolbar.svelte
+@@ -1,5 +1,5 @@
+ <script lang="ts">
+-  import { tick } from 'svelte'
++  import { onMount, tick } from 'svelte'
+   import { Popover } from 'bits-ui'
+   import PlusIcon from '@lucide/svelte/icons/plus'
+   import GlobeIcon from '@lucide/svelte/icons/globe'
+@@ -55,7 +55,17 @@
+   const DEFAULT_TOOLBAR = ['new-conversation', 'web-search']
+   // svelte-ignore state_referenced_locally
+   let pinned = $state<string[]>(toolbar ?? DEFAULT_TOOLBAR)
+-  const visiblePinned = $derived(pinned.filter((id) => tools.includes(id)))
++  let compact = $state(false)
++  const visiblePinned = $derived(compact ? [] : pinned.filter((id) => tools.includes(id)))
++  onMount(() => {
++    const shell = fileInput?.closest('.composer-shell')
++    if (!shell) return
++    const observer = new ResizeObserver(([entry]) => {
++      if (entry && entry.contentRect.width > 0) compact = entry.contentRect.width < 400
++    })
++    observer.observe(shell)
++    return () => observer.disconnect()
++  })
+   /** Tools usable here; unavailable pinned ids stay stored but hidden (docs/38 §3.2). */
+   const tools = $derived(
+     ['new-conversation', 'web-search', 'attachment', 'generate-image'].filter(
+@@ -286,7 +296,8 @@
+     </Popover.Content>
+   </Popover.Portal>
+ </Popover.Root>
+-{#if generateImage && paintingModel && purpose === 'chat' && !pinned.includes('generate-image')}<Button
++{#if generateImage && paintingModel && purpose === 'chat' && !pinned.includes('generate-image')}
++  <Button
+     type="button"
+     variant="secondary"
+     size="sm"
+diff --git a/src/chat/context-status.ts b/src/chat/context-status.ts
+--- /dev/null
++++ b/src/chat/context-status.ts
+@@ -0,0 +1,101 @@
++// Pure rules for the inline context status beside Send (docs/31 §4.3). No I/O.
++import type { ContextUsage, Cost, TokenUsage } from '../ports'
++
++export type Pressure = 'normal' | 'warning' | 'high' | 'critical'
++export type Platform = 'windows' | 'macos' | 'linux' | 'other'
++
++/** Occupancy in percent, clamped to 0–100; `null` when tokens or window are unknown. */
++export function contextPercent(context: ContextUsage | null, window: number | null): number | null {
++  const tokens = context?.tokens
++  if (tokens == null || window == null || window <= 0) return null
++  return Math.min(100, Math.max(0, (tokens / window) * 100))
++}
++
++/** Highest of percentage and absolute pressure; absolute counts need a known window. */
++export function pressure(context: ContextUsage | null, window: number | null): Pressure {
++  const percent = contextPercent(context, window) ?? 0
++  const tokens = window != null && window > 0 ? (context?.tokens ?? 0) : 0
++  if (percent >= 90 || tokens >= 500_000) return 'critical'
++  if (percent >= 70 || tokens >= 270_000) return 'high'
++  if (percent >= 50 || tokens >= 150_000) return 'warning'
++  return 'normal'
++}
++
++/** Truncates rather than rounds, so 999 999 never reads as 1000k. */
++export function compact(value: number): string {
++  const n = Math.max(0, Math.floor(value))
++  const [divisor, suffix] =
++    n >= 1e9 ? [1e9, 'B'] : n >= 1e6 ? [1e6, 'M'] : n >= 1e3 ? [1e3, 'k'] : [1, '']
++  if (divisor === 1) return String(n)
++  const tenth = Math.floor((n * 10) / divisor)
++  const whole = Math.floor(tenth / 10)
++  return tenth % 10 === 0 ? `${whole}${suffix}` : `${whole}.${tenth % 10}${suffix}`
++}
++
++/** `~12.3%/1.1M`; unknown parts render as `?`. */
++export function summary(context: ContextUsage | null, window: number | null): string {
++  const percent = contextPercent(context, window)
++  const size = window != null && window > 0 ? compact(window) : '?'
++  const estimated = context?.source === 'estimated' ? '~' : ''
++  return `${estimated}${percent === null ? '?' : percent.toFixed(1)}%/${size}`
++}
++
++/** Estimated money from configured prices; invalid amounts are unknown. */
++export function money({ amount, currency }: Cost): string | null {
++  if (!Number.isFinite(amount) || amount < 0) return null
++  const text =
++    amount > 0 && amount < 0.0001
++      ? '<0.0001'
++      : amount > 0 && amount < 0.01
++        ? amount.toFixed(4)
++        : amount.toFixed(2)
++  return `≈${currency === 'CNY' ? '¥' : '$'}${text}`
++}
++
++export interface SpendingTurn {
++  usage: TokenUsage | null
++  cost: Cost | null
++}
++
++/**
++ * Money only when every turn with usage has a priced cost in one currency; otherwise tokens.
++ * Input already contains cache, output contains reasoning, so only the two totals are added.
++ */
++export function spending(turns: readonly SpendingTurn[]): string {
++  const used = turns.filter(
++    ({ usage }) => usage != null && (usage.inputTokens != null || usage.outputTokens != null),
++  )
++  if (used.length === 0) return '? tokens'
++  const priced = used.flatMap(({ usage, cost }) =>
++    cost &&
++    Number.isFinite(cost.amount) &&
++    cost.amount >= 0 &&
++    usage?.inputTokens != null &&
++    usage.outputTokens != null
++      ? [cost]
++      : [],
++  )
++  const first = priced[0]
++  const oneCurrency = priced.every((cost) => cost.currency === first?.currency)
++  if (first && priced.length === used.length && oneCurrency) {
++    const amount = priced.reduce((sum, cost) => sum + cost.amount, 0)
++    const text = money({ amount, currency: first.currency })
++    if (text) return text
++  }
++  let tokens = 0
++  for (const { usage } of used) tokens += (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0)
++  return `${compact(tokens)} tokens`
++}
++
++type PlatformNavigator = Navigator & { userAgentData?: { platform?: string } }
++
++/** Browser-reported OS; on the web this is the visitor's system, not the server's. */
++export function detectPlatform(
++  nav: PlatformNavigator | undefined = globalThis.navigator,
++): Platform {
++  const name = (nav?.userAgentData?.platform || nav?.platform || '').toLowerCase()
++  if (name.startsWith('win')) return 'windows'
++  if (name.startsWith('mac') || name.includes('darwin')) return 'macos'
++  if (name.includes('linux') && !name.includes('android')) return 'linux'
++  return 'other'
++}
+diff --git a/src/chat/ContextUsageStatus.svelte b/src/chat/ContextUsageStatus.svelte
+--- /dev/null
++++ b/src/chat/ContextUsageStatus.svelte
+@@ -0,0 +1,97 @@
++<script lang="ts">
++  // Inline context status beside Send (docs/31 §4.3); opens the shared usage popover.
++  import type { Snippet } from 'svelte'
++  import { cn } from '#lib/utils.js'
++  import type { KitI18n } from '../i18n'
++  import type { ContextUsage } from '../ports'
++  import UsageControl from './UsageControl.svelte'
++  import PathIcon from './icons/PathIcon.svelte'
++  import {
++    detectPlatform,
++    pressure,
++    spending,
++    summary as contextSummary,
++    type Platform,
++    type SpendingTurn,
++  } from './context-status'
++  import { applePath, linuxPath, wandPath, windowsPath } from './icons/status-icons'
++
++  let {
++    context,
++    contextWindow = null,
++    turns,
++    modelName = '',
++    i18n,
++    platform = detectPlatform(),
++    settings,
++    details,
++    open = $bindable(false),
++  }: {
++    context: ContextUsage | null
++    /** Fallback capacity, e.g. the selected model's window, when the usage has none. */
++    contextWindow?: number | null
++    turns: readonly SpendingTurn[]
++    modelName?: string
++    i18n: KitI18n
++    platform?: Platform
++    settings?: Snippet | undefined
++    details?: Snippet | undefined
++    open?: boolean
++  } = $props()
++  const marks: Record<Platform, { name: string; path: string } | null> = {
++    windows: { name: 'Windows', path: windowsPath },
++    macos: { name: 'macOS', path: applePath },
++    linux: { name: 'Linux', path: linuxPath },
++    other: null,
++  }
++  const capacity = $derived(context?.contextWindow ?? contextWindow)
++  const text = $derived(contextSummary(context, capacity))
++  const spent = $derived(spending(turns))
++  const level = $derived(pressure(context, capacity))
++  const mark = $derived(marks[platform])
++  const label = $derived(
++    i18n
++      .t('chat.status.label', { platform: mark?.name ?? '', summary: text, spending: spent })
++      .trim(),
++  )
++</script>
++
++<UsageControl
++  bind:open
++  {i18n}
++  {settings}
++  {details}
++  summaryLabel={label}
++  context={{
++    tokens: context?.tokens ?? null,
++    contextWindow: capacity,
++    modelName,
++    source: context?.source ?? 'unknown',
++  }}
++>
++  {#snippet summary()}
++    <span
++      class={cn(
++        'inline-flex min-w-0 items-center gap-1.5 font-mono text-xs tabular-nums',
++        level === 'normal' && 'text-muted-foreground',
++        level === 'warning' && 'text-warning',
++        level === 'high' &&
++          'text-[color-mix(in_oklch,var(--color-warning)_45%,var(--color-destructive))]',
++        level === 'critical' && 'text-destructive',
++      )}
++      data-pressure={level}
++    >
++      {#if mark}<PathIcon
++          data-composer-capacity
++          d={mark.path}
++          class="size-3 shrink-0 text-foreground"
++        />{/if}
++      <span class="shrink-0 whitespace-nowrap"
++        >{text.split('/')[0]}<span data-composer-capacity>/{text.split('/')[1]}</span></span
++      >
++      <PathIcon d={wandPath} class="size-3 shrink-0" />
++      <span data-composer-capacity class="mx-1.5 shrink-0 text-border" aria-hidden="true">·</span>
++      <span data-composer-capacity class="min-w-0 truncate text-muted-foreground">{spent}</span>
++    </span>
++  {/snippet}
++</UsageControl>
+diff --git a/src/chat/icons/effort-icons.ts b/src/chat/icons/effort-icons.ts
+--- /dev/null
++++ b/src/chat/icons/effort-icons.ts
+@@ -0,0 +1,65 @@
++// Effort marks as 24×24 path data, colored by `currentColor`; same shapes as LumaKit ThinkRail.
++// Remix Icon 4.9.0 (LICENSE-REMIX): RiZzz, RiLeaf, RiFlashlight, RiContrastDrop2, RiSparkling2,
++// RiSparkling and RiFire, Line variants. Path data unmodified.
++import type { ReasoningEffort } from '../../ports'
++
++const paths: Partial<Record<ReasoningEffort, string>> = {
++  none: [
++    'M11 11V13L5.67257 19H11V21H3V19L8.32557 13H3V11H11ZM21 3V5L15.6726 11H21V13H13V11L18',
++    '.3256 5H13V3H21Z',
++  ].join(''),
++  minimal: [
++    'M20.998 3V5C20.998 14.6274 15.6255 19 8.99805 19L5.24077 18.9999C5.0786 19.912 4.998',
++    '05 20.907 4.99805 22H2.99805C2.99805 20.6373 3.11376 19.3997 3.34381 18.2682C3.1133 ',
++    '16.9741 2.99805 15.2176 2.99805 13C2.99805 7.47715 7.4752 3 12.998 3C14.998 3 16.998',
++    ' 4 20.998 3ZM12.998 5C8.57977 5 4.99805 8.58172 4.99805 13C4.99805 13.3624 5.00125 1',
++    '3.7111 5.00759 14.0459C6.26198 12.0684 8.09902 10.5048 10.5019 9.13176L11.4942 10.86',
++    '82C8.6393 12.4996 6.74554 14.3535 5.77329 16.9998L8.99805 17C15.0132 17 18.8692 13.0',
++    '269 18.9949 5.38766C17.6229 5.52113 16.3481 5.436 14.7754 5.20009C13.6243 5.02742 13',
++    '.3988 5 12.998 5Z',
++  ].join(''),
++  low: ['M13 9H21L11 24V15H4L13 0V9ZM11 11V7.22063L7.53238 13H13V17.3944L17.263 11H11Z'].join(''),
++  medium: [
++    'M12 3.09735L7.05025 8.04709C4.31658 10.7808 4.31658 15.2129 7.05025 17.9466C9.78392 ',
++    '20.6803 14.2161 20.6803 16.9497 17.9466C19.6834 15.2129 19.6834 10.7808 16.9497 8.04',
++    '71L12 3.09735ZM12 0.268921L18.364 6.63288C21.8787 10.1476 21.8787 15.8461 18.364 19.',
++    '3608C14.8492 22.8755 9.15076 22.8755 5.63604 19.3608C2.12132 15.8461 2.12132 10.1476',
++    ' 5.63604 6.63288L12 0.268921ZM7 12.9968H17C17 15.7583 14.7614 17.9968 12 17.9968C9.2',
++    '3858 17.9968 7 15.7583 7 12.9968Z',
++  ].join(''),
++  high: [
++    'M17.0007 1.20825 18.3195 3.68108 20.7923 4.99992 18.3195 6.31876 17.0007 8.79159 15.',
++    '6818 6.31876 13.209 4.99992 15.6818 3.68108 17.0007 1.20825ZM10.6673 9.33325 15.6673',
++    ' 11.9999 10.6673 14.6666 8.00065 19.6666 5.33398 14.6666.333984 11.9999 5.33398 9.33',
++    '325 8.00065 4.33325 10.6673 9.33325ZM11.4173 11.9999 9.18905 10.8115 8.00065 8.58325',
++    ' 6.81224 10.8115 4.58398 11.9999 6.81224 13.1883 8.00065 15.4166 9.18905 13.1883 11.',
++    '4173 11.9999ZM19.6673 16.3333 18.0007 13.2083 16.334 16.3333 13.209 17.9999 16.334 1',
++    '9.6666 18.0007 22.7916 19.6673 19.6666 22.7923 17.9999 19.6673 16.3333Z',
++  ].join(''),
++  xhigh: [
++    'M14 4.4375C15.3462 4.4375 16.4375 3.34619 16.4375 2H17.5625C17.5625 3.34619 18.6538 ',
++    '4.4375 20 4.4375V5.5625C18.6538 5.5625 17.5625 6.65381 17.5625 8H16.4375C16.4375 6.6',
++    '5381 15.3462 5.5625 14 5.5625V4.4375ZM1 11C4.31371 11 7 8.31371 7 5H9C9 8.31371 11.6',
++    '863 11 15 11V13C11.6863 13 9 15.6863 9 19H7C7 15.6863 4.31371 13 1 13V11ZM4.87601 12',
++    'C6.18717 12.7276 7.27243 13.8128 8 15.124 8.72757 13.8128 9.81283 12.7276 11.124 12 ',
++    '9.81283 11.2724 8.72757 10.1872 8 8.87601 7.27243 10.1872 6.18717 11.2724 4.87601 12',
++    'ZM17.25 14C17.25 15.7949 15.7949 17.25 14 17.25V18.75C15.7949 18.75 17.25 20.2051 17',
++    '.25 22H18.75C18.75 20.2051 20.2051 18.75 22 18.75V17.25C20.2051 17.25 18.75 15.7949 ',
++    '18.75 14H17.25Z',
++  ].join(''),
++  max: [
++    'M12 23C16.1421 23 19.5 19.6421 19.5 15.5C19.5 14.6345 19.2697 13.8032 19 13.0296C17.',
++    '3333 14.6765 16.0667 15.5 15.2 15.5C19.1954 8.5 17 5.5 11 1.5C11.5 6.49951 8.20403 8',
++    '.77375 6.86179 10.0366C5.40786 11.4045 4.5 13.3462 4.5 15.5C4.5 19.6421 7.85786 23 1',
++    '2 23ZM12.7094 5.23498C15.9511 7.98528 15.9666 10.1223 13.463 14.5086C12.702 15.8419 ',
++    '13.6648 17.5 15.2 17.5C15.8884 17.5 16.5841 17.2992 17.3189 16.9051C16.6979 19.262 1',
++    '4.5519 21 12 21C8.96243 21 6.5 18.5376 6.5 15.5C6.5 13.9608 7.13279 12.5276 8.23225 ',
++    '11.4932C8.35826 11.3747 8.99749 10.8081 9.02477 10.7836C9.44862 10.4021 9.7978 10.06',
++    '63 10.1429 9.69677C11.3733 8.37932 12.2571 6.91631 12.7094 5.23498Z',
++  ].join(''),
++}
++
++/** The mark for `effort`; `auto` and `default` share the medium drop, as in LumaKit. */
++export function effortPath(effort: ReasoningEffort): string {
++  return paths[effort] ?? (paths.medium as string)
++}
+diff --git a/src/chat/icons/LICENSE-REMIX b/src/chat/icons/LICENSE-REMIX
+--- /dev/null
++++ b/src/chat/icons/LICENSE-REMIX
+@@ -0,0 +1,186 @@
++Remix Icon License v1.0
++Version 1.0 – January 2026
++Copyright (c) 2017–2026 Remix Design
++
++   This License governs the use of the Remix Icon library, including all icons,
++   SVG files, font files, and related assets (collectively, the "Icons").
++
++1. Grant of License
++
++   Subject to the terms and conditions of this License, Remix Design grants you
++   a worldwide, royalty-free, non-exclusive license to use, copy, modify,
++   merge, and distribute the Icons, as permitted below.
++
++2. Permitted Uses
++
++   You are permitted to:
++
++   2.1 Commercial and Non-Commercial Use
++       Use the Icons in personal, commercial, and client projects, including
++       but not limited to:
++       - Websites, web applications, and mobile applications
++       - Software products and SaaS platforms
++       - User interface designs, design systems, and UI kits
++       - Presentations, documentation, and marketing materials
++       - Physical or digital products where the Icons are decorative or
++       functional elements
++
++   2.2 Modification and Derivative Works
++       - Modify, adapt, or customize the Icons
++       - Change colors, sizes, stroke styles, or other visual attributes
++       to fit your project needs
++
++   2.3 Distribution as Part of a Larger Work
++       Include the Icons (modified or unmodified) as part of a larger product,
++       provided that:
++       - The Icons are functional or decorative components of the product, and
++       - The Icons are not marketed or sold as the primary value of the product
++
++   2.4 Attribution (Optional)
++       Attribution to Remix Icon is appreciated but not required.
++       Suggested attribution:
++       "Icons by Remix Icon (https://remixicon.com)"
++
++3. Restrictions
++
++   3.1 Prohibited: Standalone Icon Sales
++       You may NOT:
++       - Sell, sublicense, or distribute the Icons as a standalone product
++       - Package the Icons as an independent icon pack, icon library, or
++       icon font for sale
++       - Offer the Icons as a downloadable asset collection where the Icons
++       themselves constitute the primary product value
++
++       Clarification:
++       A product is considered a prohibited standalone icon sale if:
++       - The Icons are the primary advertised feature, or
++       - Removing the Icons would eliminate the core value of the product
++
++       Examples:
++       - Prohibited: "Premium Icon Pack – 2,000+ Icons for $29"
++       - Prohibited: "Extended Remix Icon Library (Paid)"
++       - Permitted: Website or app templates that include Icons as UI elements
++       - Permitted: Design systems or UI kits where Icons are a minor component
++
++   3.2 Prohibited: Competing Icon Libraries
++       You may NOT use the Icons to create, distribute, or sell a competing
++       icon library or icon set, even if the Icons are modified with only
++       minor or superficial changes (such as color, size, stroke width,
++       corner radius, or layout).
++
++   3.3 Prohibited: Logo, Trademark, and Brand Identity Use
++       You may NOT use the Icons, whether modified or unmodified, as:
++       - A logo, trademark, or brand identifier
++       - The primary visual identity of a company, product, or service
++
++       This includes, but is not limited to:
++       - Creating a logo by applying simple modifications such as color changes,
++       rotation, combination, or layout
++       - Using an Icon as a brand mark, app icon, or identity symbol where the
++       Icon itself represents the brand
++
++       Rationale:
++       Remix Icon is designed for functional and informational use. Using the
++       Icons as brand identifiers may impair their recognizability and neutrality
++       in other functional contexts.
++
++4. Brand Icons and Trademarks
++
++   Some Icons represent third-party brands or services.
++
++   4.1 Permitted Use of Brand Icons
++       You may use brand icons solely to represent or link to the corresponding
++       brand, product, or service.
++       Examples:
++       - Using a GitHub icon to link to a GitHub repository
++       - Displaying social media icons in a website footer
++
++   4.2 Prohibited Use of Brand Icons
++       You may NOT:
++       - Use brand icons as your own logo or trademark
++       - Modify brand icons to create a new brand identity
++       - Use brand icons in a way that implies endorsement or affiliation
++       by the brand owner
++       - Use brand icons for purposes unrelated to the represented brand
++
++   4.3 Trademark Responsibility
++       All brand icons are subject to the trademark rights of their respective
++       owners. This License does not grant any trademark rights.
++       Users are responsible for ensuring that their use of brand icons complies
++       with applicable trademark laws.
++
++5. Copyright and License Notice
++
++   When distributing the complete Icon library or substantial portions thereof:
++
++   - You must retain existing copyright notices in source files
++   - You should include a copy of this License or a link to it
++
++   For individual use of Icons within projects (e.g., compiled apps, websites,
++   presentations), no copyright notice is required.
++
++6. No Trademark Rights
++
++   This License does not grant permission to use:
++
++   - The "Remix Icon" name, logo, or trademarks
++   - Any trademarks represented by brand icons
++
++   You may refer to Remix Icon by name solely for attribution purposes.
++
++7. Disclaimer of Warranty
++
++   THE ICONS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++   IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY,
++   FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
++
++8. Limitation of Liability
++
++   IN NO EVENT SHALL REMIX DESIGN BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
++   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING
++   FROM, OUT OF, OR IN CONNECTION WITH THE ICONS OR THEIR USE.
++
++9. License Compatibility
++
++   You may integrate the Icons into projects under permissive licenses
++   (such as MIT, BSD, or Apache 2.0), provided that:
++
++   - The Icons themselves remain governed by this License
++   - The restrictions in Section 3 continue to apply
++
++   This License may be incompatible with licenses that require unrestricted
++   redistribution of assets as standalone products or mandatory application
++   of strong copyleft or share-alike terms.
++
++10. Termination
++
++   Your rights under this License terminate automatically if you breach its
++   terms.
++
++   Upon termination:
++
++   - You must cease any distribution that violates this License
++   - You may continue to use the Icons in projects already distributed
++   prior to termination
++   - End users who received such projects are not affected
++
++11. License Versioning
++
++   Remix Design may publish revised versions of this License.
++
++   You may choose to use the Icons under:
++
++   - The version of this License under which you received them, or
++   - Any later version published by Remix Design
++
++   Once chosen, that version may be used indefinitely.
++
++How to Apply This License
++
++   Include the following notice in your documentation when appropriate:
++
++   "This project uses icons from Remix Icon (https://remixicon.com),
++   licensed under the Remix Icon License v1.0."
++
++   When distributing the complete Icon library or substantial portions of it,
++   include a copy of this License.
+diff --git a/src/chat/icons/LICENSE-SIMPLE-ICONS b/src/chat/icons/LICENSE-SIMPLE-ICONS
+--- /dev/null
++++ b/src/chat/icons/LICENSE-SIMPLE-ICONS
+@@ -0,0 +1,30 @@
++# CC0 1.0 Universal
++
++## Statement of Purpose
++
++The laws of most jurisdictions throughout the world automatically confer exclusive Copyright and Related Rights (defined below) upon the creator and subsequent owner(s) (each and all, an “owner”) of an original work of authorship and/or a database (each, a “Work”).
++
++Certain owners wish to permanently relinquish those rights to a Work for the purpose of contributing to a commons of creative, cultural and scientific works (“Commons”) that the public can reliably and without fear of later claims of infringement build upon, modify, incorporate in other works, reuse and redistribute as freely as possible in any form whatsoever and for any purposes, including without limitation commercial purposes. These owners may contribute to the Commons to promote the ideal of a free culture and the further production of creative, cultural and scientific works, or to gain reputation or greater distribution for their Work in part through the use and efforts of others.
++
++For these and/or other purposes and motivations, and without any expectation of additional consideration or compensation, the person associating CC0 with a Work (the “Affirmer”), to the extent that he or she is an owner of Copyright and Related Rights in the Work, voluntarily elects to apply CC0 to the Work and publicly distribute the Work under its terms, with knowledge of his or her Copyright and Related Rights in the Work and the meaning and intended legal effect of CC0 on those rights.
++
++1. Copyright and Related Rights. A Work made available under CC0 may be protected by copyright and related or neighboring rights (“Copyright and Related Rights”). Copyright and Related Rights include, but are not limited to, the following:
++    1. the right to reproduce, adapt, distribute, perform, display, communicate, and translate a Work;
++    2. moral rights retained by the original author(s) and/or performer(s);
++    3. publicity and privacy rights pertaining to a person’s image or likeness depicted in a Work;
++    4. rights protecting against unfair competition in regards to a Work, subject to the limitations in paragraph 4(i), below;
++    5. rights protecting the extraction, dissemination, use and reuse of data in a Work;
++    6. database rights (such as those arising under Directive 96/9/EC of the European Parliament and of the Council of 11 March 1996 on the legal protection of databases, and under any national implementation thereof, including any amended or successor version of such directive); and
++    7. other similar, equivalent or corresponding rights throughout the world based on applicable law or treaty, and any national implementations thereof.
++
++2. Waiver. To the greatest extent permitted by, but not in contravention of, applicable law, Affirmer hereby overtly, fully, permanently, irrevocably and unconditionally waives, abandons, and surrenders all of Affirmer’s Copyright and Related Rights and associated claims and causes of action, whether now known or unknown (including existing as well as future claims and causes of action), in the Work (i) in all territories worldwide, (ii) for the maximum duration provided by applicable law or treaty (including future time extensions), (iii) in any current or future medium and for any number of copies, and (iv) for any purpose whatsoever, including without limitation commercial, advertising or promotional purposes (the “Waiver”). Affirmer makes the Waiver for the benefit of each member of the public at large and to the detriment of Affirmer’s heirs and successors, fully intending that such Waiver shall not be subject to revocation, rescission, cancellation, termination, or any other legal or equitable action to disrupt the quiet enjoyment of the Work by the public as contemplated by Affirmer’s express Statement of Purpose.
++
++3. Public License Fallback. Should any part of the Waiver for any reason be judged legally invalid or ineffective under applicable law, then the Waiver shall be preserved to the maximum extent permitted taking into account Affirmer’s express Statement of Purpose. In addition, to the extent the Waiver is so judged Affirmer hereby grants to each affected person a royalty-free, non transferable, non sublicensable, non exclusive, irrevocable and unconditional license to exercise Affirmer’s Copyright and Related Rights in the Work (i) in all territories worldwide, (ii) for the maximum duration provided by applicable law or treaty (including future time extensions), (iii) in any current or future medium and for any number of copies, and (iv) for any purpose whatsoever, including without limitation commercial, advertising or promotional purposes (the “License”). The License shall be deemed effective as of the date CC0 was applied by Affirmer to the Work. Should any part of the License for any reason be judged legally invalid or ineffective under applicable law, such partial invalidity or ineffectiveness shall not invalidate the remainder of the License, and in such case Affirmer hereby affirms that he or she will not (i) exercise any of his or her remaining Copyright and Related Rights in the Work or (ii) assert any associated claims and causes of action with respect to the Work, in either case contrary to Affirmer’s express Statement of Purpose.
++
++4. Limitations and Disclaimers.
++    1. No trademark or patent rights held by Affirmer are waived, abandoned, surrendered, licensed or otherwise affected by this document.
++    2. Affirmer offers the Work as-is and makes no representations or warranties of any kind concerning the Work, express, implied, statutory or otherwise, including without limitation warranties of title, merchantability, fitness for a particular purpose, non infringement, or the absence of latent or other defects, accuracy, or the present or absence of errors, whether or not discoverable, all to the greatest extent permissible under applicable law.
++    3. Affirmer disclaims responsibility for clearing rights of other persons that may apply to the Work or any use thereof, including without limitation any person’s Copyright and Related Rights in the Work. Further, Affirmer disclaims responsibility for obtaining any necessary consents, permissions or other rights required for any use of the Work.
++    4. Affirmer understands and acknowledges that Creative Commons is not a party to this document and has no duty or obligation with respect to this CC0 or use of the Work.
++
++For more information, please see <https://creativecommons.org/publicdomain/zero/1.0>.
+diff --git a/src/chat/icons/PathIcon.svelte b/src/chat/icons/PathIcon.svelte
+--- /dev/null
++++ b/src/chat/icons/PathIcon.svelte
+@@ -0,0 +1,8 @@
++<script lang="ts">
++  // A 24×24 single-path mark colored by `currentColor`, for marks absent from the icon library.
++  import type { SVGAttributes } from 'svelte/elements'
++
++  let { d, ...rest }: { d: string } & SVGAttributes<SVGSVGElement> = $props()
++</script>
++
++<svg viewBox="0 0 24 24" aria-hidden="true" {...rest}><path fill="currentColor" {d} /></svg>
+diff --git a/src/chat/icons/status-icons.ts b/src/chat/icons/status-icons.ts
+--- /dev/null
++++ b/src/chat/icons/status-icons.ts
+@@ -0,0 +1,105 @@
++// Status marks as 24×24 path data, colored by `currentColor`.
++// Apple and Linux: Simple Icons (CC0, LICENSE-SIMPLE-ICONS). Windows: original geometry.
++// Wand: Remix Icon 4.9.0 RiMagicLine (LICENSE-REMIX). Brand marks stay their owners' marks.
++
++export const windowsPath = [
++  'M2 5.2 10.2 4v7.2H2zm9.5-1.4L22 2.3v8.9H11.5zM2 12.6h8.2v7.2L2 18.7zm9.5 0H22v8.9L11',
++  '.5 20z',
++].join('')
++
++export const applePath = [
++  'M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.',
++  '675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.',
++  '935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.6',
++  '36-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.5',
++  '59-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.',
++  '012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3',
++  '.714 1.338.104 2.715-.688 3.559-1.701',
++].join('')
++
++export const linuxPath = [
++  'M12.504 0c-.155 0-.315.008-.48.021-4.226.333-3.105 4.807-3.17 6.298-.076 1.092-.3 1.',
++  '953-1.05 3.02-.885 1.051-2.127 2.75-2.716 4.521-.278.832-.41 1.684-.287 2.489a.424.4',
++  '24 0 00-.11.135c-.26.268-.45.6-.663.839-.199.199-.485.267-.797.4-.313.136-.658.269-.',
++  '864.68-.09.189-.136.394-.132.602 0 .199.027.4.055.536.058.399.116.728.04.97-.249.68-',
++  '.28 1.145-.106 1.484.174.334.535.47.94.601.81.2 1.91.135 2.774.6.926.466 1.866.67 2.',
++  '616.47.526-.116.97-.464 1.208-.946.587-.003 1.23-.269 2.26-.334.699-.058 1.574.267 2',
++  '.577.2.025.134.063.198.114.333l.003.003c.391.778 1.113 1.132 1.884 1.071.771-.06 1.5',
++  '92-.536 2.257-1.306.631-.765 1.683-1.084 2.378-1.503.348-.199.629-.469.649-.853.023-',
++  '.4-.2-.811-.714-1.376v-.097l-.003-.003c-.17-.2-.25-.535-.338-.926-.085-.401-.182-.78',
++  '6-.492-1.046h-.003c-.059-.054-.123-.067-.188-.135a.357.357 0 00-.19-.064c.431-1.278.',
++  '264-2.55-.173-3.694-.533-1.41-1.465-2.638-2.175-3.483-.796-1.005-1.576-1.957-1.56-3.',
++  '368.026-2.152.236-6.133-3.544-6.139zm.529 3.405h.013c.213 0 .396.062.584.198.19.135.',
++  '33.332.438.533.105.259.158.459.166.724 0-.02.006-.04.006-.06v.105a.086.086 0 01-.004',
++  '-.021l-.004-.024a1.807 1.807 0 01-.15.706.953.953 0 01-.213.335.71.71 0 00-.088-.042',
++  'c-.104-.045-.198-.064-.284-.133a1.312 1.312 0 00-.22-.066c.05-.06.146-.133.183-.198.',
++  '053-.128.082-.264.088-.402v-.02a1.21 1.21 0 00-.061-.4c-.045-.134-.101-.2-.183-.333-',
++  '.084-.066-.167-.132-.267-.132h-.016c-.093 0-.176.03-.262.132a.8.8 0 00-.205.334 1.18',
++  ' 1.18 0 00-.09.4v.019c.002.089.008.179.02.267-.193-.067-.438-.135-.607-.202a1.635 1.',
++  '635 0 01-.018-.2v-.02a1.772 1.772 0 01.15-.768c.082-.22.232-.406.43-.533a.985.985 0 ',
++  '01.594-.2zm-2.962.059h.036c.142 0 .27.048.399.135.146.129.264.288.344.465.09.199.14.',
++  '4.153.667v.004c.007.134.006.2-.002.266v.08c-.03.007-.056.018-.083.024-.152.055-.274.',
++  '135-.393.2.012-.09.013-.18.003-.267v-.015c-.012-.133-.04-.2-.082-.333a.613.613 0 00-',
++  '.166-.267.248.248 0 00-.183-.064h-.021c-.071.006-.13.04-.186.132a.552.552 0 00-.12.2',
++  '7.944.944 0 00-.023.33v.015c.012.135.037.2.08.334.046.134.098.2.166.268.01.009.02.01',
++  '8.034.024-.07.057-.117.07-.176.136a.304.304 0 01-.131.068 2.62 2.62 0 01-.275-.402 1',
++  '.772 1.772 0 01-.155-.667 1.759 1.759 0 01.08-.668 1.43 1.43 0 01.283-.535c.128-.133',
++  '.26-.2.418-.2zm1.37 1.706c.332 0 .733.065 1.216.399.293.2.523.269 1.052.468h.003c.25',
++  '5.136.405.266.478.399v-.131a.571.571 0 01.016.47c-.123.31-.516.643-1.063.842v.002c-.',
++  '268.135-.501.333-.775.465-.276.135-.588.292-1.012.267a1.139 1.139 0 01-.448-.067 3.5',
++  '66 3.566 0 01-.322-.198c-.195-.135-.363-.332-.612-.465v-.005h-.005c-.4-.246-.616-.51',
++  '2-.686-.71-.07-.268-.005-.47.193-.6.224-.135.38-.271.483-.336.104-.074.143-.102.176-',
++  '.131h.002v-.003c.169-.202.436-.47.839-.601.139-.036.294-.065.466-.065zm2.8 2.142c.35',
++  '8 1.417 1.196 3.475 1.735 4.473.286.534.855 1.659 1.102 3.024.156-.005.33.018.513.06',
++  '4.646-1.671-.546-3.467-1.089-3.966-.22-.2-.232-.335-.123-.335.59.534 1.365 1.572 1.6',
++  '46 2.757.13.535.16 1.104.021 1.67.067.028.135.06.205.067 1.032.534 1.413.938 1.23 1.',
++  '537v-.043c-.06-.003-.12 0-.18 0h-.016c.151-.467-.182-.825-1.065-1.224-.915-.4-1.646-',
++  '.336-1.77.465-.008.043-.013.066-.018.135-.068.023-.139.053-.209.064-.43.268-.662.669',
++  '-.793 1.187-.13.533-.17 1.156-.205 1.869v.003c-.02.334-.17.838-.319 1.35-1.5 1.072-3',
++  '.58 1.538-5.348.334a2.645 2.645 0 00-.402-.533 1.45 1.45 0 00-.275-.333c.182 0 .338-',
++  '.03.465-.067a.615.615 0 00.314-.334c.108-.267 0-.697-.345-1.163-.345-.467-.931-.995-',
++  '1.788-1.521-.63-.4-.986-.87-1.15-1.396-.165-.534-.143-1.085-.015-1.645.245-1.07.873-',
++  '2.11 1.274-2.763.107-.065.037.135-.408.974-.396.751-1.14 2.497-.122 3.854a8.123 8.12',
++  '3 0 01.647-2.876c.564-1.278 1.743-3.504 1.836-5.268.048.036.217.135.289.202.218.133.',
++  '38.333.59.465.21.201.477.335.876.335.039.003.075.006.11.006.412 0 .73-.134.997-.268.',
++  '29-.134.52-.334.74-.4h.005c.467-.135.835-.402 1.044-.7zm2.185 8.958c.037.6.343 1.245',
++  '.882 1.377.588.134 1.434-.333 1.791-.765l.211-.01c.315-.007.577.01.847.268l.003.003c',
++  '.208.199.305.53.391.876.085.4.154.78.409 1.066.486.527.645.906.636 1.14l.003-.007v.0',
++  '18l-.003-.012c-.015.262-.185.396-.498.595-.63.401-1.746.712-2.457 1.57-.618.737-1.37',
++  ' 1.14-2.036 1.191-.664.053-1.237-.2-1.574-.898l-.005-.003c-.21-.4-.12-1.025.056-1.69',
++  '.176-.668.428-1.344.463-1.897.037-.714.076-1.335.195-1.814.12-.465.308-.797.641-.984',
++  'l.045-.022zm-10.814.049h.01c.053 0 .105.005.157.014.376.055.706.333 1.023.752l.91 1.',
++  '664.003.003c.243.533.754 1.064 1.189 1.637.434.598.77 1.131.729 1.57v.006c-.057.744-',
++  '.48 1.148-1.125 1.294-.645.135-1.52.002-2.395-.464-.968-.536-2.118-.469-2.857-.602-.',
++  '369-.066-.61-.2-.723-.4-.11-.2-.113-.602.123-1.23v-.004l.002-.003c.117-.334.03-.752-',
++  '.027-1.118-.055-.401-.083-.71.043-.94.16-.334.396-.4.69-.533.294-.135.64-.202.915-.4',
++  '7h.002v-.002c.256-.268.445-.601.668-.838.19-.201.38-.336.663-.336zm7.159-9.074c-.435',
++  '.201-.945.535-1.488.535-.542 0-.97-.267-1.28-.466-.154-.134-.28-.268-.373-.335-.164-',
++  '.134-.144-.333-.074-.333.109.016.129.134.199.2.096.066.215.2.36.333.292.2.68.467 1.1',
++  '67.467.485 0 1.053-.267 1.398-.466.195-.135.445-.334.648-.467.156-.136.149-.267.279-',
++  '.267.128.016.034.134-.147.332a8.097 8.097 0 01-.69.468zm-1.082-1.583V5.64c-.006-.02.',
++  '013-.042.029-.05.074-.043.18-.027.26.004.063 0 .16.067.15.135-.006.049-.085.066-.135',
++  '.066-.055 0-.092-.043-.141-.068-.052-.018-.146-.008-.163-.065zm-.551 0c-.02.058-.113',
++  '.049-.166.066-.047.025-.086.068-.14.068-.05 0-.13-.02-.136-.068-.01-.066.088-.133.15',
++  '-.133.08-.031.184-.047.259-.005.019.009.036.03.03.05v.02h.003z',
++].join('')
++
++export const wandPath = [
++  'M15.1986 9.94447C14.7649 9.5337 14.4859 8.98613 14.4085 8.39384L14.0056 5.31138L11.2',
++  '75 6.79724C10.7503 7.08274 10.1433 7.17888 9.55608 7.06948L6.49998 6.50015L7.06931 9',
++  '.55625C7.17871 10.1435 7.08257 10.7505 6.79707 11.2751L5.31121 14.0057L8.39367 14.40',
++  '86C8.98596 14.4861 9.53353 14.7651 9.94431 15.1987L12.0821 17.4557L13.4178 14.6486C1',
++  '3.6745 14.1092 14.109 13.6747 14.6484 13.418L17.4555 12.0823L15.1986 9.94447ZM15.223',
++  '8 15.5079L13.0111 20.1581C12.8687 20.4573 12.5107 20.5844 12.2115 20.442C12.1448 20.',
++  '4103 12.0845 20.3665 12.0337 20.3129L8.49229 16.5741C8.39749 16.474 8.27113 16.4096 ',
++  '8.13445 16.3918L3.02816 15.7243C2.69958 15.6814 2.46804 15.3802 2.51099 15.0516C2.52',
++  '056 14.9784 2.54359 14.9075 2.5789 14.8426L5.04031 10.3192C5.1062 10.1981 5.12839 10',
++  '.058 5.10314 9.92253L4.16 4.85991C4.09931 4.53414 4.3142 4.22086 4.63997 4.16017C4.7',
++  '126 4.14664 4.78711 4.14664 4.85974 4.16017L9.92237 5.10331C10.0579 5.12855 10.198 5',
++  '.10637 10.319 5.04048L14.8424 2.57907C15.1335 2.42068 15.4979 2.52825 15.6562 2.8193',
++  '1C15.6916 2.88421 15.7146 2.95507 15.7241 3.02833L16.3916 8.13462C16.4095 8.2713 16.',
++  '4739 8.39766 16.5739 8.49245L20.3127 12.0338C20.5533 12.2617 20.5636 12.6415 20.3357',
++  ' 12.8821C20.2849 12.9357 20.2246 12.9795 20.1579 13.0112L15.5078 15.224C15.3833 15.2',
++  '832 15.283 15.3835 15.2238 15.5079ZM16.0206 17.435L17.4348 16.0208L21.6775 20.2634L2',
++  '0.2633 21.6776L16.0206 17.435Z',
++].join('')
+diff --git a/src/chat/index.ts b/src/chat/index.ts
+--- a/src/chat/index.ts
++++ b/src/chat/index.ts
+@@ -4,3 +4,23 @@
+ export { default as ChatMessage } from './ChatMessage.svelte'
+ export { default as ReasoningControl } from './ReasoningControl.svelte'
+ export { default as UsageControl } from './UsageControl.svelte'
++export { default as ModelEffortPicker } from './ModelEffortPicker.svelte'
++export { default as ContextUsageStatus } from './ContextUsageStatus.svelte'
++export { default as ReasoningSlider } from './ReasoningSlider.svelte'
++export {
++  groupModels,
++  modelKey,
++  nextValue,
++  parseQuery,
++  pickerModels,
++  type PickerModel,
++  type PickerValue,
++} from './model-effort'
++export {
++  compact,
++  detectPlatform,
++  pressure,
++  spending,
++  type Platform,
++  type SpendingTurn,
++} from './context-status'
+diff --git a/src/chat/model-effort.ts b/src/chat/model-effort.ts
+--- /dev/null
++++ b/src/chat/model-effort.ts
+@@ -0,0 +1,177 @@
++// Pure rules for the composer model/effort picker (docs/31 §3–§4.2): search, ranking,
++// carry-over of an explicit effort and the secret-free row projection. No I/O.
++import type { KitI18n } from '../i18n'
++import type { ModelOption, Provider, ReasoningEffort } from '../ports'
++import { REASONING_EFFORTS } from '../providers/reasoning'
++
++/** One selectable model as the picker shows it; `key` stays an opaque host identity. */
++export interface PickerModel {
++  key: string
++  providerId: string
++  provider: string
++  name: string
++  /** Route, price and context facts; empty parts are omitted, never guessed. */
++  detail: string
++  /** The route has an enabled, readable key. Keyless models stay selectable. */
++  hasKey: boolean
++  /** Declared levels in display order, without `default`. */
++  efforts: ReasoningEffort[]
++  contextWindow: number | null
++}
++
++/** `effort: 'default'` sends no reasoning control; it is not `none`. */
++export interface PickerValue {
++  key: string
++  effort: ReasoningEffort
++}
++
++export const modelKey = (endpointId: string, modelId: string) => `${endpointId}\n${modelId}`
++
++/** Splits a trailing level (`opus high`); `off` is accepted for `none`. */
++export function parseQuery(query: string): { text: string; effort: ReasoningEffort | null } {
++  const trimmed = query.trim()
++  const match = /^(.*\S)\s+(\S+)$/.exec(trimmed)
++  if (match?.[1] && match[2]) {
++    const word = match[2].toLowerCase()
++    const effort = word === 'off' ? 'none' : REASONING_EFFORTS.find((item) => item === word)
++    if (effort) return { text: match[1].trim(), effort }
++  }
++  return { text: trimmed, effort: null }
++}
++
++/** Lower is better; `null` hides the model (no match, or the typed level is not declared). */
++export function score(model: PickerModel, query: string): number | null {
++  const { text, effort } = parseQuery(query)
++  if (effort && !model.efforts.includes(effort)) return null
++  const haystack = `${model.name} ${model.provider} ${model.detail}`.toLowerCase()
++  const needle = text.toLowerCase()
++  const index = haystack.indexOf(needle)
++  if (index >= 0) return index
++  const parts = needle.split(/\s+/).filter(Boolean)
++  if (parts.every((part) => haystack.includes(part))) return 500
++  let rank = 1000
++  let from = 0
++  for (const char of needle.replace(/\s+/g, '')) {
++    const found = haystack.indexOf(char, from)
++    if (found < 0) return null
++    rank += found
++    from = found + 1
++  }
++  return rank
++}
++
++/** Typed level first, then the current explicit level if declared, else `default`. */
++export function nextValue(
++  model: PickerModel,
++  current: PickerValue | null,
++  query: string,
++): PickerValue {
++  const typed = parseQuery(query).effort
++  if (typed && model.efforts.includes(typed)) return { key: model.key, effort: typed }
++  const kept = current?.effort
++  const effort = kept && kept !== 'default' && model.efforts.includes(kept) ? kept : 'default'
++  return { key: model.key, effort }
++}
++
++export interface PickerGroup {
++  id: string
++  provider: string
++  models: PickerModel[]
++}
++
++/** Groups in first-seen order; models inside a group are ranked when searching. */
++export function groupModels(models: readonly PickerModel[], query: string): PickerGroup[] {
++  const searching = query.trim() !== ''
++  const groups: PickerGroup[] = []
++  for (const model of models) {
++    if (searching && score(model, query) === null) continue
++    const group = groups.find((item) => item.id === model.providerId)
++    if (group) group.models.push(model)
++    else groups.push({ id: model.providerId, provider: model.provider, models: [model] })
++  }
++  if (searching)
++    for (const group of groups)
++      group.models.sort((a, b) => (score(a, query) ?? Infinity) - (score(b, query) ?? Infinity))
++  return groups
++}
++
++/** Header facts: key presence, the first model's route and the model count. */
++export function groupSummary(group: PickerGroup, i18n: KitI18n): string {
++  const route = group.models[0]?.detail.split(' · ')[0]?.trim() ?? ''
++  const keyed = group.models.some((model) => model.hasKey)
++  const head = [keyed ? i18n.t('chat.picker.keyed') : '', route].filter(Boolean).join(' · ')
++  return `${head} ${group.models.length}`.trim()
++}
++
++/** Filled bars (0–4) of the trigger; `none` is not a reasoning rank. */
++export function effortBars(model: PickerModel, effort: ReasoningEffort): number {
++  if (effort === 'default' || effort === 'none') return 0
++  const ranked = model.efforts.filter((item) => item !== 'none')
++  const rank = ranked.indexOf(effort)
++  if (rank < 0) return 0
++  return Math.round(((rank + 1) / ranked.length) * 4)
++}
++
++/** Color family of a level: fast (info), deep (warning) or regular (primary). */
++export function effortTone(effort: ReasoningEffort): 'fast' | 'deep' | 'regular' {
++  if (effort === 'none' || effort === 'minimal' || effort === 'low') return 'fast'
++  if (effort === 'xhigh' || effort === 'max') return 'deep'
++  return 'regular'
++}
++
++function contextSize(tokens: number): string {
++  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`
++  if (tokens >= 1000) return `${Math.floor(tokens / 1000)}K`
++  return String(tokens)
++}
++
++/**
++ * Joins options with provider metadata for the second row. Without `providers` the picker still
++ * works; route names fall back to the option label, prices and windows are left out.
++ */
++export function pickerModels(
++  options: readonly ModelOption[],
++  providers: readonly Provider[] | null,
++  i18n: KitI18n,
++): PickerModel[] {
++  return options.map((option) => {
++    const segments = option.label.split(' · ')
++    let provider: Provider | undefined
++    let endpoint: Provider['endpoints'][number] | undefined
++    for (const item of providers ?? []) {
++      endpoint = item.endpoints.find((candidate) => candidate.id === option.endpointId)
++      if (endpoint) {
++        provider = item
++        break
++      }
++    }
++    const model = endpoint?.models.find((candidate) => candidate.id === option.modelId)
++    const name = option.name?.trim() || option.modelId
++    const route = endpoint?.slug ?? segments[1] ?? ''
++    const parts = [route]
++    if (name !== option.modelId) parts.push(option.modelId)
++    const tier = model?.pricing?.tiers[0]
++    if (model?.pricing && tier)
++      parts.push(
++        i18n.t('chat.picker.price', {
++          currency: model.pricing.currency,
++          input: tier.input,
++          output: tier.output,
++        }),
++      )
++    const contextWindow = model?.contextWindow ?? null
++    if (contextWindow)
++      parts.push(i18n.t('chat.picker.context', { size: contextSize(contextWindow) }))
++    const declared = option.reasoning?.efforts ?? []
++    return {
++      key: modelKey(option.endpointId, option.modelId),
++      providerId: provider?.id ?? segments[0] ?? option.endpointId,
++      provider: provider?.name ?? segments[0] ?? option.endpointId,
++      name,
++      detail: parts.filter(Boolean).join(' · '),
++      hasKey: endpoint?.keys.some((key) => key.enabled && key.readable) ?? false,
++      efforts: REASONING_EFFORTS.filter((effort) => declared.includes(effort)),
++      contextWindow,
++    }
++  })
++}
+diff --git a/src/chat/ModelEffortPicker.svelte b/src/chat/ModelEffortPicker.svelte
+--- /dev/null
++++ b/src/chat/ModelEffortPicker.svelte
+@@ -0,0 +1,326 @@
++<script lang="ts">
++  // Composer pill + upward popover (docs/31 §4.2). The host owns data and every event's effect.
++  import { Command, Popover } from 'bits-ui'
++  import CheckIcon from '@lucide/svelte/icons/check'
++  import ChevronDownIcon from '@lucide/svelte/icons/chevron-down'
++  import ChevronRightIcon from '@lucide/svelte/icons/chevron-right'
++  import KeyIcon from '@lucide/svelte/icons/key-round'
++  import PinIcon from '@lucide/svelte/icons/pin'
++  import RefreshIcon from '@lucide/svelte/icons/refresh-cw'
++  import SearchIcon from '@lucide/svelte/icons/search'
++  import { SvelteSet } from 'svelte/reactivity'
++  import { Button } from '#lib/components/ui/button/index.js'
++  import { Separator } from '#lib/components/ui/separator/index.js'
++  import { cn } from '#lib/utils.js'
++  import type { KitI18n } from '../i18n'
++  import type { ReasoningEffort } from '../ports'
++  import { REASONING_EFFORTS } from '../providers/reasoning'
++  import PickerEffort from './PickerEffort.svelte'
++  import {
++    effortBars,
++    effortTone,
++    groupModels,
++    groupSummary,
++    nextValue,
++    type PickerModel,
++    type PickerValue,
++  } from './model-effort'
++
++  let {
++    models,
++    value = null,
++    defaultValue = null,
++    disabled = false,
++    refreshing = false,
++    notice = '',
++    i18n,
++    open = $bindable(false),
++    onselect,
++    onsetdefault,
++    onrefresh,
++    onopensettings,
++  }: {
++    models: readonly PickerModel[]
++    value?: PickerValue | null
++    defaultValue?: PickerValue | null
++    disabled?: boolean
++    refreshing?: boolean
++    notice?: string
++    i18n: KitI18n
++    open?: boolean
++    onselect: (value: PickerValue) => void
++    onsetdefault?: ((value: PickerValue) => void) | undefined
++    onrefresh?: ((force: boolean) => void) | undefined
++    /** Opens host settings for the current model when it declares no reasoning levels. */
++    onopensettings?: (() => void) | undefined
++  } = $props()
++  const t = (key: string, params?: Record<string, string | number>) => i18n.t(key, params)
++  let query = $state('')
++  // Command tracks the highlighted item; arrows/Enter come from the primitive.
++  let highlighted = $state('')
++  let trigger = $state<HTMLButtonElement | null>(null)
++  // Groups opened while browsing, and groups folded while searching (searching opens all).
++  const expanded = new SvelteSet<string>()
++  const searchFolded = new SvelteSet<string>()
++  const searching = $derived(query.trim() !== '')
++  // Hosts may declare levels in any order; the rail always reads 关闭 → 最大.
++  const current = $derived.by(() => {
++    const found = models.find((model) => model.key === value?.key)
++    return found
++      ? {
++          ...found,
++          efforts: REASONING_EFFORTS.filter((level) => found.efforts.includes(level)),
++        }
++      : null
++  })
++  const effort: ReasoningEffort = $derived(
++    current && value && current.efforts.includes(value.effort) ? value.effort : 'default',
++  )
++  const effortLabel = $derived(t(`chat.effort.${effort}`))
++  const name = $derived(current?.name ?? t('chat.picker.choose'))
++  const bars = $derived(current ? effortBars(current, effort) : 0)
++  const tone = $derived(effortTone(effort))
++  const groups = $derived(groupModels(models, query))
++  const isOpen = (id: string) => (searching ? !searchFolded.has(id) : expanded.has(id))
++  const sameAsDefault = $derived(
++    value !== null && value.key === defaultValue?.key && value.effort === defaultValue.effort,
++  )
++  $effect(() => {
++    // A new current model reveals its group; other groups keep the user's folding.
++    if (current) expanded.add(current.providerId)
++  })
++  function openChanged(next: boolean) {
++    if (!next) return
++    query = ''
++    highlighted = value?.key ?? ''
++    searchFolded.clear()
++    onrefresh?.(false)
++  }
++  function toggle(id: string) {
++    const set = searching ? searchFolded : expanded
++    if (!set.delete(id)) set.add(id)
++  }
++</script>
++
++<Popover.Root bind:open onOpenChange={openChanged}>
++  <Popover.Trigger {disabled}>
++    {#snippet child({ props })}
++      <Button
++        {...props}
++        bind:ref={trigger}
++        variant="ghost"
++        size="sm"
++        class="min-w-0 max-w-70 shrink"
++        data-composer-model
++        aria-label={t('chat.picker.trigger', { name, effort: effortLabel })}
++      >
++        <span
++          data-composer-model-detail
++          class="text-kit-xs text-muted-foreground"
++          aria-hidden="true">{current?.provider.charAt(0).toUpperCase() ?? '·'}</span
++        >
++        <span class="min-w-0 truncate">{name}</span>
++        {#if current && effort !== 'default'}
++          <span class="inline-flex h-3 shrink-0 items-end gap-0.5" aria-hidden="true">
++            {#each ['h-1', 'h-1.5', 'h-2', 'h-3'] as height, bar (height)}
++              <span
++                class={cn(
++                  'w-0.5 rounded-full bg-border',
++                  height,
++                  bar < bars && tone === 'fast' && 'bg-info',
++                  bar < bars && tone === 'regular' && 'bg-primary',
++                  bar < bars && tone === 'deep' && 'bg-warning',
++                )}
++              ></span>
++            {/each}
++          </span>
++          <span data-composer-model-detail class="text-kit-xs text-muted-foreground"
++            >{effortLabel}</span
++          >
++        {/if}
++        {#if current?.hasKey}<KeyIcon
++            data-composer-model-detail
++            data-icon="inline-end"
++            aria-hidden="true"
++          />{/if}
++        <ChevronDownIcon data-icon="inline-end" aria-hidden="true" />
++      </Button>
++    {/snippet}
++  </Popover.Trigger>
++  <Popover.Portal>
++    <Popover.Content
++      class={cn(
++        'z-[210] flex w-[min(360px,calc(100vw-16px))] flex-col overflow-hidden rounded-kit',
++        'max-h-[min(calc(100dvh-64px),var(--bits-popover-content-available-height))]',
++        'border bg-popover text-xs text-popover-foreground shadow-lg',
++      )}
++      side="top"
++      align="start"
++      sideOffset={4}
++      collisionPadding={8}
++      trapFocus={false}
++      preventScroll={false}
++      onEscapeKeydown={(event) => {
++        if (event.isComposing) event.preventDefault()
++        event.stopPropagation()
++      }}
++      onCloseAutoFocus={(event) => {
++        event.preventDefault()
++        trigger?.focus({ preventScroll: true })
++      }}
++    >
++      <Command.Root
++        bind:value={highlighted}
++        shouldFilter={false}
++        loop
++        label={t('chat.picker.choose')}
++        class="flex min-h-0 flex-col"
++      >
++        <div class="flex items-center gap-1.5 px-2 text-muted-foreground">
++          <SearchIcon class="size-3.5 shrink-0" aria-hidden="true" />
++          <Command.Input
++            bind:value={query}
++            placeholder={t('chat.picker.search')}
++            aria-label={t('chat.picker.searchLabel')}
++            class="h-8 min-w-0 flex-1 bg-transparent text-foreground outline-none"
++          />
++        </div>
++        <Separator />
++        <Command.List class="max-h-[clamp(48px,calc(100dvh-250px),248px)] overflow-y-auto p-1">
++          {#if models.length === 0 || (searching && groups.length === 0)}
++            <Command.Empty forceMount class="p-3 text-kit-xs text-muted-foreground">
++              {t(models.length === 0 ? 'chat.picker.empty' : 'chat.picker.noMatch')}
++            </Command.Empty>
++          {/if}
++          {#each groups as group (group.id)}
++            {@const shown = isOpen(group.id)}
++            <Command.Group value={`group\n${group.id}`}>
++              <Command.GroupHeading>
++                <Button
++                  variant="ghost"
++                  size="xs"
++                  class="w-full justify-start font-normal"
++                  aria-expanded={shown}
++                  aria-label={t('chat.picker.group', {
++                    provider: group.provider,
++                    state: t(shown ? 'chat.picker.expanded' : 'chat.picker.collapsed'),
++                  })}
++                  onclick={() => toggle(group.id)}
++                >
++                  <span class="text-muted-foreground">{group.provider.charAt(0).toUpperCase()}</span
++                  >
++                  <span class="min-w-0 truncate">{group.provider}</span>
++                  <span class="ml-auto max-w-32 truncate text-muted-foreground"
++                    >{groupSummary(group, i18n)}</span
++                  >
++                  {#if shown}<ChevronDownIcon data-icon="inline-end" aria-hidden="true" />{:else}
++                    <ChevronRightIcon data-icon="inline-end" aria-hidden="true" />{/if}
++                </Button>
++              </Command.GroupHeading>
++              {#if shown}
++                <Command.GroupItems>
++                  {#each group.models as model (model.key)}
++                    {@const selected = model.key === value?.key}
++                    <Command.Item
++                      value={model.key}
++                      {disabled}
++                      aria-current={selected ? 'true' : undefined}
++                      aria-label={t('chat.picker.select', {
++                        name: model.name,
++                        provider: model.provider,
++                      })}
++                      onSelect={() => !disabled && onselect(nextValue(model, value, query))}
++                      class={cn(
++                        'flex cursor-pointer items-center gap-2 rounded-kit-sm py-1 pr-2 pl-6',
++                        'data-[selected]:bg-accent data-[selected]:text-accent-foreground',
++                        'data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50',
++                        selected && 'bg-accent/60',
++                      )}
++                    >
++                      <span class="flex min-w-0 flex-1 flex-col">
++                        <span class="truncate">{model.name}</span>
++                        <span
++                          class="flex min-w-0 items-center gap-1 text-kit-xs text-muted-foreground"
++                        >
++                          {#if model.hasKey}<KeyIcon
++                              class="size-3 shrink-0"
++                              aria-hidden="true"
++                            />{/if}
++                          <span class="truncate">{model.detail}</span>
++                        </span>
++                      </span>
++                      {#if selected}<CheckIcon class="size-3 shrink-0" aria-hidden="true" />{/if}
++                    </Command.Item>
++                  {/each}
++                </Command.GroupItems>
++              {/if}
++            </Command.Group>
++          {/each}
++        </Command.List>
++      </Command.Root>
++      {#if current && current.efforts.length > 0}
++        <Separator />
++        <PickerEffort
++          model={current}
++          {effort}
++          {disabled}
++          {i18n}
++          onselect={(next) => onselect({ key: current.key, effort: next })}
++        />
++      {:else if current}
++        <Separator />
++        <div class="flex items-center justify-between gap-2 px-2 py-1.5">
++          <p class="text-kit-xs text-muted-foreground">{t('chat.reasoningUnconfigured')}</p>
++          {#if onopensettings}
++            <Button
++              variant="outline"
++              size="xs"
++              onclick={() => {
++                open = false
++                onopensettings()
++              }}>{t('chat.openSettings')}</Button
++            >
++          {/if}
++        </div>
++      {/if}
++      {#if notice}
++        <p class="truncate px-2 pb-1 text-kit-xs text-muted-foreground" role="status">
++          {notice}
++        </p>
++      {/if}
++      <Separator />
++      <div class="flex items-center gap-0.5 p-1">
++        {#if onsetdefault}
++          <Button
++            variant="ghost"
++            size="xs"
++            disabled={disabled || value === null || sameAsDefault}
++            onclick={() => value && onsetdefault(value)}
++          >
++            <PinIcon data-icon="inline-start" aria-hidden="true" />{t('chat.picker.setDefault')}
++          </Button>
++        {/if}
++        <Button
++          variant="ghost"
++          size="xs"
++          disabled={disabled || !current?.efforts.includes('none')}
++          onclick={() => current && onselect({ key: current.key, effort: 'none' })}
++        >
++          <RefreshIcon data-icon="inline-start" aria-hidden="true" />{t('chat.picker.resetOff')}
++        </Button>
++        {#if onrefresh}
++          <Button
++            variant="outline"
++            size="xs"
++            class="ml-auto"
++            disabled={refreshing}
++            onclick={() => onrefresh(true)}
++          >
++            <RefreshIcon data-icon="inline-start" aria-hidden="true" />
++            {t(refreshing ? 'chat.picker.refreshing' : 'chat.picker.refresh')}
++          </Button>
++        {/if}
++      </div>
++    </Popover.Content>
++  </Popover.Portal>
++</Popover.Root>
+diff --git a/src/chat/PickerEffort.svelte b/src/chat/PickerEffort.svelte
+--- /dev/null
++++ b/src/chat/PickerEffort.svelte
+@@ -0,0 +1,71 @@
++<script lang="ts">
++  // Effort section of the model picker: rail, level toggles, reset and hint (docs/31 §4.2).
++  import { ToggleGroup } from 'bits-ui'
++  import { Button } from '#lib/components/ui/button/index.js'
++  import type { KitI18n } from '../i18n'
++  import type { ReasoningEffort } from '../ports'
++  import ReasoningSlider from './ReasoningSlider.svelte'
++  import type { PickerModel } from './model-effort'
++
++  let {
++    model,
++    effort,
++    disabled = false,
++    i18n,
++    onselect,
++  }: {
++    model: PickerModel
++    effort: ReasoningEffort
++    disabled?: boolean
++    i18n: KitI18n
++    onselect: (effort: ReasoningEffort) => void
++  } = $props()
++  const t = (key: string, params?: Record<string, string | number>) => i18n.t(key, params)
++  const label = $derived(t(`chat.effort.${effort}`))
++</script>
++
++<section class="flex flex-col gap-0.5 px-2 pt-2 pb-1" aria-label={t('chat.reasoningEffort')}>
++  <div class="flex items-center justify-between gap-2">
++    <p class="text-kit-xs text-muted-foreground">
++      {t('chat.picker.effortFor', { name: model.name })}
++    </p>
++    {#if effort !== 'default'}
++      <Button variant="link" size="xs" {disabled} onclick={() => onselect('default')}>
++        {t('chat.resetReasoning')}
++      </Button>
++    {/if}
++  </div>
++  {#if model.efforts.length > 1}
++    <ReasoningSlider
++      efforts={model.efforts}
++      value={effort}
++      defaultIndex={Math.floor(model.efforts.length / 2)}
++      {disabled}
++      label={t('chat.reasoningEffort')}
++      valueText={label}
++      onchange={onselect}
++    />
++  {/if}
++  <ToggleGroup.Root
++    type="single"
++    value={effort === 'default' ? '' : effort}
++    onValueChange={(next) => next && onselect(next as ReasoningEffort)}
++    {disabled}
++    aria-label={t('chat.reasoningEffort')}
++    class="flex"
++  >
++    {#each model.efforts as level (level)}
++      <ToggleGroup.Item
++        value={level}
++        aria-label={`${t('chat.reasoningEffort')} ${t(`chat.effort.${level}`)}`}
++        class="min-w-0 flex-1 rounded-kit-sm py-0.5 text-kit-xs whitespace-nowrap
++          text-muted-foreground hover:text-foreground focus-visible:outline-2
++          focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50
++          data-[state=on]:font-semibold data-[state=on]:text-foreground"
++      >
++        {t(`chat.effort.${level}`)}
++      </ToggleGroup.Item>
++    {/each}
++  </ToggleGroup.Root>
++  <p class="text-kit-xs text-muted-foreground">{t(`chat.effortHint.${effort}`)}</p>
++</section>
+diff --git a/src/chat/ReasoningControl.svelte b/src/chat/ReasoningControl.svelte
+--- a/src/chat/ReasoningControl.svelte
++++ b/src/chat/ReasoningControl.svelte
+@@ -7,6 +7,7 @@
+   import type { KitI18n } from '../i18n'
+   import type { ReasoningEffort } from '../ports'
+   import { REASONING_EFFORTS } from '../providers/reasoning'
++  import ReasoningSlider from './ReasoningSlider.svelte'
+ 
+   let {
+     value = 'default',
+@@ -40,10 +41,6 @@
+   )
+   function choose(effort: ReasoningEffort) {
+     if (!disabled && (effort === 'default' || allowedEfforts.includes(effort))) onchange(effort)
+-  }
+-  function commit(event: Event & { currentTarget: HTMLInputElement }) {
+-    const effort = allowedEfforts[Number(event.currentTarget.value)]
+-    if (effort) choose(effort)
+   }
+ </script>
+ 
+@@ -105,45 +102,15 @@
+         <div class="reasoning-scale" aria-hidden="true">
+           <span>{t('chat.reasoningFaster')}</span><span>{t('chat.reasoningSmarter')}</span>
+         </div>
+-        <div
+-          class="reasoning-slider"
+-          style:--reasoning-progress={`${(effortIndex / (allowedEfforts.length - 1)) * 100}%`}
+-        >
+-          <input
+-            type="range"
+-            min="0"
+-            max={allowedEfforts.length - 1}
+-            step="1"
+-            value={effortIndex}
+-            aria-label={t('chat.reasoningEffort')}
+-            aria-valuetext={effortLabel}
+-            {disabled}
+-            oninput={commit}
+-            onpointerup={(event) => {
+-              if (event.button === 0) commit(event)
+-            }}
+-            onkeyup={(event) => {
+-              if (
+-                !event.isComposing &&
+-                ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(
+-                  event.key,
+-                )
+-              ) {
+-                commit(event)
+-              }
+-            }}
+-          />
+-          <div class="reasoning-ticks" aria-hidden="true">
+-            {#each allowedEfforts as effort, index (effort)}
+-              <span
+-                class="reasoning-tick"
+-                data-effort={effort}
+-                class:current={index === effortIndex}
+-                style:left={`${(index / (allowedEfforts.length - 1)) * 100}%`}
+-              ></span>
+-            {/each}
+-          </div>
+-        </div>
++        <ReasoningSlider
++          efforts={allowedEfforts}
++          value={effectiveEffort}
++          defaultIndex={effortIndex}
++          {disabled}
++          label={t('chat.reasoningEffort')}
++          valueText={effortLabel}
++          onchange={choose}
++        />
+       {:else}
+         <Field.FieldSet {disabled}>
+           <Field.FieldLegend class="sr-only">{t('chat.reasoningEffort')}</Field.FieldLegend>
+@@ -205,75 +172,6 @@
+   :global(.reasoning-popover input) {
+     accent-color: var(--color-primary);
+   }
+-  .reasoning-slider {
+-    position: relative;
+-    height: 1.75rem;
+-    display: flex;
+-    align-items: center;
+-  }
+-  :global(.reasoning-slider input[type='range']) {
+-    appearance: none;
+-    width: 100%;
+-    height: 1.75rem;
+-    margin: 0;
+-    background: transparent;
+-    cursor: pointer;
+-  }
+-  :global(.reasoning-slider input::-webkit-slider-runnable-track) {
+-    height: 0.375rem;
+-    border-radius: 999px;
+-    background: linear-gradient(
+-      to right,
+-      var(--color-primary) var(--reasoning-progress),
+-      var(--color-muted) var(--reasoning-progress)
+-    );
+-  }
+-  :global(.reasoning-slider input::-moz-range-track) {
+-    height: 0.375rem;
+-    border-radius: 999px;
+-    background: linear-gradient(
+-      to right,
+-      var(--color-primary) var(--reasoning-progress),
+-      var(--color-muted) var(--reasoning-progress)
+-    );
+-  }
+-  :global(.reasoning-slider input::-webkit-slider-thumb) {
+-    appearance: none;
+-    width: 1.125rem;
+-    height: 1.125rem;
+-    margin-top: -0.375rem;
+-    border: 1px solid var(--color-border);
+-    border-radius: 50%;
+-    background: var(--color-popover);
+-  }
+-  :global(.reasoning-slider input::-moz-range-thumb) {
+-    width: 1.125rem;
+-    height: 1.125rem;
+-    box-sizing: border-box;
+-    border: 1px solid var(--color-border);
+-    border-radius: 50%;
+-    background: var(--color-popover);
+-  }
+-  .reasoning-ticks {
+-    position: absolute;
+-    inset: 50% 0.5625rem auto;
+-    pointer-events: none;
+-  }
+-  .reasoning-tick {
+-    position: absolute;
+-    width: 0.25rem;
+-    height: 0.25rem;
+-    border-radius: 50%;
+-    background: var(--color-popover);
+-    transform: translate(-50%, -50%);
+-  }
+-  .reasoning-tick.current {
+-    visibility: hidden;
+-  }
+-  :global(.reasoning-slider input:disabled) {
+-    cursor: not-allowed;
+-    opacity: 0.5;
+-  }
+   :global(.reasoning-popover input:focus-visible) {
+     outline: 2px solid var(--color-ring);
+     outline-offset: 2px;
+diff --git a/src/chat/ReasoningSlider.svelte b/src/chat/ReasoningSlider.svelte
+--- /dev/null
++++ b/src/chat/ReasoningSlider.svelte
+@@ -0,0 +1,174 @@
++<script lang="ts">
++  // The one discrete effort rail, drawn like LumaKit ThinkRail: a tone gradient fill and a pill
++  // thumb carrying the level's mark and name over a native range input (docs/16, 31).
++  import type { ReasoningEffort } from '../ports'
++  import { effortTone } from './model-effort'
++  import PathIcon from './icons/PathIcon.svelte'
++  import { effortPath } from './icons/effort-icons'
++
++  let {
++    efforts,
++    value,
++    defaultIndex = 0,
++    disabled = false,
++    label,
++    valueText,
++    onchange,
++  }: {
++    /** Declared levels in display order; needs at least two. */
++    efforts: readonly ReasoningEffort[]
++    value: ReasoningEffort
++    /** Visual position for `default`; never written back. */
++    defaultIndex?: number
++    disabled?: boolean
++    label: string
++    valueText: string
++    onchange: (effort: ReasoningEffort) => void
++  } = $props()
++  const found = $derived(efforts.indexOf(value))
++  const index = $derived(found >= 0 ? found : defaultIndex)
++  const last = $derived(Math.max(1, efforts.length - 1))
++  const tone = $derived(effortTone(found >= 0 ? value : 'default'))
++  const TONE_COLOR = {
++    fast: 'var(--color-info)',
++    regular: 'var(--color-primary)',
++    deep: 'var(--color-warning)',
++  } as const
++  const fill = $derived(
++    `linear-gradient(to right, ${efforts
++      .map((effort, at) => `${TONE_COLOR[effortTone(effort)]} ${(at / last) * 100}%`)
++      .join(', ')})`,
++  )
++  function commit(event: Event & { currentTarget: HTMLInputElement }) {
++    const effort = efforts[Number(event.currentTarget.value)]
++    if (effort && !disabled) onchange(effort)
++  }
++</script>
++
++<div
++  class="reasoning-slider"
++  data-tone={tone}
++  style:--reasoning-fraction={index / last}
++  style:--reasoning-fill={fill}
++>
++  <div class="reasoning-track" aria-hidden="true"><span class="reasoning-fill"></span></div>
++  <input
++    type="range"
++    min="0"
++    max={efforts.length - 1}
++    step="1"
++    value={index}
++    aria-label={label}
++    aria-valuetext={valueText}
++    {disabled}
++    oninput={commit}
++    onpointerup={(event) => {
++      if (event.button === 0) commit(event)
++    }}
++    onkeyup={(event) => {
++      if (
++        !event.isComposing &&
++        ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)
++      )
++        commit(event)
++    }}
++  />
++  <span class="reasoning-thumb" aria-hidden="true"
++    ><PathIcon d={effortPath(found >= 0 ? value : 'default')} class="reasoning-icon" /><span
++      >{valueText}</span
++    ></span
++  >
++</div>
++
++<style>
++  /* The native thumb is as wide as the pill, so the range maps 1:1 onto the inset track. */
++  .reasoning-slider {
++    --reasoning-color: var(--color-primary);
++    --reasoning-pill: 4.25rem;
++    position: relative;
++    height: 2rem;
++  }
++  .reasoning-slider[data-tone='fast'] {
++    --reasoning-color: var(--color-info);
++  }
++  .reasoning-slider[data-tone='deep'] {
++    --reasoning-color: var(--color-warning);
++  }
++  .reasoning-track {
++    position: absolute;
++    top: 50%;
++    inset-inline: calc(var(--reasoning-pill) / 2);
++    height: 0.75rem;
++    overflow: hidden;
++    border: 1px solid var(--color-border);
++    border-radius: 999px;
++    background: var(--color-secondary, var(--color-muted));
++    transform: translateY(-50%);
++  }
++  .reasoning-fill {
++    position: absolute;
++    inset: 0;
++    background: var(--reasoning-fill);
++    clip-path: inset(0 calc((1 - var(--reasoning-fraction)) * 100%) 0 0);
++  }
++  .reasoning-thumb {
++    position: absolute;
++    top: 50%;
++    left: calc(
++      var(--reasoning-pill) / 2 + (100% - var(--reasoning-pill)) * var(--reasoning-fraction)
++    );
++    display: flex;
++    align-items: center;
++    justify-content: center;
++    gap: 0.25rem;
++    box-sizing: border-box;
++    width: var(--reasoning-pill);
++    height: 1.5rem;
++    border: 1px solid var(--color-border);
++    border-radius: 999px;
++    background: var(--color-popover);
++    box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
++    color: var(--color-foreground);
++    font-size: var(--kit-font-size-xs, 0.75rem);
++    white-space: nowrap;
++    pointer-events: none;
++    transform: translate(-50%, -50%);
++  }
++  .reasoning-thumb :global(.reasoning-icon) {
++    width: 0.875rem;
++    height: 0.875rem;
++    flex-shrink: 0;
++    color: var(--reasoning-color);
++  }
++  input[type='range'] {
++    position: absolute;
++    inset: 0;
++    width: 100%;
++    height: 100%;
++    margin: 0;
++    appearance: none;
++    background: transparent;
++    opacity: 0;
++    cursor: pointer;
++  }
++  input::-webkit-slider-thumb {
++    appearance: none;
++    width: var(--reasoning-pill);
++    height: 1.5rem;
++  }
++  input::-moz-range-thumb {
++    width: var(--reasoning-pill);
++    height: 1.5rem;
++    border: 0;
++  }
++  input:disabled {
++    cursor: not-allowed;
++  }
++  .reasoning-slider:has(input:disabled) {
++    opacity: 0.5;
++  }
++  .reasoning-slider:has(input:focus-visible) .reasoning-thumb {
++    outline: 2px solid var(--color-ring);
++    outline-offset: 2px;
++  }
++</style>
+diff --git a/src/chat/SkillPicker.svelte b/src/chat/SkillPicker.svelte
+--- a/src/chat/SkillPicker.svelte
++++ b/src/chat/SkillPicker.svelte
+@@ -119,6 +119,7 @@
+     </Select.Content>
+   </Select.Root>
+   <span
++    data-composer-capacity
+     class={cn('max-w-full shrink-0 text-muted-foreground', chars > budget && 'text-destructive')}
+   >
+     {t('skills.budget', { chars, budget })}
+diff --git a/src/chat/UsageControl.svelte b/src/chat/UsageControl.svelte
+--- a/src/chat/UsageControl.svelte
++++ b/src/chat/UsageControl.svelte
+@@ -10,6 +10,8 @@
+     i18n,
+     settings,
+     details,
++    summary,
++    summaryLabel,
+     open = $bindable(false),
+   }: {
+     context?: {
+@@ -21,6 +23,9 @@
+     i18n: KitI18n
+     settings?: Snippet | undefined
+     details?: Snippet | undefined
++    /** Replaces the icon with inline content; the popover, focus return and meter stay shared. */
++    summary?: Snippet | undefined
++    summaryLabel?: string | undefined
+     open?: boolean
+   } = $props()
+   const t = (key: string) => i18n.t(key)
+@@ -41,11 +46,12 @@
+         {...props}
+         bind:ref={trigger}
+         variant="ghost"
+-        size="icon-sm"
+-        aria-label={t('chat.usageSettings')}
+-        title={t('chat.usageSettings')}
++        size={summary ? 'sm' : 'icon-sm'}
++        class={summary ? 'min-w-0 max-w-full shrink px-1' : undefined}
++        aria-label={summary ? (summaryLabel ?? t('chat.contextUsage')) : t('chat.usageSettings')}
++        title={summary ? undefined : t('chat.usageSettings')}
+       >
+-        <Settings2Icon aria-hidden="true" />
++        {#if summary}{@render summary()}{:else}<Settings2Icon aria-hidden="true" />{/if}
+       </Button>
+     {/snippet}
+   </Popover.Trigger>
+@@ -106,7 +112,8 @@
+ 
+ <style>
+   /* Hallmark · component: usage-settings · theme: inherited Aether
+-   * Pre-emit critique: Philosophy 5 · Hierarchy 5 · Execution 4 · Specificity 5 · Restraint 5 · Variety 4 */
++   * Pre-emit critique: Philosophy 5 · Hierarchy 5 · Execution 4 · Specificity 5
++   * · Restraint 5 · Variety 4 */
+   :global(.usage-popover) {
+     box-sizing: border-box;
+     z-index: 210;
+diff --git a/src/chat/UsageDetails.svelte b/src/chat/UsageDetails.svelte
+--- a/src/chat/UsageDetails.svelte
++++ b/src/chat/UsageDetails.svelte
+@@ -1,22 +1,31 @@
+ <script lang="ts">
+   import type { ContextUsage, Cost, TokenUsage } from '../ports'
+   import { getKitContext } from '../context'
+-  import UsageControl from './UsageControl.svelte'
++  import ContextUsageStatus from './ContextUsageStatus.svelte'
++  import type { SpendingTurn } from './context-status'
+   interface Props {
+     context: ContextUsage | null
++    /** Selected model's window when the usage report has none. */
++    contextWindow?: number | null | undefined
++    /** Every turn's usage and cost; the inline summary prices only fully priced sessions. */
++    turns: readonly SpendingTurn[]
+     usage: TokenUsage | null
+     total: TokenUsage
+     /** Last turn's cost; null when its model has no pricing or a round lacked token counts. */
+     cost: Cost | null
+     /** Session total per currency. */
+     totalCost: Cost[]
++    open?: boolean
+   }
+   let {
+     context,
++    contextWindow = null,
++    turns,
+     usage,
+     total,
+     cost,
+     totalCost,
++    open = $bindable(false),
+     modelName = '',
+   }: Props & { modelName?: string } = $props()
+   const { i18n } = getKitContext()
+@@ -32,7 +41,14 @@
+     `${currency === 'CNY' ? '¥' : '$'}${amount.toFixed(4)}`
+ </script>
+ 
+-<UsageControl context={context ? { ...context, modelName } : null} {i18n}>
++<ContextUsageStatus
++  bind:open
++  {context}
++  contextWindow={contextWindow ?? null}
++  {turns}
++  {modelName}
++  {i18n}
++>
+   {#snippet details()}
+     <table>
+       <thead
+@@ -56,7 +72,7 @@
+     </table>
+     <p>{t('chat.usageHint')}</p>
+   {/snippet}
+-</UsageControl>
++</ContextUsageStatus>
+ 
+ <style>
+   p {
+diff --git a/src/i18n/en-chat.d.ts b/src/i18n/en-chat.d.ts
+--- /dev/null
++++ b/src/i18n/en-chat.d.ts
+@@ -0,0 +1 @@
++export const enChat: Readonly<Record<string, string>>
+diff --git a/src/i18n/en-chat.js b/src/i18n/en-chat.js
+--- /dev/null
++++ b/src/i18n/en-chat.js
+@@ -0,0 +1,201 @@
++export const enChat = {
++  'chat.usageEntry': 'Usage',
++  'chat.networkOn': 'Web search on · click to turn off',
++  'chat.networkOff': 'Web search off · click to turn on',
++  'chat.title': 'Chat',
++  'chat.history': 'Conversation',
++  'chat.historyFailed': 'Could not load conversations',
++  'chat.newConversation': 'New conversation',
++  'chat.close': 'Close',
++  'chat.messages': 'Messages',
++  'chat.input': 'Message',
++  'chat.placeholder': 'Type a message, Ctrl/Cmd+Enter to send',
++  'chat.send': 'Send',
++  'chat.stop': 'Stop',
++  'chat.regenerate': 'Regenerate',
++  'chat.stopped': 'Stopped',
++  'chat.interrupted': 'Interrupted: the app closed during this reply',
++  'chat.exhausted': 'Reached the tool call round limit',
++  'chat.copy': 'Copy',
++  'chat.copied': 'Copied',
++  'chat.copyFailed': 'Could not copy',
++  'chat.insert': 'Insert',
++  'chat.retry': 'Retry',
++  'chat.more': 'More actions',
++  'chat.translationReply': 'Translation',
++  'chat.noSourceModel': 'Source model unknown',
++  'chat.switchModel': 'Switch model',
++  'chat.translate': 'Translate',
++  'chat.editReply': 'Edit',
++  'chat.replyText': 'Reply Markdown',
++  'chat.replyModel': 'Reply model',
++  'chat.targetLanguage': 'Target language',
++  'chat.branch': 'Branch',
++  'chat.copyConversation': 'Copy as new conversation',
++  'chat.save': 'Save',
++  'chat.saveFile': 'Save to local file',
++  'chat.export': 'Export',
++  'chat.exportMarkdown': 'Export as Markdown',
++  'chat.exportFailed': 'Could not download Markdown',
++  'chat.saveNote': 'Save to note',
++  'chat.saveNoteFailed': 'Could not save the note',
++  'chat.useContext': 'Set as context',
++  'chat.deleteReply': 'Delete',
++  'chat.deleteReplyTitle': 'Delete this message?',
++  'chat.deleteReparentBody':
++    'Later turns will attach to the previous reply. This cannot be undone.',
++  'chat.sourceModelUnavailable': 'The source model is unavailable. Use @ to pick another model.',
++  'chat.candidateHint':
++    'The original reply is retained. Click 👍 to set a candidate as context and continue from it.',
++  'chat.editReplyHint':
++    'Edits only replace this reply. A concurrent change will reject the edit and keep your draft.',
++  'chat.replyRefreshFailed': 'Could not reload the saved replies.',
++  'chat.delete': 'Delete conversation',
++  'chat.deleteTitle': 'Delete this conversation?',
++  'chat.network': 'Web search',
++  'chat.sources': 'Sources',
++  'chat.networkPrivacy':
++    'External search sends this question; preferred native search may send conversation ' +
++    'and attached note context to the model provider.',
++  'chat.searching': 'Searching the web…',
++  'chat.searchResults': '{count} results found',
++  'chat.reasoning': 'Reasoning',
++  'chat.toolProcess': 'Tool activity',
++  'chat.showMore': 'Show more',
++  'chat.showLess': 'Show less',
++  'chat.reasoningEffort': 'Reasoning effort',
++  'chat.reasoningStrength': 'Strength',
++  'chat.reasoningFaster': 'Faster',
++  'chat.reasoningSmarter': 'Smarter',
++  'chat.resetReasoning': 'Reset to default',
++  'chat.reasoningDefaultHint':
++    'Default sends no reasoning control; the provider decides. Choose an effort to override it.',
++  'chat.reasoningUnconfigured':
++    'No reasoning capabilities are configured for this model. ' +
++    'Turn on “Reasoning” in model settings and choose its supported efforts to enable the slider.',
++  'chat.unknown': 'Unknown',
++  'chat.contextUsage': 'Context usage',
++  'chat.usage': 'Token usage',
++  'chat.usageSettings': 'Usage and settings',
++  'chat.runSettings': 'Run settings',
++  'chat.reported': 'Measured',
++  'chat.estimated': 'Estimated',
++  'chat.modelsFailed': 'Could not load model capabilities',
++  'chat.modelsLoading': 'Loading models…',
++  'chat.retryModels': 'Retry loading models',
++  'chat.historyLoading': 'Loading conversations…',
++  'chat.retryHistory': 'Retry conversation operation',
++  'chat.rename': 'Rename conversation',
++  'chat.conversationTitle': 'Conversation title',
++  'chat.expandInput': 'Expand input',
++  'chat.collapseInput': 'Collapse input',
++  'chat.backToBottom': 'Back to bottom',
++  'chat.draftRecoverable':
++    'Your unsent message is available to restore after clearing the current draft.',
++  'chat.restoreDraft': 'Restore unsent message',
++  'chat.tools': 'More tools',
++  'chat.uploadAttachment': 'Upload attachment',
++  'chat.generateImage': 'Generate image',
++  'chat.generateImageOff': 'Turn off image generation',
++  'chat.quickPanel': 'Quick panel',
++  'chat.toolbarCustomize': 'Customize toolbar',
++  'chat.toolbarRestore': 'Restore default',
++  'chat.toolbarDrag': 'Drag or use ↑/↓ to reorder {name}',
++  'chat.paintingUnconfigured': 'Choose a painting model in settings first',
++  'chat.toolsUnsupported': 'The current model does not support tools',
++  'chat.generatedImages': 'Generated images',
++  'chat.openGeneratedImage': 'Open generated image {index}',
++  'chat.removeImage': 'Remove image {index}',
++  'chat.openImage': 'Open image {index}',
++  'chat.imageExpired': 'Image expired',
++  'chat.visionUnsupported': 'The current model does not support images',
++  'chat.imageLimit': 'Up to {max} images per message',
++  'chat.imageType': 'Only PNG, JPEG, WebP and GIF images are supported',
++  'chat.imageSize': 'Each image must be 4 MiB or smaller',
++  'chat.currentUsage': 'This turn',
++  'chat.totalUsage': 'Known conversation total',
++  'chat.usage.inputTokens': 'Input',
++  'chat.usage.outputTokens': 'Output',
++  'chat.usage.cacheReadTokens': 'Cache read',
++  'chat.usage.cacheWriteTokens': 'Cache write',
++  'chat.usage.reasoningTokens': 'Reasoning tokens',
++  'chat.usageHint':
++    'Cache is included in input; reasoning is included in output. ' +
++    'Unknown counts are not treated as zero.',
++  'chat.cost': 'Cost',
++  'chat.effort.default': 'Default',
++  'chat.effort.none': 'None',
++  'chat.effort.auto': 'Auto',
++  'chat.effort.minimal': 'Minimal',
++  'chat.effort.low': 'Low',
++  'chat.effort.medium': 'Medium',
++  'chat.effort.high': 'High',
++  'chat.effort.xhigh': 'Very high',
++  'chat.effort.max': 'Maximum',
++  'chat.effortHint.default': 'Use the provider default',
++  'chat.effortHint.none': 'No reasoning — fastest and cheapest',
++  'chat.effortHint.auto': 'The provider decides the depth',
++  'chat.effortHint.minimal': 'Minimal reasoning',
++  'chat.effortHint.low': 'Light reasoning — fastest',
++  'chat.effortHint.medium': 'Balanced reasoning',
++  'chat.effortHint.high': 'Deep reasoning',
++  'chat.effortHint.xhigh': 'Very deep reasoning',
++  'chat.effortHint.max': 'Maximum reasoning',
++  'chat.picker.search': 'Search models… (add a level: opus high)',
++  'chat.picker.searchLabel': 'Search models, optionally with a level',
++  'chat.picker.trigger': 'Model and reasoning: {name} · {effort}',
++  'chat.picker.choose': 'Choose model',
++  'chat.picker.keyed': 'API key',
++  'chat.picker.price': '{currency} {input} / {output} per 1M tokens from',
++  'chat.picker.context': '{size} context',
++  'chat.picker.group': 'Model group {provider}, {state}',
++  'chat.picker.expanded': 'expanded',
++  'chat.picker.collapsed': 'collapsed',
++  'chat.picker.select': 'Select {name} · {provider}',
++  'chat.picker.effortFor': 'Effort · {name}',
++  'chat.picker.setDefault': 'Set as default',
++  'chat.picker.resetOff': 'Reset to off',
++  'chat.picker.refresh': 'Refresh',
++  'chat.picker.refreshing': 'Updating…',
++  'chat.picker.empty': 'No models available; configure a provider first',
++  'chat.picker.noMatch': 'No matching models',
++  'chat.picker.reloaded': 'Reloaded local catalog: {count} chat models',
++  'chat.status.label': '{platform} context usage: {summary} · {spending}. View usage details',
++  'chat.mode.label': 'Permission mode',
++  'chat.mode.default': 'Ask each time',
++  'chat.mode.defaultHint': 'Follow each tool’s approval setting.',
++  'chat.mode.plan': 'Plan only',
++  'chat.mode.planHint': 'Read and plan without changes.',
++  'chat.mode.accept_edits': 'Accept edits',
++  'chat.mode.accept_editsHint': 'Approve edits; other actions follow their rules.',
++  'chat.mode.auto': 'Smart approval',
++  'chat.mode.autoHint': 'Approve app tools; rules may require a prompt.',
++  'chat.mode.full_access': 'Full access',
++  'chat.mode.full_accessHint': 'No prompts for this run; blocked tools stay blocked.',
++  'chat.mode.planBadge': 'Plan only',
++  'chat.mode.fullAccessTitle': 'Allow full access for this run?',
++  'chat.mode.fullAccessBody':
++    'For this run only, tools may change data and execute commands without asking. ' +
++    'Blocked tools stay blocked. This choice is not saved.',
++  'chat.mode.ruleNotice':
++    'Rules can miss risks and are not a sandbox. MCP tools keep their approval settings.',
++  'chat.mode.navigate': 'Select',
++  'chat.mode.confirm': 'Confirm',
++  'chat.mode.close': 'Close',
++  'chat.deleteBody': 'Its messages cannot be restored.',
++  'chat.deleteFailed': 'Could not delete the conversation',
++  'chat.empty': 'Ask anything to start',
++  'chat.noModels': 'No chat model yet. Add a provider and its models first.',
++  'chat.openSettings': 'Open settings',
++  'chat.context.remove': 'Do not send {label} with the next message',
++  'chat.tool.calling': 'Calling {name}',
++  'chat.tool.ok': '{name}: {summary}',
++  'chat.tool.error': '{name} failed: {summary}',
++  'chat.tool.denied': '{name}: denied',
++  'chat.tool.unknown': '{name}: result unknown, it may have run',
++  'chat.approval.title': 'Allow {name}?',
++  'chat.approval.host': 'App tool',
++  'chat.approval.mcp': 'MCP server {server}',
++  'chat.approval.allow': 'Allow once',
++  'chat.approval.deny': 'Deny',
++}
+diff --git a/src/i18n/en.ts b/src/i18n/en.ts
+--- a/src/i18n/en.ts
++++ b/src/i18n/en.ts
+@@ -1,6 +1,10 @@
+ import type { KitErrorCode } from '../ports'
++import { enChat } from './en-chat.js'
+ 
+-/** Every `errors.<code>` must exist, so a new KitErrorCode fails typecheck until it is translated; other keys are free-form (`pnpm kit:i18n` checks them). */
++/**
++ * Every `errors.<code>` must exist, so a new KitErrorCode fails typecheck until it is translated;
++ * other keys are free-form (`pnpm kit:i18n` checks them).
++ */
+ export type Messages = Record<
+   `errors.${KitErrorCode}` | 'common.confirm' | 'common.cancel',
+   string
+@@ -8,6 +12,7 @@
+   Record<string, string>
+ 
+ export const en: Messages = {
++  ...enChat,
+   'common.confirm': 'OK',
+   'common.cancel': 'Cancel',
+   'skills.add.title': 'Add skill',
+@@ -16,7 +21,8 @@
+   'skills.add.system': 'Search this computer',
+   'skills.add.local': 'Import local file or folder',
+   'skills.add.review_notice':
+-    'Nothing is installed until you review the full skill and confirm. Scripts never run automatically.',
++    'Nothing is installed until you review the full skill and confirm. ' +
++    'Scripts never run automatically.',
+   'skills.add.query': 'Keywords or GitHub URL',
+   'skills.add.query_hint': 'Search skills or paste a GitHub repository / skill URL',
+   'skills.add.search': 'Search',
+@@ -27,12 +33,15 @@
+   'skills.add.rescan': 'Scan home folders',
+   'skills.add.pick_search_directory': 'Choose skill folder',
+   'skills.add.local_hint':
+-    'Choose SKILL.md, a .zip package, or a skill folder. Packaged references and scripts are included in the preview.',
++    'Choose SKILL.md, a .zip package, or a skill folder. ' +
++    'Packaged references and scripts are included in the preview.',
+   'skills.add.pick_directory': 'Choose folder',
+   'skills.add.model': 'Model',
+   'skills.add.choose_model': 'Choose a configured chat model before sending',
+   'skills.add.authoring_notice':
+-    'This assistant can create and test skill files with tools running as your current user. Its working directory is not a sandbox. Review each permission request; nothing is installed until you preview the package and confirm.',
++    'This assistant can create and test skill files with tools running as your current user. ' +
++    'Its working directory is not a sandbox. Review each permission request; ' +
++    'nothing is installed until you preview the package and confirm.',
+   'skills.add.creator_review': 'Review the built-in skill-creator before starting',
+   'skills.add.review_creator': 'Review skill-creator',
+   'skills.add.confirm_creator': 'Confirm skill-creator and start',
+@@ -40,159 +49,11 @@
+   'skills.add.authoring_input': 'Message to the skill creation assistant',
+   'skills.add.preview_artifact': 'Preview artifact',
+   'skills.add.tool_warning':
+-    'Arguments preview. Allowing this tool grants current-user filesystem and network permissions, not sandboxed access. Allow only a call you trust.',
++    'Arguments preview. Allowing this tool grants current-user filesystem and network permissions, ' +
++    'not sandboxed access. Allow only a call you trust.',
+   'skills.add.working': 'Working…',
+   'skills.add.no_results': 'No skills found.',
+   'skills.add.ignored': 'Files not imported',
+-  'chat.networkOn': 'Web search on · click to turn off',
+-  'chat.networkOff': 'Web search off · click to turn on',
+-  'chat.title': 'Chat',
+-  'chat.history': 'Conversation',
+-  'chat.historyFailed': 'Could not load conversations',
+-  'chat.newConversation': 'New conversation',
+-  'chat.close': 'Close',
+-  'chat.messages': 'Messages',
+-  'chat.input': 'Message',
+-  'chat.placeholder': 'Type a message, Ctrl/Cmd+Enter to send',
+-  'chat.send': 'Send',
+-  'chat.stop': 'Stop',
+-  'chat.regenerate': 'Regenerate',
+-  'chat.stopped': 'Stopped',
+-  'chat.interrupted': 'Interrupted: the app closed during this reply',
+-  'chat.exhausted': 'Reached the tool call round limit',
+-  'chat.copy': 'Copy',
+-  'chat.copied': 'Copied',
+-  'chat.copyFailed': 'Could not copy',
+-  'chat.insert': 'Insert',
+-  'chat.retry': 'Retry',
+-  'chat.more': 'More actions',
+-  'chat.translationReply': 'Translation',
+-  'chat.noSourceModel': 'Source model unknown',
+-  'chat.switchModel': 'Switch model',
+-  'chat.translate': 'Translate',
+-  'chat.editReply': 'Edit',
+-  'chat.replyText': 'Reply Markdown',
+-  'chat.replyModel': 'Reply model',
+-  'chat.targetLanguage': 'Target language',
+-  'chat.branch': 'Branch',
+-  'chat.copyConversation': 'Copy as new conversation',
+-  'chat.save': 'Save',
+-  'chat.saveFile': 'Save to local file',
+-  'chat.export': 'Export',
+-  'chat.exportMarkdown': 'Export as Markdown',
+-  'chat.exportFailed': 'Could not download Markdown',
+-  'chat.saveNote': 'Save to note',
+-  'chat.saveNoteFailed': 'Could not save the note',
+-  'chat.useContext': 'Set as context',
+-  'chat.deleteReply': 'Delete',
+-  'chat.deleteReplyTitle': 'Delete this message?',
+-  'chat.deleteReparentBody':
+-    'Later turns will attach to the previous reply. This cannot be undone.',
+-  'chat.sourceModelUnavailable': 'The source model is unavailable. Use @ to pick another model.',
+-  'chat.candidateHint':
+-    'The original reply is retained. Click 👍 to set a candidate as context and continue from it.',
+-  'chat.editReplyHint':
+-    'Edits only replace this reply. A concurrent change will reject the edit and keep your draft.',
+-  'chat.replyRefreshFailed': 'Could not reload the saved replies.',
+-  'chat.delete': 'Delete conversation',
+-  'chat.deleteTitle': 'Delete this conversation?',
+-  'chat.network': 'Web search',
+-  'chat.sources': 'Sources',
+-  'chat.networkPrivacy':
+-    'External search sends this question; preferred native search may send conversation and attached note context to the model provider.',
+-  'chat.searching': 'Searching the web…',
+-  'chat.searchResults': '{count} results found',
+-  'chat.reasoning': 'Reasoning',
+-  'chat.toolProcess': 'Tool activity',
+-  'chat.showMore': 'Show more',
+-  'chat.showLess': 'Show less',
+-  'chat.reasoningEffort': 'Reasoning effort',
+-  'chat.reasoningStrength': 'Strength',
+-  'chat.reasoningFaster': 'Faster',
+-  'chat.reasoningSmarter': 'Smarter',
+-  'chat.resetReasoning': 'Reset to default',
+-  'chat.reasoningDefaultHint':
+-    'Default sends no reasoning control; the provider decides. Choose an effort to override it.',
+-  'chat.reasoningUnconfigured':
+-    'No reasoning capabilities are configured for this model. Turn on “Reasoning” in model settings and choose its supported efforts to enable the slider.',
+-  'chat.unknown': 'Unknown',
+-  'chat.contextUsage': 'Context usage',
+-  'chat.usage': 'Token usage',
+-  'chat.usageSettings': 'Usage and settings',
+-  'chat.runSettings': 'Run settings',
+-  'chat.reported': 'Measured',
+-  'chat.estimated': 'Estimated',
+-  'chat.modelsFailed': 'Could not load model capabilities',
+-  'chat.modelsLoading': 'Loading models…',
+-  'chat.retryModels': 'Retry loading models',
+-  'chat.historyLoading': 'Loading conversations…',
+-  'chat.retryHistory': 'Retry conversation operation',
+-  'chat.rename': 'Rename conversation',
+-  'chat.conversationTitle': 'Conversation title',
+-  'chat.expandInput': 'Expand input',
+-  'chat.collapseInput': 'Collapse input',
+-  'chat.backToBottom': 'Back to bottom',
+-  'chat.draftRecoverable':
+-    'Your unsent message is available to restore after clearing the current draft.',
+-  'chat.restoreDraft': 'Restore unsent message',
+-  'chat.tools': 'More tools',
+-  'chat.uploadAttachment': 'Upload attachment',
+-  'chat.generateImage': 'Generate image',
+-  'chat.generateImageOff': 'Turn off image generation',
+-  'chat.quickPanel': 'Quick panel',
+-  'chat.toolbarCustomize': 'Customize toolbar',
+-  'chat.toolbarRestore': 'Restore default',
+-  'chat.toolbarDrag': 'Drag or use ↑/↓ to reorder {name}',
+-  'chat.paintingUnconfigured': 'Choose a painting model in settings first',
+-  'chat.toolsUnsupported': 'The current model does not support tools',
+-  'chat.generatedImages': 'Generated images',
+-  'chat.openGeneratedImage': 'Open generated image {index}',
+-  'chat.removeImage': 'Remove image {index}',
+-  'chat.openImage': 'Open image {index}',
+-  'chat.imageExpired': 'Image expired',
+-  'chat.visionUnsupported': 'The current model does not support images',
+-  'chat.imageLimit': 'Up to {max} images per message',
+-  'chat.imageType': 'Only PNG, JPEG, WebP and GIF images are supported',
+-  'chat.imageSize': 'Each image must be 4 MiB or smaller',
+-  'chat.currentUsage': 'This turn',
+-  'chat.totalUsage': 'Known conversation total',
+-  'chat.usage.inputTokens': 'Input',
+-  'chat.usage.outputTokens': 'Output',
+-  'chat.usage.cacheReadTokens': 'Cache read',
+-  'chat.usage.cacheWriteTokens': 'Cache write',
+-  'chat.usage.reasoningTokens': 'Reasoning tokens',
+-  'chat.usageHint':
+-    'Cache is included in input; reasoning is included in output. Unknown counts are not treated as zero.',
+-  'chat.cost': 'Cost',
+-  'chat.effort.default': 'Default',
+-  'chat.effort.none': 'None',
+-  'chat.effort.auto': 'Auto',
+-  'chat.effort.minimal': 'Minimal',
+-  'chat.effort.low': 'Low',
+-  'chat.effort.medium': 'Medium',
+-  'chat.effort.high': 'High',
+-  'chat.effort.xhigh': 'Very high',
+-  'chat.effort.max': 'Maximum',
+-  'chat.mode.label': 'Permission mode',
+-  'chat.mode.default': 'Ask each time',
+-  'chat.mode.defaultHint': 'Follow each tool’s approval setting.',
+-  'chat.mode.plan': 'Plan only',
+-  'chat.mode.planHint': 'Read and plan without changes.',
+-  'chat.mode.accept_edits': 'Accept edits',
+-  'chat.mode.accept_editsHint': 'Approve edits; other actions follow their rules.',
+-  'chat.mode.auto': 'Smart approval',
+-  'chat.mode.autoHint': 'Approve app tools; rules may require a prompt.',
+-  'chat.mode.full_access': 'Full access',
+-  'chat.mode.full_accessHint': 'No prompts for this run; blocked tools stay blocked.',
+-  'chat.mode.planBadge': 'Plan only',
+-  'chat.mode.fullAccessTitle': 'Allow full access for this run?',
+-  'chat.mode.fullAccessBody':
+-    'For this run only, tools may change data and execute commands without asking. Blocked tools stay blocked. This choice is not saved.',
+-  'chat.mode.ruleNotice':
+-    'Rules can miss risks and are not a sandbox. MCP tools keep their approval settings.',
+-  'chat.mode.navigate': 'Select',
+-  'chat.mode.confirm': 'Confirm',
+-  'chat.mode.close': 'Close',
+   'providers.max_output': 'Maximum output (tokens)',
+   'search.search': 'Web search',
+   'search.fetch': 'Read webpage',
+@@ -224,7 +85,6 @@
+   'search.pageUrl': 'URL',
+   'search.password': 'Password',
+   'search.read': 'Read',
+-  'chat.deleteBody': 'Its messages cannot be restored.',
+   'search.manageKeys': 'Manage keys',
+   'search.newKey': 'New key',
+   'search.addKey': 'Add key',
+@@ -241,23 +101,10 @@
+   'search.blacklist': 'Blacklist (one rule per line)',
+   'search.nativePreferred': 'Prefer native model web search',
+   'search.nativePrivacy':
+-    'Declared compatible models can use native search; others use the selected external provider. Native search may send conversation and note context to the model provider. Local blacklist and cutoff do not control provider-native search.',
++    'Declared compatible models can use native search; others use the selected external provider. ' +
++    'Native search may send conversation and note context to the model provider. ' +
++    'Local blacklist and cutoff do not control provider-native search.',
+   'providers.nativeWebSearch': 'Model supports native web search',
+-  'chat.deleteFailed': 'Could not delete the conversation',
+-  'chat.empty': 'Ask anything to start',
+-  'chat.noModels': 'No chat model yet. Add a provider and its models first.',
+-  'chat.openSettings': 'Open settings',
+-  'chat.context.remove': 'Do not send {label} with the next message',
+-  'chat.tool.calling': 'Calling {name}',
+-  'chat.tool.ok': '{name}: {summary}',
+-  'chat.tool.error': '{name} failed: {summary}',
+-  'chat.tool.denied': '{name}: denied',
+-  'chat.tool.unknown': '{name}: result unknown, it may have run',
+-  'chat.approval.title': 'Allow {name}?',
+-  'chat.approval.host': 'App tool',
+-  'chat.approval.mcp': 'MCP server {server}',
+-  'chat.approval.allow': 'Allow once',
+-  'chat.approval.deny': 'Deny',
+   'logs.title': 'Logs',
+   'logs.problemsOnly': 'Problems only',
+   'logs.openDir': 'Open folder',
+@@ -524,7 +371,8 @@
+   'mcp.server.revokeBody': 'Clients using “{name}” lose access immediately.',
+   'mcp.client.title': 'External MCP servers',
+   'mcp.client.hint':
+-    'Tools of enabled and trusted servers are offered to the in-app AI; each call follows its approval setting.',
++    'Tools of enabled and trusted servers are offered to the in-app AI; ' +
++    'each call follows its approval setting.',
+   'mcp.client.add': 'Add server',
+   'mcp.client.editTitle': 'Edit server',
+   'mcp.client.empty': 'No MCP servers yet',
+@@ -542,7 +390,8 @@
+   'mcp.client.allowPrivate': 'Allow private network',
+   'mcp.client.trustTitle': 'Trust this server?',
+   'mcp.client.trustBody':
+-    'The AI will see the tools of “{name}” and may call them; calls still follow each tool’s approval.',
++    'The AI will see the tools of “{name}” and may call them; ' +
++    'calls still follow each tool’s approval.',
+   'mcp.client.privateTitle': 'Allow a private-network address?',
+   'mcp.client.privateBody':
+     'Requests to {url} will be allowed even though it is on the local network.',
+@@ -641,5 +490,6 @@
+   'skills.file_kind.asset': 'Asset',
+   'skills.file_size': '{size} B',
+   'skills.scripts_notice':
+-    'Contains scripts. This app never runs them automatically; the host may run them after you approve.',
++    'Contains scripts. This app never runs them automatically; ' +
++    'the host may run them after you approve.',
+ }
+diff --git a/src/i18n/zh-CN-chat.d.ts b/src/i18n/zh-CN-chat.d.ts
+--- /dev/null
++++ b/src/i18n/zh-CN-chat.d.ts
+@@ -0,0 +1 @@
++export const zhCNChat: Readonly<Record<string, string>>
+diff --git a/src/i18n/zh-CN-chat.js b/src/i18n/zh-CN-chat.js
+--- /dev/null
++++ b/src/i18n/zh-CN-chat.js
+@@ -0,0 +1,190 @@
++export const zhCNChat = {
++  'chat.usageEntry': '用量',
++  'chat.networkOn': '联网搜索已开启 · 点击关闭',
++  'chat.networkOff': '联网搜索已关闭 · 点击开启',
++  'chat.title': '对话',
++  'chat.history': '会话',
++  'chat.historyFailed': '读取会话失败',
++  'chat.newConversation': '新对话',
++  'chat.close': '关闭',
++  'chat.messages': '消息',
++  'chat.input': '消息',
++  'chat.placeholder': '输入消息，Ctrl/Cmd+Enter 发送',
++  'chat.send': '发送',
++  'chat.stop': '停止',
++  'chat.regenerate': '重新生成',
++  'chat.stopped': '已停止',
++  'chat.interrupted': '已中断：回复过程中应用被关闭',
++  'chat.exhausted': '已达到工具调用轮数上限',
++  'chat.copy': '复制',
++  'chat.copied': '已复制',
++  'chat.copyFailed': '复制失败',
++  'chat.insert': '插入',
++  'chat.retry': '重试',
++  'chat.more': '更多操作',
++  'chat.translationReply': '译文',
++  'chat.noSourceModel': '来源模型未知',
++  'chat.switchModel': '切换模型',
++  'chat.translate': '翻译',
++  'chat.editReply': '编辑',
++  'chat.replyText': '回复 Markdown',
++  'chat.replyModel': '回复模型',
++  'chat.targetLanguage': '目标语言',
++  'chat.branch': '分支',
++  'chat.copyConversation': '复制为新对话',
++  'chat.save': '保存',
++  'chat.saveFile': '保存到本地文件',
++  'chat.export': '导出',
++  'chat.exportMarkdown': '导出为 Markdown',
++  'chat.exportFailed': '下载 Markdown 失败',
++  'chat.saveNote': '保存到笔记',
++  'chat.saveNoteFailed': '保存笔记失败',
++  'chat.useContext': '设置为上下文',
++  'chat.deleteReply': '删除',
++  'chat.deleteReplyTitle': '确定要删除此消息吗？',
++  'chat.deleteReparentBody': '后续对话会接到上一条回复上。此操作无法撤销。',
++  'chat.sourceModelUnavailable': '来源模型已不可用，请点 @ 选择其他模型。',
++  'chat.candidateHint': '原回复将保留。点 👍 设置为上下文后，可从候选回复继续对话。',
++  'chat.editReplyHint': '编辑只替换此回复。若回复被同时修改，将拒绝保存并保留你的草稿。',
++  'chat.replyRefreshFailed': '重新加载已保存回复失败。',
++  'chat.delete': '删除对话',
++  'chat.network': '联网搜索',
++  'chat.sources': '来源',
++  'chat.networkPrivacy':
++    '外部搜索只发送本轮问题；原生搜索优先时，可能向模型服务商发送会话及附带笔记上下文。',
++  'chat.searching': '正在搜索网页…',
++  'chat.searchResults': '找到 {count} 条结果',
++  'chat.reasoning': '思考',
++  'chat.toolProcess': '工具过程',
++  'chat.showMore': '展开更多',
++  'chat.showLess': '收起',
++  'chat.reasoningEffort': '思考强度',
++  'chat.reasoningStrength': '强度',
++  'chat.reasoningFaster': '更快',
++  'chat.reasoningSmarter': '更智能',
++  'chat.resetReasoning': '恢复默认',
++  'chat.reasoningDefaultHint': '默认不发送思考参数，由服务商决定。选择档位可指定强度。',
++  'chat.reasoningUnconfigured':
++    '此模型尚未配置思考能力。在模型设置中打开“推理”能力并选择支持的档位后，即可使用滑块。',
++  'chat.unknown': '未知',
++  'chat.contextUsage': '上下文用量',
++  'chat.usage': 'Token 用量',
++  'chat.usageSettings': '用量与设置',
++  'chat.runSettings': '运行设置',
++  'chat.reported': '实测',
++  'chat.estimated': '估算',
++  'chat.modelsFailed': '无法加载模型能力',
++  'chat.modelsLoading': '正在加载模型…',
++  'chat.retryModels': '重新加载模型',
++  'chat.historyLoading': '正在加载会话…',
++  'chat.retryHistory': '重试会话操作',
++  'chat.rename': '重命名对话',
++  'chat.conversationTitle': '对话标题',
++  'chat.expandInput': '展开输入框',
++  'chat.collapseInput': '收起输入框',
++  'chat.backToBottom': '回到底部',
++  'chat.draftRecoverable': '未发送的消息已保留，清空当前草稿后可恢复。',
++  'chat.restoreDraft': '恢复未发送消息',
++  'chat.tools': '更多工具',
++  'chat.uploadAttachment': '上传附件',
++  'chat.generateImage': '生成图片',
++  'chat.generateImageOff': '关闭生成图片',
++  'chat.quickPanel': '输入快捷面板',
++  'chat.toolbarCustomize': '自定义工具栏',
++  'chat.toolbarRestore': '恢复默认',
++  'chat.toolbarDrag': '拖动或按 ↑/↓ 调整 {name} 的顺序',
++  'chat.paintingUnconfigured': '请先在设置中选择绘图模型',
++  'chat.toolsUnsupported': '当前模型不支持工具',
++  'chat.generatedImages': '生成的图片',
++  'chat.openGeneratedImage': '打开生成的第 {index} 张图片',
++  'chat.removeImage': '移除第 {index} 张图片',
++  'chat.openImage': '打开第 {index} 张图片',
++  'chat.imageExpired': '图片已过期',
++  'chat.visionUnsupported': '当前模型不支持图片',
++  'chat.imageLimit': '每条消息最多 {max} 张图片',
++  'chat.imageType': '仅支持 PNG、JPEG、WebP 和 GIF 图片',
++  'chat.imageSize': '单张图片不能超过 4 MiB',
++  'chat.currentUsage': '本轮',
++  'chat.totalUsage': '会话已知累计',
++  'chat.usage.inputTokens': '输入',
++  'chat.usage.outputTokens': '输出',
++  'chat.usage.cacheReadTokens': '缓存读取',
++  'chat.usage.cacheWriteTokens': '缓存写入',
++  'chat.usage.reasoningTokens': '思考 tokens',
++  'chat.usageHint': '缓存计入输入，思考计入输出；未知数量不当作零。',
++  'chat.cost': '费用',
++  'chat.effort.default': '默认',
++  'chat.effort.none': '关闭',
++  'chat.effort.auto': '自动',
++  'chat.effort.minimal': '最低',
++  'chat.effort.low': '低',
++  'chat.effort.medium': '中',
++  'chat.effort.high': '高',
++  'chat.effort.xhigh': '很高',
++  'chat.effort.max': '最大',
++  'chat.effortHint.default': '使用服务商默认强度',
++  'chat.effortHint.none': '无推理 — 最快·最省',
++  'chat.effortHint.auto': '由服务商自动决定推理深度',
++  'chat.effortHint.minimal': '最简推理',
++  'chat.effortHint.low': '轻量推理 — 最快',
++  'chat.effortHint.medium': '均衡推理',
++  'chat.effortHint.high': '深度推理',
++  'chat.effortHint.xhigh': '超深度推理',
++  'chat.effortHint.max': '最高推理',
++  'chat.picker.search': '搜索模型…（可附加等级：opus high）',
++  'chat.picker.searchLabel': '搜索模型，可附加等级',
++  'chat.picker.trigger': '模型与推理强度：{name} · {effort}',
++  'chat.picker.choose': '选择模型',
++  'chat.picker.keyed': 'API 密钥',
++  'chat.picker.price': '{currency} {input} / {output} 每百万 token 起',
++  'chat.picker.context': '{size} 上下文',
++  'chat.picker.group': '模型分组 {provider}，{state}',
++  'chat.picker.expanded': '已展开',
++  'chat.picker.collapsed': '已折叠',
++  'chat.picker.select': '选择模型 {name} · {provider}',
++  'chat.picker.effortFor': '力度 · {name}',
++  'chat.picker.setDefault': '设为默认',
++  'chat.picker.resetOff': '重置为 off',
++  'chat.picker.refresh': '刷新',
++  'chat.picker.refreshing': '更新中…',
++  'chat.picker.empty': '没有可用模型，请先配置服务商',
++  'chat.picker.noMatch': '没有匹配的模型',
++  'chat.picker.reloaded': '已重新载入本地目录：{count} 个聊天模型',
++  'chat.status.label': '{platform}上下文用量：{summary} · {spending}。查看用量详情',
++  'chat.mode.label': '权限模式',
++  'chat.mode.default': '逐次确认',
++  'chat.mode.defaultHint': '按工具设置逐次确认。',
++  'chat.mode.plan': '仅规划',
++  'chat.mode.planHint': '只读与规划，不执行改动。',
++  'chat.mode.accept_edits': '自动接受编辑',
++  'chat.mode.accept_editsHint': '自动批准编辑，其他操作按规则确认。',
++  'chat.mode.auto': '智能批准',
++  'chat.mode.autoHint': '自动批准应用工具，规则可要求确认。',
++  'chat.mode.full_access': '完全访问',
++  'chat.mode.full_accessHint': '本次运行免确认，禁用工具除外。',
++  'chat.mode.planBadge': '仅规划',
++  'chat.mode.fullAccessTitle': '本次运行允许完全访问？',
++  'chat.mode.fullAccessBody':
++    '仅本次运行，工具可不经确认改动数据和执行命令；已禁止的工具仍不执行。此选择不会保存。',
++  'chat.mode.ruleNotice': '规则检查可能漏判，不是安全沙箱；MCP 工具保留各自审批设置。',
++  'chat.mode.navigate': '选择',
++  'chat.mode.confirm': '确认',
++  'chat.mode.close': '关闭',
++  'chat.deleteTitle': '删除这个对话？',
++  'chat.deleteBody': '删除后消息无法恢复。',
++  'chat.deleteFailed': '删除对话失败',
++  'chat.empty': '输入问题开始对话',
++  'chat.noModels': '还没有对话模型，请先添加服务商和模型。',
++  'chat.openSettings': '打开设置',
++  'chat.context.remove': '下一条消息不附带 {label}',
++  'chat.tool.calling': '正在调用 {name}',
++  'chat.tool.ok': '{name}：{summary}',
++  'chat.tool.error': '{name} 失败：{summary}',
++  'chat.tool.denied': '{name}：已拒绝',
++  'chat.tool.unknown': '{name}：结果未知，可能已执行',
++  'chat.approval.title': '允许调用 {name}？',
++  'chat.approval.host': '应用工具',
++  'chat.approval.mcp': 'MCP 服务 {server}',
++  'chat.approval.allow': '允许本次',
++  'chat.approval.deny': '拒绝',
++}
+diff --git a/src/i18n/zh-CN.ts b/src/i18n/zh-CN.ts
+--- a/src/i18n/zh-CN.ts
++++ b/src/i18n/zh-CN.ts
+@@ -1,6 +1,8 @@
+ import type { Messages } from './en'
++import { zhCNChat } from './zh-CN-chat.js'
+ 
+ export const zhCN: Messages = {
++  ...zhCNChat,
+   'common.confirm': '确定',
+   'common.cancel': '取消',
+   'skills.add.title': '添加技能',
+@@ -35,147 +37,6 @@
+   'skills.add.working': '处理中…',
+   'skills.add.no_results': '未找到技能。',
+   'skills.add.ignored': '未导入文件',
+-  'chat.networkOn': '联网搜索已开启 · 点击关闭',
+-  'chat.networkOff': '联网搜索已关闭 · 点击开启',
+-  'chat.title': '对话',
+-  'chat.history': '会话',
+-  'chat.historyFailed': '读取会话失败',
+-  'chat.newConversation': '新对话',
+-  'chat.close': '关闭',
+-  'chat.messages': '消息',
+-  'chat.input': '消息',
+-  'chat.placeholder': '输入消息，Ctrl/Cmd+Enter 发送',
+-  'chat.send': '发送',
+-  'chat.stop': '停止',
+-  'chat.regenerate': '重新生成',
+-  'chat.stopped': '已停止',
+-  'chat.interrupted': '已中断：回复过程中应用被关闭',
+-  'chat.exhausted': '已达到工具调用轮数上限',
+-  'chat.copy': '复制',
+-  'chat.copied': '已复制',
+-  'chat.copyFailed': '复制失败',
+-  'chat.insert': '插入',
+-  'chat.retry': '重试',
+-  'chat.more': '更多操作',
+-  'chat.translationReply': '译文',
+-  'chat.noSourceModel': '来源模型未知',
+-  'chat.switchModel': '切换模型',
+-  'chat.translate': '翻译',
+-  'chat.editReply': '编辑',
+-  'chat.replyText': '回复 Markdown',
+-  'chat.replyModel': '回复模型',
+-  'chat.targetLanguage': '目标语言',
+-  'chat.branch': '分支',
+-  'chat.copyConversation': '复制为新对话',
+-  'chat.save': '保存',
+-  'chat.saveFile': '保存到本地文件',
+-  'chat.export': '导出',
+-  'chat.exportMarkdown': '导出为 Markdown',
+-  'chat.exportFailed': '下载 Markdown 失败',
+-  'chat.saveNote': '保存到笔记',
+-  'chat.saveNoteFailed': '保存笔记失败',
+-  'chat.useContext': '设置为上下文',
+-  'chat.deleteReply': '删除',
+-  'chat.deleteReplyTitle': '确定要删除此消息吗？',
+-  'chat.deleteReparentBody': '后续对话会接到上一条回复上。此操作无法撤销。',
+-  'chat.sourceModelUnavailable': '来源模型已不可用，请点 @ 选择其他模型。',
+-  'chat.candidateHint': '原回复将保留。点 👍 设置为上下文后，可从候选回复继续对话。',
+-  'chat.editReplyHint': '编辑只替换此回复。若回复被同时修改，将拒绝保存并保留你的草稿。',
+-  'chat.replyRefreshFailed': '重新加载已保存回复失败。',
+-  'chat.delete': '删除对话',
+-  'chat.network': '联网搜索',
+-  'chat.sources': '来源',
+-  'chat.networkPrivacy':
+-    '外部搜索只发送本轮问题；原生搜索优先时，可能向模型服务商发送会话及附带笔记上下文。',
+-  'chat.searching': '正在搜索网页…',
+-  'chat.searchResults': '找到 {count} 条结果',
+-  'chat.reasoning': '思考',
+-  'chat.toolProcess': '工具过程',
+-  'chat.showMore': '展开更多',
+-  'chat.showLess': '收起',
+-  'chat.reasoningEffort': '思考强度',
+-  'chat.reasoningStrength': '强度',
+-  'chat.reasoningFaster': '更快',
+-  'chat.reasoningSmarter': '更智能',
+-  'chat.resetReasoning': '恢复默认',
+-  'chat.reasoningDefaultHint': '默认不发送思考参数，由服务商决定。选择档位可指定强度。',
+-  'chat.reasoningUnconfigured':
+-    '此模型尚未配置思考能力。在模型设置中打开“推理”能力并选择支持的档位后，即可使用滑块。',
+-  'chat.unknown': '未知',
+-  'chat.contextUsage': '上下文用量',
+-  'chat.usage': 'Token 用量',
+-  'chat.usageSettings': '用量与设置',
+-  'chat.runSettings': '运行设置',
+-  'chat.reported': '实测',
+-  'chat.estimated': '估算',
+-  'chat.modelsFailed': '无法加载模型能力',
+-  'chat.modelsLoading': '正在加载模型…',
+-  'chat.retryModels': '重新加载模型',
+-  'chat.historyLoading': '正在加载会话…',
+-  'chat.retryHistory': '重试会话操作',
+-  'chat.rename': '重命名对话',
+-  'chat.conversationTitle': '对话标题',
+-  'chat.expandInput': '展开输入框',
+-  'chat.collapseInput': '收起输入框',
+-  'chat.backToBottom': '回到底部',
+-  'chat.draftRecoverable': '未发送的消息已保留，清空当前草稿后可恢复。',
+-  'chat.restoreDraft': '恢复未发送消息',
+-  'chat.tools': '更多工具',
+-  'chat.uploadAttachment': '上传附件',
+-  'chat.generateImage': '生成图片',
+-  'chat.generateImageOff': '关闭生成图片',
+-  'chat.quickPanel': '输入快捷面板',
+-  'chat.toolbarCustomize': '自定义工具栏',
+-  'chat.toolbarRestore': '恢复默认',
+-  'chat.toolbarDrag': '拖动或按 ↑/↓ 调整 {name} 的顺序',
+-  'chat.paintingUnconfigured': '请先在设置中选择绘图模型',
+-  'chat.toolsUnsupported': '当前模型不支持工具',
+-  'chat.generatedImages': '生成的图片',
+-  'chat.openGeneratedImage': '打开生成的第 {index} 张图片',
+-  'chat.removeImage': '移除第 {index} 张图片',
+-  'chat.openImage': '打开第 {index} 张图片',
+-  'chat.imageExpired': '图片已过期',
+-  'chat.visionUnsupported': '当前模型不支持图片',
+-  'chat.imageLimit': '每条消息最多 {max} 张图片',
+-  'chat.imageType': '仅支持 PNG、JPEG、WebP 和 GIF 图片',
+-  'chat.imageSize': '单张图片不能超过 4 MiB',
+-  'chat.currentUsage': '本轮',
+-  'chat.totalUsage': '会话已知累计',
+-  'chat.usage.inputTokens': '输入',
+-  'chat.usage.outputTokens': '输出',
+-  'chat.usage.cacheReadTokens': '缓存读取',
+-  'chat.usage.cacheWriteTokens': '缓存写入',
+-  'chat.usage.reasoningTokens': '思考 tokens',
+-  'chat.usageHint': '缓存计入输入，思考计入输出；未知数量不当作零。',
+-  'chat.cost': '费用',
+-  'chat.effort.default': '默认',
+-  'chat.effort.none': '关闭',
+-  'chat.effort.auto': '自动',
+-  'chat.effort.minimal': '最低',
+-  'chat.effort.low': '低',
+-  'chat.effort.medium': '中',
+-  'chat.effort.high': '高',
+-  'chat.effort.xhigh': '很高',
+-  'chat.effort.max': '最大',
+-  'chat.mode.label': '权限模式',
+-  'chat.mode.default': '逐次确认',
+-  'chat.mode.defaultHint': '按工具设置逐次确认。',
+-  'chat.mode.plan': '仅规划',
+-  'chat.mode.planHint': '只读与规划，不执行改动。',
+-  'chat.mode.accept_edits': '自动接受编辑',
+-  'chat.mode.accept_editsHint': '自动批准编辑，其他操作按规则确认。',
+-  'chat.mode.auto': '智能批准',
+-  'chat.mode.autoHint': '自动批准应用工具，规则可要求确认。',
+-  'chat.mode.full_access': '完全访问',
+-  'chat.mode.full_accessHint': '本次运行免确认，禁用工具除外。',
+-  'chat.mode.planBadge': '仅规划',
+-  'chat.mode.fullAccessTitle': '本次运行允许完全访问？',
+-  'chat.mode.fullAccessBody':
+-    '仅本次运行，工具可不经确认改动数据和执行命令；已禁止的工具仍不执行。此选择不会保存。',
+-  'chat.mode.ruleNotice': '规则检查可能漏判，不是安全沙箱；MCP 工具保留各自审批设置。',
+-  'chat.mode.navigate': '选择',
+-  'chat.mode.confirm': '确认',
+-  'chat.mode.close': '关闭',
+   'providers.max_output': '最大输出（tokens）',
+   'search.search': '网页搜索',
+   'search.fetch': '读取网页',
+@@ -207,8 +68,6 @@
+   'search.pageUrl': 'URL',
+   'search.password': '密码',
+   'search.read': '读取',
+-  'chat.deleteTitle': '删除这个对话？',
+-  'chat.deleteBody': '删除后消息无法恢复。',
+   'search.manageKeys': '管理密钥',
+   'search.newKey': '新密钥',
+   'search.addKey': '添加密钥',
+@@ -227,21 +86,6 @@
+   'search.nativePrivacy':
+     '已声明能力的兼容模型可使用原生搜索，其余使用选定的外部服务商。原生搜索可能将会话和笔记上下文发送给模型服务商；本地黑名单和截断不控制供应商原生搜索。',
+   'providers.nativeWebSearch': '模型支持原生联网搜索',
+-  'chat.deleteFailed': '删除对话失败',
+-  'chat.empty': '输入问题开始对话',
+-  'chat.noModels': '还没有对话模型，请先添加服务商和模型。',
+-  'chat.openSettings': '打开设置',
+-  'chat.context.remove': '下一条消息不附带 {label}',
+-  'chat.tool.calling': '正在调用 {name}',
+-  'chat.tool.ok': '{name}：{summary}',
+-  'chat.tool.error': '{name} 失败：{summary}',
+-  'chat.tool.denied': '{name}：已拒绝',
+-  'chat.tool.unknown': '{name}：结果未知，可能已执行',
+-  'chat.approval.title': '允许调用 {name}？',
+-  'chat.approval.host': '应用工具',
+-  'chat.approval.mcp': 'MCP 服务 {server}',
+-  'chat.approval.allow': '允许本次',
+-  'chat.approval.deny': '拒绝',
+   'logs.title': '日志',
+   'logs.problemsOnly': '只看问题',
+   'logs.openDir': '打开目录',

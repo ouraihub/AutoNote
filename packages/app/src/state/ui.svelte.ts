@@ -51,6 +51,7 @@ export interface OpenNoteOptions {
 export interface LayoutResize {
   navWidth?: number
   listWidth?: number
+  assistWidth?: number
   splitRatio?: number | null
   workspaceSplitRatio?: number | null
 }

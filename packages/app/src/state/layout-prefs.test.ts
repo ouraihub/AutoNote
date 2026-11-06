@@ -41,6 +41,16 @@ describe('parseLayoutPrefs', () => {
     })
   })
 
+  test('keeps the AI panel within its readable width range', () => {
+    expect(parseLayoutPrefs({ assistWidth: 100 }).assistWidth).toBe(
+      PANEL_WIDTHS.assist.min,
+    )
+    expect(parseLayoutPrefs({ assistWidth: 5_000 }).assistWidth).toBe(
+      PANEL_WIDTHS.assist.max,
+    )
+    expect(parseLayoutPrefs({}).assistWidth).toBe(PANEL_WIDTHS.assist.default)
+  })
+
   test('falls back to canonical appearance for unknown values', () => {
     const prefs = parseLayoutPrefs({
       appearance: { theme: 'neon', accent: 'teal', background: 'white' },
