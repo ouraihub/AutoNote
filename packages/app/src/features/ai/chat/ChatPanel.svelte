@@ -6,7 +6,7 @@
     REASONING_EFFORTS,
   } from '@ouraihub/aether-ui/providers'
   import type { ModelRef, ReasoningEffort } from '@ouraihub/aether-ui/ports'
-  import { getBackend, getPrefs } from '@app/root/context'
+  import { getBackend, getI18n, getPrefs } from '@app/root/context'
   import type { WorkspacePanelProps } from '@app/root/types'
 
   let { note, insert, saveNote, openSettings, onClose }: WorkspacePanelProps =
@@ -14,7 +14,8 @@
   const backend = getBackend()
   const aiHost = backend.aiHost
   const prefs = getPrefs()
-  const { notify, i18n: kitI18n } = getKitContext()
+  const { notify } = getKitContext()
+  const i18n = getI18n()
   const EFFORT_KEY = 'ai.chat.reasoningEffort'
   const saveEffort = (effort: ReasoningEffort): Promise<void> =>
     effort === 'default'
@@ -112,7 +113,7 @@
           {...reasoningEffort ? { reasoningEffort } : {}}
           onReasoningEffortChange={(effort) =>
             void saveEffort(effort).catch(() =>
-              notify.toast('error', kitI18n.t('errors.internal')),
+              notify.toast('error', i18n.t('common.action_failed')),
             )}
           defaultModel={currentDefault?.model ?? model}
           defaultReasoningEffort={currentDefault?.effort ??
