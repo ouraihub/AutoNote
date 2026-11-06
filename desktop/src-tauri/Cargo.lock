@@ -46,8 +46,8 @@ dependencies = [
 
 [[package]]
 name = "aether-chat"
-version = "0.1.1"
-source = "git+https://github.com/ouraihub/Aether.git?rev=c3c3c9280f2dcacb60d2188537b54be86a099ddd#c3c3c9280f2dcacb60d2188537b54be86a099ddd"
+version = "0.1.2"
+source = "git+https://github.com/ouraihub/Aether.git?rev=6c85365af4ba624b9bbd94f735d75827308f96dc#6c85365af4ba624b9bbd94f735d75827308f96dc"
 dependencies = [
  "aether-images",
  "aether-support",
@@ -65,8 +65,8 @@ dependencies = [
 
 [[package]]
 name = "aether-images"
-version = "0.1.1"
-source = "git+https://github.com/ouraihub/Aether.git?rev=c3c3c9280f2dcacb60d2188537b54be86a099ddd#c3c3c9280f2dcacb60d2188537b54be86a099ddd"
+version = "0.1.2"
+source = "git+https://github.com/ouraihub/Aether.git?rev=6c85365af4ba624b9bbd94f735d75827308f96dc#6c85365af4ba624b9bbd94f735d75827308f96dc"
 dependencies = [
  "aether-support",
  "base64 0.22.1",
@@ -81,8 +81,8 @@ dependencies = [
 
 [[package]]
 name = "aether-mcp-client"
-version = "0.1.1"
-source = "git+https://github.com/ouraihub/Aether.git?rev=c3c3c9280f2dcacb60d2188537b54be86a099ddd#c3c3c9280f2dcacb60d2188537b54be86a099ddd"
+version = "0.1.2"
+source = "git+https://github.com/ouraihub/Aether.git?rev=6c85365af4ba624b9bbd94f735d75827308f96dc#6c85365af4ba624b9bbd94f735d75827308f96dc"
 dependencies = [
  "aether-support",
  "process-wrap",
@@ -101,8 +101,8 @@ dependencies = [
 
 [[package]]
 name = "aether-mcp-server"
-version = "0.1.1"
-source = "git+https://github.com/ouraihub/Aether.git?rev=c3c3c9280f2dcacb60d2188537b54be86a099ddd#c3c3c9280f2dcacb60d2188537b54be86a099ddd"
+version = "0.1.2"
+source = "git+https://github.com/ouraihub/Aether.git?rev=6c85365af4ba624b9bbd94f735d75827308f96dc#6c85365af4ba624b9bbd94f735d75827308f96dc"
 dependencies = [
  "aether-support",
  "base64 0.22.1",
@@ -124,8 +124,8 @@ dependencies = [
 
 [[package]]
 name = "aether-observability"
-version = "0.1.1"
-source = "git+https://github.com/ouraihub/Aether.git?rev=c3c3c9280f2dcacb60d2188537b54be86a099ddd#c3c3c9280f2dcacb60d2188537b54be86a099ddd"
+version = "0.1.2"
+source = "git+https://github.com/ouraihub/Aether.git?rev=6c85365af4ba624b9bbd94f735d75827308f96dc#6c85365af4ba624b9bbd94f735d75827308f96dc"
 dependencies = [
  "aether-support",
  "serde",
@@ -138,8 +138,8 @@ dependencies = [
 
 [[package]]
 name = "aether-providers"
-version = "0.1.1"
-source = "git+https://github.com/ouraihub/Aether.git?rev=c3c3c9280f2dcacb60d2188537b54be86a099ddd#c3c3c9280f2dcacb60d2188537b54be86a099ddd"
+version = "0.1.2"
+source = "git+https://github.com/ouraihub/Aether.git?rev=6c85365af4ba624b9bbd94f735d75827308f96dc#6c85365af4ba624b9bbd94f735d75827308f96dc"
 dependencies = [
  "aether-support",
  "reqwest 0.12.28",
@@ -153,8 +153,8 @@ dependencies = [
 
 [[package]]
 name = "aether-runtime"
-version = "0.1.1"
-source = "git+https://github.com/ouraihub/Aether.git?rev=c3c3c9280f2dcacb60d2188537b54be86a099ddd#c3c3c9280f2dcacb60d2188537b54be86a099ddd"
+version = "0.1.2"
+source = "git+https://github.com/ouraihub/Aether.git?rev=6c85365af4ba624b9bbd94f735d75827308f96dc#6c85365af4ba624b9bbd94f735d75827308f96dc"
 dependencies = [
  "aether-chat",
  "aether-images",
@@ -178,8 +178,8 @@ dependencies = [
 
 [[package]]
 name = "aether-search"
-version = "0.1.1"
-source = "git+https://github.com/ouraihub/Aether.git?rev=c3c3c9280f2dcacb60d2188537b54be86a099ddd#c3c3c9280f2dcacb60d2188537b54be86a099ddd"
+version = "0.1.2"
+source = "git+https://github.com/ouraihub/Aether.git?rev=6c85365af4ba624b9bbd94f735d75827308f96dc#6c85365af4ba624b9bbd94f735d75827308f96dc"
 dependencies = [
  "aether-support",
  "base64 0.22.1",
@@ -193,8 +193,8 @@ dependencies = [
 
 [[package]]
 name = "aether-skills"
-version = "0.1.1"
-source = "git+https://github.com/ouraihub/Aether.git?rev=c3c3c9280f2dcacb60d2188537b54be86a099ddd#c3c3c9280f2dcacb60d2188537b54be86a099ddd"
+version = "0.1.2"
+source = "git+https://github.com/ouraihub/Aether.git?rev=6c85365af4ba624b9bbd94f735d75827308f96dc#6c85365af4ba624b9bbd94f735d75827308f96dc"
 dependencies = [
  "aether-support",
  "reqwest 0.12.28",
@@ -209,8 +209,8 @@ dependencies = [
 
 [[package]]
 name = "aether-support"
-version = "0.1.1"
-source = "git+https://github.com/ouraihub/Aether.git?rev=c3c3c9280f2dcacb60d2188537b54be86a099ddd#c3c3c9280f2dcacb60d2188537b54be86a099ddd"
+version = "0.1.2"
+source = "git+https://github.com/ouraihub/Aether.git?rev=6c85365af4ba624b9bbd94f735d75827308f96dc#6c85365af4ba624b9bbd94f735d75827308f96dc"
 dependencies = [
  "aes-gcm",
  "getrandom 0.4.3",
@@ -4947,8 +4947,8 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-aether"
-version = "0.1.1"
-source = "git+https://github.com/ouraihub/Aether.git?rev=c3c3c9280f2dcacb60d2188537b54be86a099ddd#c3c3c9280f2dcacb60d2188537b54be86a099ddd"
+version = "0.1.2"
+source = "git+https://github.com/ouraihub/Aether.git?rev=6c85365af4ba624b9bbd94f735d75827308f96dc#6c85365af4ba624b9bbd94f735d75827308f96dc"
 dependencies = [
  "aether-mcp-client",
  "aether-mcp-server",
