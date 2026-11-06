@@ -1647,7 +1647,7 @@ diff --git a/src/chat/icons/effort-icons.ts b/src/chat/icons/effort-icons.ts
 --- /dev/null
 +++ b/src/chat/icons/effort-icons.ts
 @@ -0,0 +1,65 @@
-+// Effort marks as 24×24 path data, colored by `currentColor`; same shapes as LumaKit ThinkRail.
++// Effort marks as 24×24 path data, colored by `currentColor`; one mark per reasoning level.
 +// Remix Icon 4.9.0 (LICENSE-REMIX): RiZzz, RiLeaf, RiFlashlight, RiContrastDrop2, RiSparkling2,
 +// RiSparkling and RiFire, Line variants. Path data unmodified.
 +import type { ReasoningEffort } from '../../ports'
@@ -1708,7 +1708,7 @@ diff --git a/src/chat/icons/effort-icons.ts b/src/chat/icons/effort-icons.ts
 +  ].join(''),
 +}
 +
-+/** The mark for `effort`; `auto` and `default` share the medium drop, as in LumaKit. */
++/** The mark for `effort`; `auto` and `default` share the medium drop. */
 +export function effortPath(effort: ReasoningEffort): string {
 +  return paths[effort] ?? (paths.medium as string)
 +}
@@ -2828,8 +2828,8 @@ diff --git a/src/chat/ReasoningSlider.svelte b/src/chat/ReasoningSlider.svelte
 +++ b/src/chat/ReasoningSlider.svelte
 @@ -0,0 +1,174 @@
 +<script lang="ts">
-+  // The one discrete effort rail, drawn like LumaKit ThinkRail: a tone gradient fill and a pill
-+  // thumb carrying the level's mark and name over a native range input (docs/16, 31).
++  // The one discrete effort rail: a tone gradient fill and a pill thumb carrying the level's
++  // mark and name over a native range input (docs/16, 31).
 +  import type { ReasoningEffort } from '../ports'
 +  import { effortTone } from './model-effort'
 +  import PathIcon from './icons/PathIcon.svelte'
