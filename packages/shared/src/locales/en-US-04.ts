@@ -352,6 +352,7 @@ rs_can_see_only_the_latest_version_of_t':
   'shell.offline_value0_changes_pending': 'Offline · {value0} changes pending',
   'shell.quick_open': 'Quick open',
   'shell.resize_navigation_panel': 'Resize navigation panel',
+  'shell.resize_assist_panel': 'Resize AI panel',
   'shell.resize_note_list': 'Resize note list',
   'shell.resize_note_panes': 'Resize note panes',
   'shell.save_now': 'Save now',

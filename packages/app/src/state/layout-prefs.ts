@@ -26,6 +26,7 @@ export type PaneStates = Readonly<Record<WorkspacePane, PaneState>>
 export interface LayoutPrefs {
   readonly navWidth: number
   readonly listWidth: number
+  readonly assistWidth: number
   readonly navCollapsed: boolean
   readonly listCollapsed: boolean
   readonly assistOpen: boolean
@@ -54,6 +55,7 @@ export interface WorkspacePrefs {
 export const PANEL_WIDTHS = {
   navigation: { min: 196, max: 380 },
   noteList: { min: 260, max: 520 },
+  assist: { min: 360, max: 760, default: 440 },
 } as const
 
 export const SPLIT_RATIO_RANGE = { min: 0.2, max: 0.8 } as const
@@ -76,6 +78,7 @@ const BACKGROUNDS: readonly ThemeAppearance['background'][] = ['paper', 'white']
 export const DEFAULT_LAYOUT_PREFS: LayoutPrefs = Object.freeze({
   navWidth: PANEL_WIDTHS.navigation.min,
   listWidth: PANEL_WIDTHS.noteList.min,
+  assistWidth: PANEL_WIDTHS.assist.default,
   navCollapsed: false,
   listCollapsed: false,
   assistOpen: false,
@@ -140,6 +143,11 @@ export function parseLayoutPrefs(value: unknown): LayoutPrefs {
       source.listWidth,
       PANEL_WIDTHS.noteList,
       fallback.listWidth,
+    ),
+    assistWidth: clampNumber(
+      source.assistWidth,
+      PANEL_WIDTHS.assist,
+      fallback.assistWidth,
     ),
     navCollapsed:
       typeof source.navCollapsed === 'boolean'
@@ -213,6 +221,7 @@ export function layoutPrefsValue(prefs: LayoutPrefs): PrefValue {
   return {
     navWidth: prefs.navWidth,
     listWidth: prefs.listWidth,
+    assistWidth: prefs.assistWidth,
     navCollapsed: prefs.navCollapsed,
     listCollapsed: prefs.listCollapsed,
     assistOpen: prefs.assistOpen,

@@ -10,6 +10,8 @@
   } from '@app/root/context'
   import { uploadedFileMarkdown } from '@app/editor'
   import type { WorkspacePanelProps } from '@app/root/types'
+  import Resizer from '../../components/primitives/Resizer.svelte'
+  import { PANEL_WIDTHS } from '../../state/layout-prefs'
 
   let { narrow }: { narrow: boolean } = $props()
   const extensions = getExtensions()
@@ -76,13 +78,23 @@
 
 {#if slot && ui.layout.assistOpen}
   {@const Panel = slot.component}
+  {#if !narrow}<Resizer
+      label={i18n.t('shell.resize_assist_panel')}
+      value={ui.layout.assistWidth}
+      min={PANEL_WIDTHS.assist.min}
+      max={PANEL_WIDTHS.assist.max}
+      invert
+      onChange={(assistWidth) => ui.resize({ assistWidth })}
+      onReset={() => ui.resize({ assistWidth: PANEL_WIDTHS.assist.default })}
+    />{/if}
   <aside
     aria-label={i18n.t(slot.titleKey as MessageKey)}
+    style:width={narrow ? undefined : `${ui.layout.assistWidth}px`}
     class={narrow
       ? 'app-viewport-fixed fixed inset-0 z-[220] flex flex-col ' +
         'bg-[var(--bg-base)] pt-[env(safe-area-inset-top)] ' +
         'pb-[env(safe-area-inset-bottom)]'
-      : 'flex w-[360px] shrink-0 flex-col border-l ' +
+      : 'flex max-w-[60%] shrink-0 flex-col border-l ' +
         'border-[var(--border-subtle)] bg-[var(--bg-base)]'}
   >
     <Panel

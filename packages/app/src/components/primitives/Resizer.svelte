@@ -42,11 +42,12 @@
   }
 
   function keydown(event: KeyboardEvent): void {
+    const step = invert ? -8 : 8
     const next =
       event.key === 'ArrowLeft'
-        ? value - 8
+        ? value - step
         : event.key === 'ArrowRight'
-          ? value + 8
+          ? value + step
           : event.key === 'Home'
             ? min
             : event.key === 'End'

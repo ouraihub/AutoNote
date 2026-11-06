@@ -10,14 +10,20 @@
   import type { I18nState } from '@app/i18n/runtime.svelte'
   import { EN_US_MESSAGES } from '@shared/locales/en-US'
   import { setBackend, setI18n, setPrefs } from '@app/root/context'
+  import type { WorkspacePanelProps } from '@app/root/types'
   import ChatPanel from './ChatPanel.svelte'
 
   let {
     backend,
     prefs,
     notify,
-  }: { backend: Backend; prefs: PrefsStore; notify: KitContext['notify'] } =
-    $props()
+    note = null,
+  }: {
+    backend: Backend
+    prefs: PrefsStore
+    notify: KitContext['notify']
+    note?: WorkspacePanelProps['note']
+  } = $props()
   untrack(() => {
     setBackend(backend)
     setPrefs(prefs)
@@ -35,7 +41,7 @@
 </script>
 
 <ChatPanel
-  note={null}
+  {note}
   insert={() => {}}
   saveNote={async () => {}}
   openSettings={() => {}}

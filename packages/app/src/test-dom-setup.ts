@@ -7,6 +7,8 @@ class ResizeObserverStub {
 }
 
 globalThis.ResizeObserver = ResizeObserverStub
+// jsdom lacks scrollIntoView; bits-ui Command scrolls the highlighted item.
+Element.prototype.scrollIntoView = () => undefined
 
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
