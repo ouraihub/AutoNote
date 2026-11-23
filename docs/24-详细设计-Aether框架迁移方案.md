@@ -97,7 +97,7 @@ AutoNote refactor/use-aether  Aether 接入重构
 Aether main                  通用框架
 ```
 
-AutoNote 的 Rust 通过 Git 固定 Aether v0.1.2 发布提交 `6c85365af4ba624b9bbd94f735d75827308f96dc`，共享应用、桌面与 Web 的四份 npm 清单精确锁定同一版本的 npm 包 `0.1.2`；不使用浮动 main，不使用相邻工作树的 path/link 覆盖，不复制框架源码。Cargo rev 与 npm 版本必须对应同一个 Aether 发布 tag。presets 的 semver peer 仅对 aether-ui 放行；不放宽 Svelte。deps:check 约束锁文件中的非 registry 来源；CI／生产必须 frozen install。Aether UI 自 0.1.2 起兼容严格 `erasableSyntaxOnly`，不再打补丁，宿主严格类型检查保持开启。
+AutoNote 的 Rust 通过 Git 固定 Aether v0.1.3 发布提交 `f34fab15068cbff5803e68bcab96bf704fed79e1`，共享应用、桌面与 Web 的四份 npm 清单精确锁定同一版本的 npm 包 `0.1.3`；不使用浮动 main，不使用相邻工作树的 path/link 覆盖，不复制框架源码。Cargo rev 与 npm 版本必须对应同一个 Aether 发布 tag。presets 的 semver peer 仅对 aether-ui 放行；不放宽 Svelte。deps:check 约束锁文件中的非 registry 来源；CI／生产必须 frozen install。Aether UI 自 0.1.2 起兼容严格 `erasableSyntaxOnly`，不再打补丁，宿主严格类型检查保持开启。
 
 ### 3.2 提交规则
 
