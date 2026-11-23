@@ -18,6 +18,14 @@
 
 * Aether 前后端统一固定 Git 提交 `53b80630bdd58f22ca94d119e93586f84fbceec7`，恢复 Git 子包解析与来源检查；原补丁已并入上游。桌面拆分运行／会话／MCP runtime，Web 复用 core 执行并保留产品存储与授权；验收见设计文档 24 §15。
 
+## [0.2.14](https://github.com/ouraihub/AutoNote/compare/desktop-v0.2.13...desktop-v0.2.14) (2026-11-23)
+
+
+### 问题修复
+
+* **ai:** 设置窗口中可正常选择模型 ([fac9553](https://github.com/ouraihub/AutoNote/commit/fac9553d8f909c4ca24570a4d5c89a273226a9d1))
+* **ai:** 设置窗口中可正常选择模型 ([29a63fe](https://github.com/ouraihub/AutoNote/commit/29a63fedea24215e4c4569f59953ec1ef18aaf5b))
+
 ## [0.2.13](https://github.com/ouraihub/AutoNote/compare/desktop-v0.2.12...desktop-v0.2.13) (2026-11-06)
 
 
