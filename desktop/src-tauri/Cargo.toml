@@ -13,16 +13,16 @@ note-core = { path = "core" }
 note-sync = { path = "sync" }
 note-mcp = { path = "mcp" }
 autonote-shell = { path = "shell" }
-aether-observability = { git = "https://github.com/ouraihub/Aether.git", rev = "6c85365af4ba624b9bbd94f735d75827308f96dc" }
-aether-providers = { git = "https://github.com/ouraihub/Aether.git", rev = "6c85365af4ba624b9bbd94f735d75827308f96dc" }
-aether-chat = { git = "https://github.com/ouraihub/Aether.git", rev = "6c85365af4ba624b9bbd94f735d75827308f96dc" }
-aether-runtime = { git = "https://github.com/ouraihub/Aether.git", rev = "6c85365af4ba624b9bbd94f735d75827308f96dc" }
-aether-images = { git = "https://github.com/ouraihub/Aether.git", rev = "6c85365af4ba624b9bbd94f735d75827308f96dc" }
-aether-mcp-server = { git = "https://github.com/ouraihub/Aether.git", rev = "6c85365af4ba624b9bbd94f735d75827308f96dc" }
-aether-search = { git = "https://github.com/ouraihub/Aether.git", rev = "6c85365af4ba624b9bbd94f735d75827308f96dc" }
-aether-skills = { git = "https://github.com/ouraihub/Aether.git", rev = "6c85365af4ba624b9bbd94f735d75827308f96dc" }
-aether-mcp-client = { git = "https://github.com/ouraihub/Aether.git", rev = "6c85365af4ba624b9bbd94f735d75827308f96dc" }
-tauri-plugin-aether = { git = "https://github.com/ouraihub/Aether.git", rev = "6c85365af4ba624b9bbd94f735d75827308f96dc" }
+aether-observability = { git = "https://github.com/ouraihub/Aether.git", rev = "f34fab15068cbff5803e68bcab96bf704fed79e1" }
+aether-providers = { git = "https://github.com/ouraihub/Aether.git", rev = "f34fab15068cbff5803e68bcab96bf704fed79e1" }
+aether-chat = { git = "https://github.com/ouraihub/Aether.git", rev = "f34fab15068cbff5803e68bcab96bf704fed79e1" }
+aether-runtime = { git = "https://github.com/ouraihub/Aether.git", rev = "f34fab15068cbff5803e68bcab96bf704fed79e1" }
+aether-images = { git = "https://github.com/ouraihub/Aether.git", rev = "f34fab15068cbff5803e68bcab96bf704fed79e1" }
+aether-mcp-server = { git = "https://github.com/ouraihub/Aether.git", rev = "f34fab15068cbff5803e68bcab96bf704fed79e1" }
+aether-search = { git = "https://github.com/ouraihub/Aether.git", rev = "f34fab15068cbff5803e68bcab96bf704fed79e1" }
+aether-skills = { git = "https://github.com/ouraihub/Aether.git", rev = "f34fab15068cbff5803e68bcab96bf704fed79e1" }
+aether-mcp-client = { git = "https://github.com/ouraihub/Aether.git", rev = "f34fab15068cbff5803e68bcab96bf704fed79e1" }
+tauri-plugin-aether = { git = "https://github.com/ouraihub/Aether.git", rev = "f34fab15068cbff5803e68bcab96bf704fed79e1" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
